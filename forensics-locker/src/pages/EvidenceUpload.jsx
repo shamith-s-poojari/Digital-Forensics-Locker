@@ -1,6 +1,8 @@
+// Performance fixes: native fetch + AbortController (no axios), 30s timeout via signal,
+// 10 MB file-size gate before upload starts, multi-step uploadStatus feedback,
+// and a simulated progress bar via setInterval (browser fetch has no real upload progress).
 import { useState, useRef } from "react";
-import axios from "axios";
-import { Upload, CheckCircle, AlertCircle, FileText, Loader } from "lucide-react";
+import { Upload, CheckCircle, AlertCircle, FileText, Loader, X } from "lucide-react";
 import { computeSHA256, formatFileSize } from "../utils/hash";
 
 export default function EvidenceUpload() {
@@ -22,6 +24,8 @@ export default function EvidenceUpload() {
   const [isComputingHash, setIsComputingHash] = useState(false);
   const [isUploadingIPFS, setIsUploadingIPFS] = useState(false);
   const [ipfsError, setIpfsError]             = useState("");
+  const [uploadStatus, setUploadStatus]       = useState("");  // multi-step status text
+  const [uploadProgress, setUploadProgress]   = useState(0);   // 0-100 for simulated bar
   const [isDragging, setIsDragging]           = useState(false);
   const [showSubmitModal, setShowSubmitModal]  = useState(false);
 
@@ -91,51 +95,96 @@ export default function EvidenceUpload() {
     if (file) processFile(file);
   };
 
-  // ─── IPFS Upload (Pinata) ────────────────────────────────────────────────────
+  // ─── IPFS Upload (native fetch + AbortController) ───────────────────────
+
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
   /**
-   * Uploads the selected file to IPFS via the Pinata pinning API.
-   * Requires VITE_PINATA_JWT to be set in your .env file.
+   * Uploads file to Pinata IPFS using native fetch with a 30-second AbortController
+   * timeout. No external libraries — zero axios overhead.
    */
-  const uploadToIPFS = async (file) => {
-    const formData = new FormData();
-    formData.append("file", file);
+  const uploadToIPFS = async (file, signal) => {
+    const body = new FormData();
+    body.append("file", file);
 
-    const response = await axios.post(
-      "https://api.pinata.cloud/pinning/pinFileToIPFS",
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-          Authorization: `Bearer ${import.meta.env.VITE_PINATA_JWT}`,
-        },
-      }
-    );
+    const res = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${import.meta.env.VITE_PINATA_JWT}`,
+        // Note: do NOT set Content-Type here — browser sets it with the boundary
+      },
+      body,
+      signal, // AbortController signal for 30-second timeout
+    });
 
-    // Pinata returns { IpfsHash, PinSize, Timestamp }
-    return response.data.IpfsHash;
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      const detail =
+        payload?.error?.details ?? payload?.error ?? `HTTP ${res.status}`;
+      throw new Error(String(detail));
+    }
+
+    const json = await res.json();
+    return json.IpfsHash; // Pinata returns { IpfsHash, PinSize, Timestamp }
   };
 
   const handleUploadIPFS = async () => {
     if (!selectedFile) return;
 
+    // ── 1. File size validation ──
+    if (selectedFile.size > MAX_FILE_SIZE) {
+      setIpfsError(
+        "File too large. Maximum size is 10 MB. Please select a smaller file."
+      );
+      return;
+    }
+
+    // ── 2. Reset UI state ──
     setIsUploadingIPFS(true);
     setIpfsError("");
-    // Clear any previous CID so the UI resets cleanly
+    setUploadProgress(0);
     setFormData((prev) => ({ ...prev, ipfsCid: "" }));
 
+    // ── 3. Simulated progress bar (0 → 85% during upload, jumps to 100 on success) ──
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+      progress = Math.min(progress + Math.random() * 6 + 2, 85);
+      setUploadProgress(Math.round(progress));
+    }, 400);
+
+    // ── 4. 30-second AbortController timeout ──
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+    setUploadStatus("Connecting to IPFS…");
+
     try {
-      const cid = await uploadToIPFS(selectedFile);
+      setUploadStatus("Uploading to Pinata IPFS… this may take a moment");
+      const cid = await uploadToIPFS(selectedFile, controller.signal);
+
+      // Success
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+      setUploadStatus("Upload complete! CID received.");
       setFormData((prev) => ({ ...prev, ipfsCid: cid }));
+
+      // Reset bar after 2 s
+      setTimeout(() => setUploadProgress(0), 2000);
     } catch (err) {
+      clearInterval(progressInterval);
+      setUploadProgress(0);
+
       const message =
-        err?.response?.data?.error?.details ??
-        err?.response?.data?.error ??
-        err?.message ??
-        "Upload to IPFS failed. Check your Pinata JWT and network connection.";
-      setIpfsError(String(message));
+        err.name === "AbortError"
+          ? "Upload timed out. Please check your connection or try a smaller file."
+          : err.message ||
+            "Upload to IPFS failed. Check your Pinata JWT and network connection.";
+
+      setUploadStatus(`Upload failed: ${message}`);
+      setIpfsError(message);
       console.error("[EvidenceUpload] Pinata upload failed:", err);
     } finally {
+      clearTimeout(timeoutId);
       setIsUploadingIPFS(false);
     }
   };
@@ -609,22 +658,69 @@ export default function EvidenceUpload() {
             )}
           </div>
 
-          {/* ── IPFS Upload button — only shown after hash is ready ── */}
+          {/* ── IPFS Upload button ── only shown after hash is ready ── */}
           {sha256Hash && !isComputingHash && !hashError && (
             <button
               id="ipfs-upload-btn"
               onClick={handleUploadIPFS}
               disabled={isUploadingIPFS}
-              style={{ ...buttonStyle("primary"), opacity: isUploadingIPFS ? 0.6 : 1, cursor: isUploadingIPFS ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}
+              style={{
+                ...buttonStyle("primary"),
+                opacity: isUploadingIPFS ? 0.6 : 1,
+                cursor: isUploadingIPFS ? "not-allowed" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+              }}
               onMouseEnter={(e) => !isUploadingIPFS && (e.currentTarget.style.background = "#2563eb")}
               onMouseLeave={(e) => !isUploadingIPFS && (e.currentTarget.style.background = "#3b82f6")}
             >
               {isUploadingIPFS ? (
-                <><Loader size={15} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} /> Uploading to IPFS…</>
+                <><Loader size={15} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} /> Uploading…</>
               ) : (
                 formData.ipfsCid ? "Re-upload to IPFS" : "Upload to IPFS"
               )}
             </button>
+          )}
+
+          {/* ── Progress bar ── */}
+          {(isUploadingIPFS || uploadProgress > 0) && (
+            <div style={{ marginTop: 12, marginBottom: 4 }}>
+              <div style={{ width: "100%", height: 6, borderRadius: 3, backgroundColor: "#1e293b", overflow: "hidden", border: "1px solid #334155" }}>
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${uploadProgress}%`,
+                    borderRadius: 3,
+                    background: uploadProgress === 100 ? "#22c55e" : "#3b82f6",
+                    transition: "width 0.35s ease, background 0.3s",
+                  }}
+                />
+              </div>
+              {uploadStatus && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    color:
+                      uploadStatus.startsWith("Upload complete")
+                        ? "#22c55e"
+                        : uploadStatus.startsWith("Upload failed")
+                        ? "#f87171"
+                        : "#60a5fa",
+                  }}
+                >
+                  {isUploadingIPFS && (
+                    <Loader size={12} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
+                  )}
+                  {uploadStatus}
+                </div>
+              )}
+            </div>
           )}
 
           {/* ── IPFS CID result ── */}
@@ -652,15 +748,16 @@ export default function EvidenceUpload() {
             </div>
           )}
 
-          {/* ── IPFS upload error ── */}
+          {/* ── IPFS upload error (dismissible) ── */}
           {ipfsError && !isUploadingIPFS && (
             <div
               style={{
                 marginTop: "12px",
                 display: "flex",
                 alignItems: "flex-start",
+                justifyContent: "space-between",
                 gap: 10,
-                background: "rgba(239,68,68,0.08)",
+                backgroundColor: "rgba(239,68,68,0.1)",
                 border: "1px solid rgba(239,68,68,0.3)",
                 borderRadius: 8,
                 padding: "12px",
@@ -668,8 +765,19 @@ export default function EvidenceUpload() {
                 fontSize: 13,
               }}
             >
-              <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-              <span><strong>IPFS Upload Failed:</strong> {ipfsError}</span>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flex: 1 }}>
+                <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span><strong>IPFS Upload Failed:</strong> {ipfsError}</span>
+              </div>
+              <button
+                onClick={() => { setIpfsError(""); setUploadStatus(""); }}
+                title="Dismiss error"
+                style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", flexShrink: 0 }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#fca5a5")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "#f87171")}
+              >
+                <X size={16} />
+              </button>
             </div>
           )}
 
