@@ -1,12 +1,15 @@
 import { useState } from "react";
-import { Copy, CheckCircle2 } from "lucide-react";
+import { Copy, Check, CheckCircle2 } from "lucide-react";
 import { mockCustodyLog } from "../data/mockData";
 
 export default function ChainOfCustody() {
   const [auditLogs, setAuditLogs] = useState(mockCustodyLog);
   const [cidFilter, setCidFilter] = useState("");
   const [eventTypeFilter, setEventTypeFilter] = useState("All");
-  const [copiedHash, setCopiedHash] = useState(null);
+  const [copiedHash, setCopiedHash] = useState(null); // kept for tx-hash cell
+  const [copiedId, setCopiedId]     = useState(null); // e.g. "cid:log001" or "addr:log001"
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
 
   const filteredLogs = auditLogs.filter((log) => {
     const matchesCID = log.cidHash.toLowerCase().includes(cidFilter.toLowerCase());
@@ -14,35 +17,47 @@ export default function ChainOfCustody() {
     return matchesCID && matchesEventType;
   });
 
+  // ── Pagination ───────────────────────────────────────────────────────────────
+  const totalItems    = filteredLogs.length;
+  const totalPages    = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
+  const safePage      = Math.min(currentPage, totalPages);
+  const pageStart     = (safePage - 1) * ITEMS_PER_PAGE;
+  const pagedLogs     = filteredLogs.slice(pageStart, pageStart + ITEMS_PER_PAGE);
+  const showingFrom   = totalItems === 0 ? 0 : pageStart + 1;
+  const showingTo     = Math.min(pageStart + ITEMS_PER_PAGE, totalItems);
+
   const handleCopyHash = (hash) => {
-    navigator.clipboard.writeText(hash);
+    navigator.clipboard.writeText(hash).catch(() => {});
     setCopiedHash(hash);
     setTimeout(() => setCopiedHash(null), 2000);
   };
 
+  // Generic copy with keyed confirmation (for CID, address)
+  const handleCopy = (text, id) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   const getEventTypeColor = (eventType) => {
-    switch (eventType) {
-      case "Submit":
-        return { bg: "bg-emerald-900/30", border: "border-emerald-700/50", text: "text-emerald-300", badge: "bg-emerald-500/20 text-emerald-300" };
-      case "Access":
-        return { bg: "bg-blue-900/30", border: "border-blue-700/50", text: "text-blue-300", badge: "bg-blue-500/20 text-blue-300" };
-      case "Verify":
-        return { bg: "bg-amber-900/30", border: "border-amber-700/50", text: "text-amber-300", badge: "bg-amber-500/20 text-amber-300" };
-      default:
-        return { bg: "bg-slate-800/30", border: "border-slate-700/50", text: "text-slate-300", badge: "bg-slate-500/20 text-slate-300" };
-    }
+    const map = {
+      Submit:  { bg: "rgba(34,197,94,0.1)",  dot: "#22c55e", text: "#22c55e", border: "rgba(34,197,94,0.3)"  },
+      Access:  { bg: "rgba(59,130,246,0.1)",  dot: "#3b82f6", text: "#3b82f6", border: "rgba(59,130,246,0.3)"  },
+      Verify:  { bg: "rgba(234,179,8,0.1)",   dot: "#eab308", text: "#eab308", border: "rgba(234,179,8,0.3)"   },
+    };
+    return map[eventType] || { bg: "rgba(100,116,139,0.1)", dot: "#64748b", text: "#64748b", border: "rgba(100,116,139,0.3)" };
   };
 
   const pageStyle = {
     padding: "0",
-    background: "#0a0d12",
+    background: "#0f172a",
     minHeight: "100%",
   };
 
   const headerStyle = {
     padding: "32px 32px 24px",
-    background: "linear-gradient(to bottom, rgba(15,20,25,0.5), rgba(15,20,25,0))",
-    borderBottom: "1px solid rgba(100,116,139,0.2)",
+    background: "#1e293b",
+    borderBottom: "1px solid #334155",
     marginBottom: "32px",
   };
 
@@ -68,8 +83,8 @@ export default function ChainOfCustody() {
 
   const statCardStyle = {
     padding: "16px",
-    background: "rgba(30,41,59,0.4)",
-    border: "1px solid rgba(100,116,139,0.2)",
+    background: "#1e293b",
+    border: "1px solid #334155",
     borderRadius: "8px",
   };
 
@@ -98,8 +113,8 @@ export default function ChainOfCustody() {
 
   const inputStyle = {
     padding: "10px 14px",
-    background: "rgba(30,41,59,0.4)",
-    border: "1px solid rgba(100,116,139,0.3)",
+    background: "#1e293b",
+    border: "1px solid #475569",
     borderRadius: "6px",
     color: "#e2e8f0",
     fontSize: "13px",
@@ -115,7 +130,7 @@ export default function ChainOfCustody() {
 
   const tableContainerStyle = {
     padding: "0 32px",
-    background: "#0a0d12",
+    background: "#0f172a",
     borderRadius: "0",
   };
 
@@ -133,18 +148,18 @@ export default function ChainOfCustody() {
     color: "#94a3b8",
     textTransform: "uppercase",
     letterSpacing: "0.05em",
-    background: "rgba(30,41,59,0.5)",
-    borderBottom: "1px solid rgba(100,116,139,0.2)",
-    borderTop: "1px solid rgba(100,116,139,0.2)",
+    background: "#1e293b",
+    borderBottom: "1px solid #334155",
+    borderTop: "1px solid #334155",
   };
 
   const tableRowStyle = {
-    borderBottom: "1px solid rgba(100,116,139,0.15)",
+    borderBottom: "1px solid #334155",
     transition: "background 0.15s",
   };
 
   const tableRowHoverStyle = {
-    background: "rgba(30,41,59,0.3)",
+    background: "rgba(59,130,246,0.05)",
   };
 
   const tableCellStyle = {
@@ -157,15 +172,16 @@ export default function ChainOfCustody() {
   const eventBadgeStyle = (eventType) => {
     const colors = getEventTypeColor(eventType);
     return {
-      display: "inline-block",
-      padding: "4px 10px",
-      borderRadius: "4px",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "5px",
+      padding: "3px 10px",
+      borderRadius: "20px",
       fontSize: "11px",
       fontWeight: 600,
-      background: colors.badge,
+      backgroundColor: colors.bg,
       color: colors.text,
-      textTransform: "uppercase",
-      letterSpacing: "0.05em",
+      border: `1px solid ${colors.border}`,
     };
   };
 
@@ -239,8 +255,8 @@ export default function ChainOfCustody() {
             value={cidFilter}
             onChange={(e) => setCidFilter(e.target.value)}
             style={inputStyle}
-            onFocus={(e) => (e.target.style.borderColor = "rgba(100,116,139,0.5)")}
-            onBlur={(e) => (e.target.style.borderColor = "rgba(100,116,139,0.3)")}
+            onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
+            onBlur={(e) => (e.target.style.borderColor = "#475569")}
           />
         </div>
         <div>
@@ -251,8 +267,8 @@ export default function ChainOfCustody() {
             value={eventTypeFilter}
             onChange={(e) => setEventTypeFilter(e.target.value)}
             style={selectStyle}
-            onFocus={(e) => (e.target.style.borderColor = "rgba(100,116,139,0.5)")}
-            onBlur={(e) => (e.target.style.borderColor = "rgba(100,116,139,0.3)")}
+            onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
+            onBlur={(e) => (e.target.style.borderColor = "#475569")}
           >
             <option>All</option>
             <option>Submit</option>
@@ -275,7 +291,11 @@ export default function ChainOfCustody() {
             </tr>
           </thead>
           <tbody>
-            {filteredLogs.map((log) => (
+            {pagedLogs.length === 0 ? (
+              <tr>
+                <td colSpan={6} style={{ padding: "48px 16px", textAlign: "center", color: "#64748b", fontSize: 14 }}>No events match your filters</td>
+              </tr>
+            ) : pagedLogs.map((log) => (
               <tr
                 key={log.id}
                 style={tableRowStyle}
@@ -283,12 +303,39 @@ export default function ChainOfCustody() {
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
                 <td style={tableCellStyle}>
-                  <span style={eventBadgeStyle(log.eventType)}>{log.eventType}</span>
+                  <span style={eventBadgeStyle(log.eventType)}>
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: getEventTypeColor(log.eventType).dot, flexShrink: 0 }} />
+                    {log.eventType}
+                  </span>
                 </td>
                 <td style={cidCellStyle} title={log.cidHash}>
-                  {truncateHash(log.cidHash, 16)}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <span>{truncateHash(log.cidHash, 16)}</span>
+                    <button
+                      onClick={() => handleCopy(log.cidHash, `cid:${log.id}`)}
+                      title="Copy full CID"
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: copiedId === `cid:${log.id}` ? "#22c55e" : "#60a5fa", transition: "color 0.15s", display: "flex", alignItems: "center" }}
+                      onMouseEnter={(e) => { if (copiedId !== `cid:${log.id}`) e.currentTarget.style.color = "#bfdbfe"; }}
+                      onMouseLeave={(e) => { if (copiedId !== `cid:${log.id}`) e.currentTarget.style.color = "#60a5fa"; }}
+                    >
+                      {copiedId === `cid:${log.id}` ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  </span>
                 </td>
-                <td style={tableCellStyle}>{truncateAddress(log.actor)}</td>
+                <td style={{ ...tableCellStyle, fontFamily: "'JetBrains Mono', monospace" }} title={log.actor}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <span>{truncateAddress(log.actor)}</span>
+                    <button
+                      onClick={() => handleCopy(log.actor, `addr:${log.id}`)}
+                      title="Copy full wallet address"
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: copiedId === `addr:${log.id}` ? "#22c55e" : "#64748b", transition: "color 0.15s", display: "flex", alignItems: "center" }}
+                      onMouseEnter={(e) => { if (copiedId !== `addr:${log.id}`) e.currentTarget.style.color = "#94a3b8"; }}
+                      onMouseLeave={(e) => { if (copiedId !== `addr:${log.id}`) e.currentTarget.style.color = "#64748b"; }}
+                    >
+                      {copiedId === `addr:${log.id}` ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  </span>
+                </td>
                 <td style={tableCellStyle}>{log.timestamp}</td>
                 <td style={txHashCellStyle}>
                   <span>{truncateHash(log.txHash, 10)}</span>
@@ -312,12 +359,33 @@ export default function ChainOfCustody() {
           </tbody>
         </table>
       </div>
-
-      {filteredLogs.length === 0 && (
-        <div style={{ padding: "48px 32px", textAlign: "center" }}>
-          <div style={{ color: "#94a3b8", fontSize: "14px" }}>No events match your filters</div>
+      {/* ── Pagination Footer ── */}
+      <div style={{ padding: "0 32px 32px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "0 0 8px 8px", marginTop: "-1px" }}>
+          <span style={{ fontSize: 13, color: "#64748b" }}>
+            {totalItems === 0 ? "No results" : `Showing ${showingFrom}–${showingTo} of ${totalItems} entries`}
+          </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              style={{ padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 500, cursor: safePage <= 1 ? "not-allowed" : "pointer", backgroundColor: "#0f172a", color: safePage <= 1 ? "#475569" : "#94a3b8", border: "1px solid #334155", opacity: safePage <= 1 ? 0.45 : 1, transition: "all 0.15s" }}
+              onMouseEnter={(e) => { if (safePage > 1) { e.currentTarget.style.backgroundColor = "#334155"; e.currentTarget.style.color = "#f1f5f9"; } }}
+              onMouseLeave={(e) => { if (safePage > 1) { e.currentTarget.style.backgroundColor = "#0f172a"; e.currentTarget.style.color = "#94a3b8"; } }}
+            >← Previous</button>
+            <span style={{ padding: "6px 14px", borderRadius: 20, fontSize: 13, color: "#94a3b8", backgroundColor: "#0f172a", border: "1px solid #334155" }}>
+              {safePage} / {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage >= totalPages}
+              style={{ padding: "6px 14px", borderRadius: 20, fontSize: 13, fontWeight: 500, cursor: safePage >= totalPages ? "not-allowed" : "pointer", backgroundColor: "#0f172a", color: safePage >= totalPages ? "#475569" : "#94a3b8", border: "1px solid #334155", opacity: safePage >= totalPages ? 0.45 : 1, transition: "all 0.15s" }}
+              onMouseEnter={(e) => { if (safePage < totalPages) { e.currentTarget.style.backgroundColor = "#334155"; e.currentTarget.style.color = "#f1f5f9"; } }}
+              onMouseLeave={(e) => { if (safePage < totalPages) { e.currentTarget.style.backgroundColor = "#0f172a"; e.currentTarget.style.color = "#94a3b8"; } }}
+            >Next →</button>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Upload, CheckCircle } from "lucide-react";
-import { computeSHA256 } from "../utils/hash";
+import { useState, useRef } from "react";
+import axios from "axios";
+import { Upload, CheckCircle, AlertCircle, FileText, Loader } from "lucide-react";
+import { computeSHA256, formatFileSize } from "../utils/hash";
 
 export default function EvidenceUpload() {
   const [currentStep, setCurrentStep] = useState(1);
@@ -9,101 +10,166 @@ export default function EvidenceUpload() {
     caseTitle: "",
     evidenceType: "",
     description: "",
-    fileName: "",
-    fileSize: "",
-    hash: "",
-    ipfsCid: ""
+    ipfsCid: "",
   });
+
+  // Separate state for the File object and hash result
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [sha256Hash, setSha256Hash] = useState("");
+  const [hashError, setHashError] = useState("");
+
+  // Loading flags
   const [isComputingHash, setIsComputingHash] = useState(false);
   const [isUploadingIPFS, setIsUploadingIPFS] = useState(false);
-  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [ipfsError, setIpfsError]             = useState("");
+  const [isDragging, setIsDragging]           = useState(false);
+  const [showSubmitModal, setShowSubmitModal]  = useState(false);
+
+  const fileInputRef = useRef(null);
+
+  // ─── Helpers ────────────────────────────────────────────────────────────────
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleFileSelect = async (file) => {
-    setFormData(prev => ({
-      ...prev,
-      fileName: file.name,
-      fileSize: (file.size / 1024 / 1024).toFixed(2) + " MB"
-    }));
-
+  /**
+   * Core file-processing routine.
+   * Sets the file in state, then computes SHA-256 via FileReader → Web Crypto API.
+   */
+  const processFile = async (file) => {
+    // Reset previous hash / error whenever a new file is chosen
+    setSelectedFile(file);
+    setSha256Hash("");
+    setHashError("");
     setIsComputingHash(true);
+
     try {
       const hash = await computeSHA256(file);
-      setFormData(prev => ({ ...prev, hash }));
-    } catch (error) {
-      console.error("Error computing hash:", error);
+      setSha256Hash(hash);
+    } catch (err) {
+      setHashError(err.message ?? "Failed to compute hash. Please try again.");
+      console.error("[EvidenceUpload] Hash computation failed:", err);
+    } finally {
+      setIsComputingHash(false);
     }
-    setIsComputingHash(false);
   };
+
+  // ─── File input ──────────────────────────────────────────────────────────────
 
   const handleFileInputChange = (e) => {
     const file = e.target.files?.[0];
-    if (file) handleFileSelect(file);
+    if (file) processFile(file);
+    // Reset the input value so the same file can be re-selected after removal
+    e.target.value = "";
   };
+
+  // ─── Drag & Drop ─────────────────────────────────────────────────────────────
 
   const handleDragOver = (e) => {
     e.preventDefault();
-    e.currentTarget.style.borderColor = "#3b82f6";
-    e.currentTarget.style.background = "rgba(59,130,246,0.05)";
+    setIsDragging(true);
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
   };
 
   const handleDragLeave = (e) => {
-    e.currentTarget.style.borderColor = "rgba(139,148,155,0.4)";
-    e.currentTarget.style.background = "transparent";
+    // Only clear when leaving the drop zone entirely (not a child element)
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setIsDragging(false);
+    }
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
-    e.currentTarget.style.borderColor = "rgba(139,148,155,0.4)";
-    e.currentTarget.style.background = "transparent";
+    setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
-    if (file) handleFileSelect(file);
+    if (file) processFile(file);
+  };
+
+  // ─── IPFS Upload (Pinata) ────────────────────────────────────────────────────
+
+  /**
+   * Uploads the selected file to IPFS via the Pinata pinning API.
+   * Requires VITE_PINATA_JWT to be set in your .env file.
+   */
+  const uploadToIPFS = async (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await axios.post(
+      "https://api.pinata.cloud/pinning/pinFileToIPFS",
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${import.meta.env.VITE_PINATA_JWT}`,
+        },
+      }
+    );
+
+    // Pinata returns { IpfsHash, PinSize, Timestamp }
+    return response.data.IpfsHash;
   };
 
   const handleUploadIPFS = async () => {
+    if (!selectedFile) return;
+
     setIsUploadingIPFS(true);
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    setFormData(prev => ({ ...prev, ipfsCid: "QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco" }));
-    setIsUploadingIPFS(false);
+    setIpfsError("");
+    // Clear any previous CID so the UI resets cleanly
+    setFormData((prev) => ({ ...prev, ipfsCid: "" }));
+
+    try {
+      const cid = await uploadToIPFS(selectedFile);
+      setFormData((prev) => ({ ...prev, ipfsCid: cid }));
+    } catch (err) {
+      const message =
+        err?.response?.data?.error?.details ??
+        err?.response?.data?.error ??
+        err?.message ??
+        "Upload to IPFS failed. Check your Pinata JWT and network connection.";
+      setIpfsError(String(message));
+      console.error("[EvidenceUpload] Pinata upload failed:", err);
+    } finally {
+      setIsUploadingIPFS(false);
+    }
   };
+
+  // ─── Submit ──────────────────────────────────────────────────────────────────
 
   const handleSubmit = () => {
     setShowSubmitModal(true);
     setTimeout(() => {
       setShowSubmitModal(false);
       setCurrentStep(1);
-      setFormData({
-        caseId: "",
-        caseTitle: "",
-        evidenceType: "",
-        description: "",
-        fileName: "",
-        fileSize: "",
-        hash: "",
-        ipfsCid: ""
-      });
+      setFormData({ caseId: "", caseTitle: "", evidenceType: "", description: "", ipfsCid: "" });
+      setSelectedFile(null);
+      setSha256Hash("");
+      setHashError("");
     }, 3000);
   };
 
-  const headerStyle = {
-    marginBottom: "32px",
-  };
+  // ─── Derived flags ───────────────────────────────────────────────────────────
 
-  const titleStyle = {
-    fontSize: "28px",
-    fontWeight: 700,
-    color: "#e2e8f0",
-    marginBottom: "4px",
-  };
+  /**
+   * The "Next" button in Step 2 is only enabled when:
+   * - A file has been selected
+   * - Hashing is not in progress
+   * - A hash was successfully computed (no error)
+   * - The IPFS CID is available (after uploading)
+   */
+  const canProceedFromStep2 = !!formData.ipfsCid && !isComputingHash && !hashError;
 
-  const subtitleStyle = {
-    fontSize: "14px",
-    color: "#94a3b8",
-  };
+  // ─── Styles ──────────────────────────────────────────────────────────────────
+
+  const headerStyle = { marginBottom: "32px" };
+  const titleStyle = { fontSize: "28px", fontWeight: 700, color: "#e2e8f0", marginBottom: "4px" };
+  const subtitleStyle = { fontSize: "14px", color: "#94a3b8" };
 
   const stepsStyle = {
     display: "flex",
@@ -113,22 +179,35 @@ export default function EvidenceUpload() {
     marginBottom: "32px",
   };
 
-  const stepCircleStyle = (isActive) => ({
+  const stepCircleStyle = (isActive, isCompleted) => ({
     width: "40px",
     height: "40px",
     borderRadius: "50%",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontWeight: 600,
-    color: isActive ? "white" : "#94a3b8",
-    background: isActive ? "#3b82f6" : "rgba(100,116,139,0.2)",
+    fontWeight: 700,
+    fontSize: "15px",
+    transition: "background 0.3s, box-shadow 0.3s",
+    color: isActive || isCompleted ? "white" : "#64748b",
+    background: isCompleted
+      ? "#2563eb"
+      : isActive
+      ? "#3b82f6"
+      : "rgba(51,65,85,0.8)",
+    boxShadow: isActive ? "0 0 0 4px rgba(59,130,246,0.2)" : "none",
+    border: isActive || isCompleted ? "none" : "1px solid #334155",
+    flexShrink: 0,
   });
 
-  const stepLineStyle = (isActive) => ({
-    height: "2px",
-    width: "80px",
-    background: isActive ? "#3b82f6" : "rgba(100,116,139,0.2)",
+  const stepLineStyle = (isCompleted) => ({
+    height: "3px",
+    flex: 1,
+    maxWidth: "80px",
+    borderRadius: "2px",
+    transition: "background 0.4s ease",
+    background: isCompleted ? "#3b82f6" : "#1e293b",
+    border: isCompleted ? "none" : "1px solid #334155",
   });
 
   const cardStyle = {
@@ -150,60 +229,56 @@ export default function EvidenceUpload() {
     outline: "none",
     marginBottom: "16px",
     transition: "all 0.2s",
+    boxSizing: "border-box",
   };
 
   const textareaStyle = {
     ...inputStyle,
     minHeight: "120px",
     resize: "none",
-    fontFamily: "'Space Grotesk', sans-serif",
   };
 
   const dropZoneStyle = {
-    border: "2px dashed rgba(100,116,139,0.4)",
+    border: `2px dashed ${isDragging ? "#3b82f6" : "rgba(100,116,139,0.4)"}`,
     borderRadius: "8px",
     padding: "64px 32px",
     textAlign: "center",
     cursor: "pointer",
     transition: "all 0.2s",
     marginBottom: "16px",
-    background: "rgba(30,41,59,0.2)",
+    background: isDragging ? "rgba(59,130,246,0.07)" : "rgba(30,41,59,0.2)",
   };
 
-  const buttonStyle = (variant = "primary") => ({
-    primary: {
-      width: "100%",
-      background: "#3b82f6",
-      color: "white",
-      border: "none",
-      borderRadius: "6px",
-      padding: "10px 16px",
-      fontSize: "14px",
-      fontWeight: 600,
-      cursor: "pointer",
-      transition: "all 0.2s",
-      marginTop: "12px",
-    },
-    secondary: {
-      flex: 1,
-      background: "transparent",
-      border: "1px solid rgba(100,116,139,0.5)",
-      color: "#60a5fa",
-      borderRadius: "6px",
-      padding: "10px 16px",
-      fontSize: "14px",
-      fontWeight: 600,
-      cursor: "pointer",
-      transition: "all 0.2s",
-    },
-  })[variant];
+  const buttonStyle = (variant = "primary") =>
+    ({
+      primary: {
+        width: "100%",
+        background: "#3b82f6",
+        color: "white",
+        border: "none",
+        borderRadius: "6px",
+        padding: "10px 16px",
+        fontSize: "14px",
+        fontWeight: 600,
+        cursor: "pointer",
+        transition: "all 0.2s",
+        marginTop: "12px",
+      },
+      secondary: {
+        flex: 1,
+        background: "transparent",
+        border: "1px solid rgba(100,116,139,0.5)",
+        color: "#60a5fa",
+        borderRadius: "6px",
+        padding: "10px 16px",
+        fontSize: "14px",
+        fontWeight: 600,
+        cursor: "pointer",
+        transition: "all 0.2s",
+      },
+    })[variant];
 
-  const sectionTitleStyle = {
-    fontSize: "16px",
-    fontWeight: 600,
-    color: "#e2e8f0",
-    marginBottom: "20px",
-  };
+  const sectionTitleStyle = { fontSize: "16px", fontWeight: 600, color: "#e2e8f0", marginBottom: "20px" };
 
   const infoBoxStyle = (color) => ({
     background: `rgba(${color}, 0.08)`,
@@ -237,11 +312,7 @@ export default function EvidenceUpload() {
     marginBottom: "16px",
   };
 
-  const buttonGroupStyle = {
-    display: "flex",
-    gap: "12px",
-    marginTop: "24px",
-  };
+  const buttonGroupStyle = { display: "flex", gap: "12px", marginTop: "24px" };
 
   const modalOverlayStyle = {
     position: "fixed",
@@ -262,13 +333,7 @@ export default function EvidenceUpload() {
     maxWidth: "400px",
   };
 
-  const modalTitleStyle = {
-    fontSize: "24px",
-    fontWeight: 700,
-    color: "#e2e8f0",
-    marginBottom: "12px",
-  };
-
+  const modalTitleStyle = { fontSize: "24px", fontWeight: 700, color: "#e2e8f0", marginBottom: "12px" };
   const modalTextStyle = {
     fontSize: "13px",
     color: "#94a3b8",
@@ -277,51 +342,84 @@ export default function EvidenceUpload() {
     wordBreak: "break-all",
   };
 
+  // ─── Render ───────────────────────────────────────────────────────────────────
+
   return (
     <div>
+      {/* ── Header ── */}
       <div style={headerStyle}>
         <div style={titleStyle}>Evidence Upload</div>
         <div style={subtitleStyle}>Three-step evidence submission wizard</div>
       </div>
 
+      {/* ── Step Indicator ── */}
       <div style={stepsStyle}>
-        <div style={stepCircleStyle(currentStep >= 1)}>1</div>
-        <div style={stepLineStyle(currentStep >= 2)}></div>
-        <div style={stepCircleStyle(currentStep >= 2)}>2</div>
-        <div style={stepLineStyle(currentStep >= 3)}></div>
-        <div style={stepCircleStyle(currentStep >= 3)}>3</div>
+        {/* Circle 1 */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+          <div style={stepCircleStyle(currentStep === 1, currentStep > 1)}>
+            {currentStep > 1 ? "✓" : "1"}
+          </div>
+          <span style={{ fontSize: 10, color: currentStep >= 1 ? "#60a5fa" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: 600 }}>Case</span>
+        </div>
+
+        <div style={stepLineStyle(currentStep >= 2)} />
+
+        {/* Circle 2 */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+          <div style={stepCircleStyle(currentStep === 2, currentStep > 2)}>
+            {currentStep > 2 ? "✓" : "2"}
+          </div>
+          <span style={{ fontSize: 10, color: currentStep >= 2 ? "#60a5fa" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: 600 }}>Upload</span>
+        </div>
+
+        <div style={stepLineStyle(currentStep >= 3)} />
+
+        {/* Circle 3 */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+          <div style={stepCircleStyle(currentStep === 3, false)}>
+            3
+          </div>
+          <span style={{ fontSize: 10, color: currentStep >= 3 ? "#60a5fa" : "#475569", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: 600 }}>Confirm</span>
+        </div>
       </div>
 
+      {/* ══════════════════════════════════════════════════════════════
+          Step 1 — Case Information
+      ══════════════════════════════════════════════════════════════ */}
       {currentStep === 1 && (
         <div style={cardStyle}>
           <div style={sectionTitleStyle}>Step 1: Case Information</div>
+
           <input
             type="text"
+            id="caseId"
             name="caseId"
             placeholder="Case ID"
             value={formData.caseId}
             onChange={handleInputChange}
             style={inputStyle}
-            onFocus={(e) => e.target.style.borderColor = "#3b82f6"}
-            onBlur={(e) => e.target.style.borderColor = "rgba(100,116,139,0.3)"}
+            onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
+            onBlur={(e) => (e.target.style.borderColor = "rgba(100,116,139,0.3)")}
           />
           <input
             type="text"
+            id="caseTitle"
             name="caseTitle"
             placeholder="Case Title"
             value={formData.caseTitle}
             onChange={handleInputChange}
             style={inputStyle}
-            onFocus={(e) => e.target.style.borderColor = "#3b82f6"}
-            onBlur={(e) => e.target.style.borderColor = "rgba(100,116,139,0.3)"}
+            onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
+            onBlur={(e) => (e.target.style.borderColor = "rgba(100,116,139,0.3)")}
           />
           <select
+            id="evidenceType"
             name="evidenceType"
             value={formData.evidenceType}
             onChange={handleInputChange}
             style={{ ...inputStyle, color: formData.evidenceType ? "#e2e8f0" : "#94a3b8" }}
-            onFocus={(e) => e.target.style.borderColor = "#3b82f6"}
-            onBlur={(e) => e.target.style.borderColor = "rgba(100,116,139,0.3)"}
+            onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
+            onBlur={(e) => (e.target.style.borderColor = "rgba(100,116,139,0.3)")}
           >
             <option value="">Select Evidence Type</option>
             <option value="Digital Image">Digital Image</option>
@@ -331,112 +429,282 @@ export default function EvidenceUpload() {
             <option value="Other">Other</option>
           </select>
           <textarea
+            id="description"
             name="description"
             placeholder="Description"
             value={formData.description}
             onChange={handleInputChange}
             style={textareaStyle}
-            onFocus={(e) => e.target.style.borderColor = "#3b82f6"}
-            onBlur={(e) => e.target.style.borderColor = "rgba(100,116,139,0.3)"}
+            onFocus={(e) => (e.target.style.borderColor = "#3b82f6")}
+            onBlur={(e) => (e.target.style.borderColor = "rgba(100,116,139,0.3)")}
           />
+
           <button
+            id="step1-next-btn"
             onClick={() => setCurrentStep(2)}
             style={buttonStyle("primary")}
-            onMouseEnter={(e) => e.target.style.background = "#2563eb"}
-            onMouseLeave={(e) => e.target.style.background = "#3b82f6"}
+            onMouseEnter={(e) => (e.target.style.background = "#2563eb")}
+            onMouseLeave={(e) => (e.target.style.background = "#3b82f6")}
           >
             Next
           </button>
         </div>
       )}
 
+      {/* ══════════════════════════════════════════════════════════════
+          Step 2 — Upload Evidence File & Hash
+      ══════════════════════════════════════════════════════════════ */}
       {currentStep === 2 && (
         <div style={cardStyle}>
           <div style={sectionTitleStyle}>Step 2: Upload Evidence File</div>
+
+          {/* ── Drop Zone ── */}
           <div
+            id="drop-zone"
+            role="button"
+            aria-label="File drop zone — drag a file here or click to browse"
+            tabIndex={0}
             onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            onClick={() => document.getElementById("fileInput")?.click()}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => e.key === "Enter" && fileInputRef.current?.click()}
             style={dropZoneStyle}
           >
-            <Upload size={48} style={{ margin: "0 auto 16px", color: "#8b949e" }} />
-            <div style={{ color: "#f0f6fc", fontWeight: 600, fontSize: "14px" }}>Drag file here or click to select</div>
+            <Upload
+              size={48}
+              style={{
+                margin: "0 auto 16px",
+                color: isDragging ? "#3b82f6" : "#8b949e",
+                transition: "color 0.2s",
+              }}
+            />
+            <div style={{ color: "#f0f6fc", fontWeight: 600, fontSize: "14px" }}>
+              {isDragging ? "Drop to upload" : "Drag file here or click to select"}
+            </div>
+            <div style={{ color: "#8b949e", fontSize: "12px", marginTop: "6px" }}>
+              All file types accepted
+            </div>
+
+            {/* Hidden file input — triggered programmatically */}
             <input
+              ref={fileInputRef}
               id="fileInput"
               type="file"
               onChange={handleFileInputChange}
               style={{ display: "none" }}
+              aria-hidden="true"
             />
           </div>
 
-          {formData.fileName && (
+          {/* ── File Info ── */}
+          {selectedFile && (
             <div style={infoBoxStyle("139,148,155")}>
-              <div style={{ fontSize: "13px", color: "#f0f6fc", marginBottom: "4px" }}>
-                <strong>File:</strong> {formData.fileName}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                <FileText size={14} style={{ color: "#8b949e", flexShrink: 0 }} />
+                <span style={{ fontSize: "13px", color: "#f0f6fc", wordBreak: "break-all" }}>
+                  <strong>File:</strong> {selectedFile.name}
+                </span>
               </div>
-              <div style={{ fontSize: "13px", color: "#8b949e" }}>
-                <strong>Size:</strong> {formData.fileSize}
+              <div style={{ fontSize: "13px", color: "#8b949e", paddingLeft: "22px" }}>
+                <strong>Size:</strong> {formatFileSize(selectedFile.size)}
               </div>
             </div>
           )}
 
-          <div style={{ marginTop: "24px", padding: "20px", background: "rgba(30,41,59,0.4)", border: "1px solid rgba(100,116,139,0.3)", borderRadius: "8px", marginBottom: "16px" }}>
-            <div style={{ fontSize: "13px", fontWeight: 600, color: "#e2e8f0", marginBottom: "12px" }}>Client-Side SHA-256 Hash</div>
-            <div style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "8px" }}>
-              This file's cryptographic hash will be computed in your browser for verification on the blockchain.
+          {/* ── Hash Panel ── */}
+          <div
+            style={{
+              marginTop: "8px",
+              padding: "20px",
+              background: "rgba(30,41,59,0.4)",
+              border: "1px solid rgba(100,116,139,0.3)",
+              borderRadius: "8px",
+              marginBottom: "16px",
+            }}
+          >
+            <div style={{ fontSize: "13px", fontWeight: 600, color: "#e2e8f0", marginBottom: "12px" }}>
+              Client-Side SHA-256 Hash
             </div>
-            {formData.hash ? (
-              <div style={{ ...hashBoxStyle, background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.3)", marginBottom: "0" }}>
-                {formData.hash}
+            <div style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "8px" }}>
+              Computed in your browser using the Web Crypto API — no data leaves your device during hashing.
+            </div>
+
+            {/* Loading state */}
+            {isComputingHash && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  background: "rgba(245,158,11,0.08)",
+                  border: "1px solid rgba(245,158,11,0.3)",
+                  borderRadius: "6px",
+                  padding: "12px",
+                  color: "#f59e0b",
+                  fontSize: "13px",
+                }}
+              >
+                <Loader
+                  size={16}
+                  style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}
+                />
+                Calculating hash… this may take a moment for large files.
               </div>
-            ) : (
-              <div style={{ ...hashBoxStyle, background: "rgba(100,116,139,0.1)", border: "1px solid rgba(100,116,139,0.2)", color: "#94a3b8", marginBottom: "0" }}>
-                {isComputingHash ? "Computing..." : "a1f7c9b2e8d4c6f3a5b1e7d9c2f4b8a3c5e7f1d3b5a9c1e3f5d7b9a1c3e5"}
+            )}
+
+            {/* Error state */}
+            {hashError && !isComputingHash && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                  background: "rgba(239,68,68,0.08)",
+                  border: "1px solid rgba(239,68,68,0.3)",
+                  borderRadius: "6px",
+                  padding: "12px",
+                  color: "#f87171",
+                  fontSize: "13px",
+                }}
+              >
+                <AlertCircle size={16} style={{ flexShrink: 0, marginTop: "1px" }} />
+                <span>{hashError}</span>
+              </div>
+            )}
+
+            {/* Success — hash result */}
+            {sha256Hash && !isComputingHash && !hashError && (
+              <div
+                style={{
+                  ...hashBoxStyle,
+                  marginBottom: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}
+              >
+                <span style={{ fontSize: "11px", color: "#6ee7b7", letterSpacing: "0.05em" }}>
+                  SHA-256
+                </span>
+                {sha256Hash}
+              </div>
+            )}
+
+            {/* Placeholder when no file has been selected yet */}
+            {!selectedFile && !isComputingHash && (
+              <div
+                style={{
+                  ...hashBoxStyle,
+                  background: "rgba(100,116,139,0.08)",
+                  border: "1px solid rgba(100,116,139,0.2)",
+                  color: "#4b5563",
+                  marginBottom: 0,
+                  userSelect: "none",
+                }}
+              >
+                Awaiting file selection…
               </div>
             )}
           </div>
 
-          {isComputingHash && (
-            <div style={{...infoBoxStyle("245,158,11"), textAlign: "center", fontSize: "13px", color: "#f59e0b"}}>
-              ⏳ Computing SHA-256 hash...
-            </div>
-          )}
-
-          {formData.hash && (
+          {/* ── IPFS Upload button — only shown after hash is ready ── */}
+          {sha256Hash && !isComputingHash && !hashError && (
             <button
+              id="ipfs-upload-btn"
               onClick={handleUploadIPFS}
               disabled={isUploadingIPFS}
-              style={{ ...buttonStyle("primary"), opacity: isUploadingIPFS ? 0.6 : 1 }}
-              onMouseEnter={(e) => !isUploadingIPFS && (e.target.style.background = "#2563eb")}
-              onMouseLeave={(e) => !isUploadingIPFS && (e.target.style.background = "#3b82f6")}
+              style={{ ...buttonStyle("primary"), opacity: isUploadingIPFS ? 0.6 : 1, cursor: isUploadingIPFS ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}
+              onMouseEnter={(e) => !isUploadingIPFS && (e.currentTarget.style.background = "#2563eb")}
+              onMouseLeave={(e) => !isUploadingIPFS && (e.currentTarget.style.background = "#3b82f6")}
             >
-              {isUploadingIPFS ? "Uploading to IPFS..." : "Upload to IPFS"}
+              {isUploadingIPFS ? (
+                <><Loader size={15} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} /> Uploading to IPFS…</>
+              ) : (
+                formData.ipfsCid ? "Re-upload to IPFS" : "Upload to IPFS"
+              )}
             </button>
           )}
 
+          {/* ── IPFS CID result ── */}
           {formData.ipfsCid && (
-            <div>
-              <div style={{ fontSize: "12px", color: "#8b949e", marginBottom: "8px" }}>IPFS Content Identifier (CID)</div>
-              <div style={ciidBoxStyle}>{formData.ipfsCid}</div>
+            <div style={{ marginTop: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "8px" }}>
+                <CheckCircle size={14} style={{ color: "#22c55e", flexShrink: 0 }} />
+                <span style={{ fontSize: "12px", color: "#22c55e", fontWeight: 600 }}>Pinned to IPFS successfully</span>
+              </div>
+              <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.05em" }}>IPFS Content Identifier (CID)</div>
+              <div style={ciidBoxStyle} title={formData.ipfsCid}>{formData.ipfsCid}</div>
+              <div style={{ marginTop: 8, fontSize: 12, color: "#475569" }}>
+                View on gateway:{" "}
+                <a
+                  href={`https://gateway.pinata.cloud/ipfs/${formData.ipfsCid}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "#3b82f6", textDecoration: "none" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
+                  onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
+                >
+                  gateway.pinata.cloud/ipfs/{formData.ipfsCid.slice(0, 16)}…
+                </a>
+              </div>
             </div>
           )}
 
+          {/* ── IPFS upload error ── */}
+          {ipfsError && !isUploadingIPFS && (
+            <div
+              style={{
+                marginTop: "12px",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+                background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.3)",
+                borderRadius: 8,
+                padding: "12px",
+                color: "#f87171",
+                fontSize: 13,
+              }}
+            >
+              <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span><strong>IPFS Upload Failed:</strong> {ipfsError}</span>
+            </div>
+          )}
+
+          {/* ── Navigation ── */}
           <div style={buttonGroupStyle}>
             <button
+              id="step2-back-btn"
               onClick={() => setCurrentStep(1)}
               style={buttonStyle("secondary")}
-              onMouseEnter={(e) => e.target.style.background = "rgba(59,130,246,0.1)"}
-              onMouseLeave={(e) => e.target.style.background = "transparent"}
+              onMouseEnter={(e) => (e.target.style.background = "rgba(59,130,246,0.1)")}
+              onMouseLeave={(e) => (e.target.style.background = "transparent")}
             >
               Back
             </button>
             <button
+              id="step2-next-btn"
               onClick={() => setCurrentStep(3)}
-              disabled={!formData.ipfsCid}
-              style={{ ...buttonStyle("primary"), flex: 1, opacity: formData.ipfsCid ? 1 : 0.5 }}
-              onMouseEnter={(e) => formData.ipfsCid && (e.target.style.background = "#2563eb")}
-              onMouseLeave={(e) => formData.ipfsCid && (e.target.style.background = "#3b82f6")}
+              disabled={!canProceedFromStep2}
+              title={
+                isComputingHash
+                  ? "Please wait — hash is being calculated"
+                  : !sha256Hash
+                  ? "Select a file and upload to IPFS first"
+                  : !formData.ipfsCid
+                  ? "Upload to IPFS first"
+                  : undefined
+              }
+              style={{
+                ...buttonStyle("primary"),
+                flex: 1,
+                opacity: canProceedFromStep2 ? 1 : 0.45,
+                cursor: canProceedFromStep2 ? "pointer" : "not-allowed",
+              }}
+              onMouseEnter={(e) => canProceedFromStep2 && (e.target.style.background = "#2563eb")}
+              onMouseLeave={(e) => canProceedFromStep2 && (e.target.style.background = "#3b82f6")}
             >
               Next
             </button>
@@ -444,14 +712,23 @@ export default function EvidenceUpload() {
         </div>
       )}
 
+      {/* ══════════════════════════════════════════════════════════════
+          Step 3 — Confirm & Submit
+      ══════════════════════════════════════════════════════════════ */}
       {currentStep === 3 && (
         <div style={cardStyle}>
-          <div style={sectionTitleStyle}>Step 3: Confirm & Submit</div>
+          <div style={sectionTitleStyle}>Step 3: Confirm &amp; Submit</div>
+
+          {/* Summary grid */}
           <div style={{ ...infoBoxStyle("139,148,155"), marginBottom: "24px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+            <div
+              style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}
+            >
               <div>
                 <div style={{ fontSize: "11px", color: "#8b949e", marginBottom: "4px" }}>CASE ID</div>
-                <div style={{ fontFamily: "'JetBrains Mono', monospace", color: "#f0f6fc", fontSize: "13px" }}>{formData.caseId}</div>
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", color: "#f0f6fc", fontSize: "13px" }}>
+                  {formData.caseId}
+                </div>
               </div>
               <div>
                 <div style={{ fontSize: "11px", color: "#8b949e", marginBottom: "4px" }}>CASE TITLE</div>
@@ -463,9 +740,18 @@ export default function EvidenceUpload() {
               </div>
               <div>
                 <div style={{ fontSize: "11px", color: "#8b949e", marginBottom: "4px" }}>FILE NAME</div>
-                <div style={{ color: "#f0f6fc", fontSize: "13px" }}>{formData.fileName}</div>
+                <div style={{ color: "#f0f6fc", fontSize: "13px", wordBreak: "break-all" }}>
+                  {selectedFile?.name}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", color: "#8b949e", marginBottom: "4px" }}>FILE SIZE</div>
+                <div style={{ color: "#f0f6fc", fontSize: "13px" }}>
+                  {selectedFile ? formatFileSize(selectedFile.size) : "—"}
+                </div>
               </div>
             </div>
+
             <div>
               <div style={{ fontSize: "11px", color: "#8b949e", marginBottom: "4px" }}>DESCRIPTION</div>
               <div style={{ color: "#f0f6fc", fontSize: "13px" }}>{formData.description}</div>
@@ -473,25 +759,27 @@ export default function EvidenceUpload() {
           </div>
 
           <div style={{ fontSize: "12px", color: "#8b949e", marginBottom: "8px" }}>SHA-256 Hash</div>
-          <div style={hashBoxStyle}>{formData.hash}</div>
+          <div style={hashBoxStyle}>{sha256Hash}</div>
 
           <div style={{ fontSize: "12px", color: "#8b949e", marginBottom: "8px" }}>IPFS CID</div>
           <div style={ciidBoxStyle}>{formData.ipfsCid}</div>
 
           <div style={buttonGroupStyle}>
             <button
+              id="step3-back-btn"
               onClick={() => setCurrentStep(2)}
               style={buttonStyle("secondary")}
-              onMouseEnter={(e) => e.target.style.background = "rgba(59,130,246,0.1)"}
-              onMouseLeave={(e) => e.target.style.background = "transparent"}
+              onMouseEnter={(e) => (e.target.style.background = "rgba(59,130,246,0.1)")}
+              onMouseLeave={(e) => (e.target.style.background = "transparent")}
             >
               Back
             </button>
             <button
+              id="step3-submit-btn"
               onClick={handleSubmit}
               style={{ ...buttonStyle("primary"), flex: 1 }}
-              onMouseEnter={(e) => e.target.style.background = "#2563eb"}
-              onMouseLeave={(e) => e.target.style.background = "#3b82f6"}
+              onMouseEnter={(e) => (e.target.style.background = "#2563eb")}
+              onMouseLeave={(e) => (e.target.style.background = "#3b82f6")}
             >
               Submit to Blockchain
             </button>
@@ -499,24 +787,38 @@ export default function EvidenceUpload() {
         </div>
       )}
 
+      {/* ══════════════════════════════════════════════════════════════
+          Success Modal
+      ══════════════════════════════════════════════════════════════ */}
       {showSubmitModal && (
         <div style={modalOverlayStyle}>
           <div style={modalStyle}>
             <CheckCircle size={64} style={{ margin: "0 auto 16px", color: "#10b981" }} />
             <div style={modalTitleStyle}>Transaction Submitted!</div>
-            <div style={modalTextStyle}>0xabc123def456abc123def456abc123def456abc123def456abc123def456abc1</div>
+            <div style={modalTextStyle}>
+              0xabc123def456abc123def456abc123def456abc123def456abc123def456abc1
+            </div>
             <div style={{ fontSize: "13px", color: "#8b949e", marginBottom: "16px" }}>Block: 7489201</div>
             <button
+              id="modal-done-btn"
               onClick={() => setShowSubmitModal(false)}
               style={{ ...buttonStyle("primary"), width: "100%" }}
-              onMouseEnter={(e) => e.target.style.background = "#2563eb"}
-              onMouseLeave={(e) => e.target.style.background = "#3b82f6"}
+              onMouseEnter={(e) => (e.target.style.background = "#2563eb")}
+              onMouseLeave={(e) => (e.target.style.background = "#3b82f6")}
             >
               Done
             </button>
           </div>
         </div>
       )}
+
+      {/* Spinner keyframes injected inline — avoids needing a CSS file change */}
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }

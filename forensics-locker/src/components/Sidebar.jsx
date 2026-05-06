@@ -6,8 +6,8 @@ export default function Sidebar() {
   const sidebarStyle = {
     width: "240px",
     minHeight: "100vh",
-    background: "#0a0d16",
-    borderRight: "1px solid rgba(255,255,255,0.06)",
+    background: "#0f172a",
+    borderRight: "1px solid #334155",
     display: "flex",
     flexDirection: "column",
     padding: "24px 16px",
@@ -47,26 +47,23 @@ export default function Sidebar() {
     display: "flex",
     alignItems: "center",
     gap: "10px",
+    // active links get left-border + extra left padding to compensate
     padding: isActive ? "10px 12px 10px 9px" : "10px 12px",
     borderRadius: "8px",
     textDecoration: "none",
     fontSize: "14px",
     fontWeight: 500,
-    transition: "all 0.2s",
+    transition: "background 0.15s, color 0.15s",
     marginBottom: "2px",
-    color: isActive ? "#3b82f6" : "#8b949e",
-    background: isActive ? "rgba(59,130,246,0.12)" : "transparent",
-    borderLeft: isActive ? "3px solid #3b82f6" : "none",
+    color: isActive ? "#ffffff" : "#94a3b8",
+    fontWeight: isActive ? 700 : 500,
+    background: isActive ? "rgba(59,130,246,0.18)" : "transparent",
+    borderLeft: isActive ? "3px solid #3b82f6" : "3px solid transparent",
     cursor: "pointer",
   });
 
-  const navLinkHoverStyle = {
-    background: "rgba(255,255,255,0.04)",
-    color: "#f0f6fc",
-  };
-
   const bottomStyle = {
-    borderTop: "1px solid rgba(255,255,255,0.06)",
+    borderTop: "1px solid #334155",
     marginTop: "16px",
     paddingTop: "16px",
   };
@@ -102,20 +99,20 @@ export default function Sidebar() {
             key={link.to}
             to={link.to}
             end={link.to === "/"}
-            style={({ isActive }) => ({
-              ...navLinkStyle(isActive),
-              ...(isActive ? {} : navLinkHoverStyle),
-            })}
+            style={({ isActive }) => navLinkStyle(isActive)}
             onMouseEnter={(e) => {
-              if (e.currentTarget.style.borderLeft !== "3px solid #3b82f6") {
-                e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-                e.currentTarget.style.color = "#f0f6fc";
+              // only animate inactive links
+              if (!e.currentTarget.style.background.includes("0.15")) {
+                e.currentTarget.style.background = "rgba(51,65,85,0.7)";
+                e.currentTarget.style.color = "#f1f5f9";
+                e.currentTarget.style.borderLeftColor = "#475569";
               }
             }}
             onMouseLeave={(e) => {
-              if (e.currentTarget.style.borderLeft !== "3px solid #3b82f6") {
+              if (!e.currentTarget.style.background.includes("0.15")) {
                 e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "#8b949e";
+                e.currentTarget.style.color = "#94a3b8";
+                e.currentTarget.style.borderLeftColor = "transparent";
               }
             }}
           >

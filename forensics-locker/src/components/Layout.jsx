@@ -59,15 +59,15 @@ export default function Layout({ children }) {
     zIndex: 100,
     transition: "width 0.3s ease-in-out",
     overflow: "hidden",
-    backgroundColor: "#0f1419",
-    borderRight: "1px solid rgba(100,116,139,0.3)",
+    backgroundColor: "#0f172a",
+    borderRight: "1px solid #334155",
   };
 
   const topBarStyle = {
     height: "64px",
-    background: "linear-gradient(to bottom, rgba(15,20,25,0.95), rgba(15,20,25,0.8))",
+    background: "#1e293b",
     backdropFilter: "blur(12px)",
-    borderBottom: "1px solid rgba(100,116,139,0.2)",
+    borderBottom: "1px solid #334155",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -148,7 +148,7 @@ export default function Layout({ children }) {
   const mainContainerStyle = {
     marginLeft: isConnected && sidebarOpen ? "240px" : "0",
     minHeight: "100vh",
-    background: "#0a0d12",
+    background: "#0f172a",
     transition: "margin-left 0.3s ease-in-out",
     width: "100%",
     display: "flex",
@@ -158,7 +158,7 @@ export default function Layout({ children }) {
   const contentAreaStyle = {
     flex: 1,
     padding: "32px",
-    background: "#0a0d12",
+    background: "#0f172a",
     overflowX: "hidden",
     overflowY: "auto",
   };
@@ -169,7 +169,7 @@ export default function Layout({ children }) {
     left: 0,
     right: 0,
     bottom: 0,
-    background: "#0a0d12",
+    background: "#0f172a",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -205,7 +205,7 @@ export default function Layout({ children }) {
   };
 
   return (
-    <div style={{ display: "flex", width: "100%", minHeight: "100vh", background: "#0a0d12", position: "relative" }}>
+    <div style={{ display: "flex", width: "100%", minHeight: "100vh", background: "#0f172a", position: "relative" }}>
       {isConnected && (
         <div style={sidebarWrapperStyle}>
           <Sidebar />

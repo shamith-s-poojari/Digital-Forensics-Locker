@@ -1,9 +1,17 @@
-import { Shield, FolderOpen, Activity, Database, TrendingUp, ExternalLink } from "lucide-react";
+import { useState } from "react";
+import { Shield, FolderOpen, Activity, Database, TrendingUp, ExternalLink, Copy, Check } from "lucide-react";
 import { Link } from "react-router-dom";
-import StatusBadge from "../components/StatusBadge";
 import { mockEvidence, mockCustodyLog } from "../data/mockData";
 
 export default function Dashboard() {
+  const [hoveredRow, setHoveredRow] = useState(null);
+  const [copiedId, setCopiedId]     = useState(null);
+
+  const handleCopy = (text, id) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
   const headerStyle = {
     marginBottom: "32px",
   };
@@ -45,8 +53,8 @@ export default function Dashboard() {
   };
 
   const cardStyle = {
-    background: "#0d1117",
-    border: "1px solid rgba(255,255,255,0.06)",
+    background: "#1e293b",
+    border: "1px solid #334155",
     borderRadius: "12px",
     padding: "24px",
     transition: "all 0.2s",
@@ -117,19 +125,19 @@ export default function Dashboard() {
   };
 
   const tableHeaderStyle = {
-    background: "rgba(255,255,255,0.02)",
-    color: "#8b949e",
+    background: "#1e293b",
+    color: "#64748b",
     fontSize: "11px",
     textTransform: "uppercase",
     letterSpacing: "1px",
     padding: "12px 16px",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    borderBottom: "1px solid #334155",
     textAlign: "left",
     fontWeight: 600,
   };
 
   const tableRowStyle = {
-    borderBottom: "1px solid rgba(255,255,255,0.04)",
+    borderBottom: "1px solid #334155",
     transition: "background 0.15s",
   };
 
@@ -156,7 +164,7 @@ export default function Dashboard() {
     display: "flex",
     gap: "12px",
     paddingBottom: "16px",
-    borderBottom: "1px solid rgba(255,255,255,0.04)",
+    borderBottom: "1px solid #334155",
   };
 
   const timelineDotStyle = (color) => ({
@@ -179,7 +187,7 @@ export default function Dashboard() {
     alignItems: "center",
     justifyContent: "space-between",
     padding: "14px 16px",
-    borderBottom: "1px solid rgba(255,255,255,0.04)",
+    borderBottom: "1px solid #334155",
     background: "transparent",
     border: "none",
     color: "#f0f6fc",
@@ -290,17 +298,53 @@ export default function Dashboard() {
           </thead>
           <tbody>
             {recentEvidence.map((ev) => (
-              <tr key={ev.id} style={tableRowStyle}>
-                <td style={{ ...tableCellStyle, ...monoStyle, color: "#3b82f6" }}>{ev.cid.slice(0, 20)}...</td>
+              <tr
+                key={ev.id}
+                style={{ ...tableRowStyle, background: hoveredRow === ev.id ? "rgba(59,130,246,0.05)" : "transparent" }}
+                onMouseEnter={() => setHoveredRow(ev.id)}
+                onMouseLeave={() => setHoveredRow(null)}
+              >
+                <td style={{ ...tableCellStyle, fontFamily: "'JetBrains Mono', monospace", color: "#3b82f6", fontSize: "13px" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <span title={ev.cid}>{ev.cid.slice(0, 20)}…</span>
+                    <button
+                      onClick={() => handleCopy(ev.cid, `cid:${ev.id}`)}
+                      title="Copy full CID"
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: copiedId === `cid:${ev.id}` ? "#22c55e" : "#475569", transition: "color 0.15s", display: "flex", alignItems: "center" }}
+                      onMouseEnter={(e) => { if (copiedId !== `cid:${ev.id}`) e.currentTarget.style.color = "#3b82f6"; }}
+                      onMouseLeave={(e) => { if (copiedId !== `cid:${ev.id}`) e.currentTarget.style.color = "#475569"; }}
+                    >
+                      {copiedId === `cid:${ev.id}` ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  </span>
+                </td>
                 <td style={{ ...tableCellStyle, ...monoStyle }}>{ev.caseId}</td>
                 <td style={tableCellStyle}>{ev.fileName}</td>
                 <td style={tableCellStyle}>{ev.fileType}</td>
-                <td style={{ ...tableCellStyle, ...monoStyle }} title={ev.hash}>
-                  {ev.hash.slice(0, 18)}...
+                <td style={{ ...tableCellStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: "13px", color: "#8b949e" }} title={ev.hash}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <span>{ev.hash.slice(0, 18)}…</span>
+                    <button
+                      onClick={() => handleCopy(ev.hash, `hash:${ev.id}`)}
+                      title="Copy full SHA-256 hash"
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: copiedId === `hash:${ev.id}` ? "#22c55e" : "#475569", transition: "color 0.15s", display: "flex", alignItems: "center" }}
+                      onMouseEnter={(e) => { if (copiedId !== `hash:${ev.id}`) e.currentTarget.style.color = "#94a3b8"; }}
+                      onMouseLeave={(e) => { if (copiedId !== `hash:${ev.id}`) e.currentTarget.style.color = "#475569"; }}
+                    >
+                      {copiedId === `hash:${ev.id}` ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  </span>
                 </td>
                 <td style={{ ...tableCellStyle, ...monoStyle, fontSize: "12px" }}>IPFS Network</td>
                 <td style={tableCellStyle}>
-                  <StatusBadge status={ev.status} />
+                  {(() => {
+                    const pill = { Verified: { bg: "rgba(34,197,94,0.1)", color: "#22c55e", border: "rgba(34,197,94,0.3)" }, Pending: { bg: "rgba(234,179,8,0.1)", color: "#eab308", border: "rgba(234,179,8,0.3)" }, Flagged: { bg: "rgba(239,68,68,0.1)", color: "#ef4444", border: "rgba(239,68,68,0.3)" } }[ev.status] || { bg: "rgba(100,116,139,0.1)", color: "#64748b", border: "rgba(100,116,139,0.3)" };
+                    return (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5, backgroundColor: pill.bg, color: pill.color, border: `1px solid ${pill.border}`, padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600 }}>
+                        <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: pill.color }} />{ev.status}
+                      </span>
+                    );
+                  })()}
                 </td>
               </tr>
             ))}
@@ -322,7 +366,7 @@ export default function Dashboard() {
                 <div style={{ fontSize: "12px", color: "#8b949e", marginBottom: "2px" }}>
                   <span style={monoStyle}>{event.evidenceId}</span>
                 </div>
-                <div style={{ fontSize: "11px", color: "#484f58" }}>{event.timestamp}</div>
+                <div style={{ fontSize: "11px", color: "#475569" }}>{event.timestamp}</div>
               </div>
             </div>
           ))}
@@ -331,15 +375,15 @@ export default function Dashboard() {
         <div style={cardStyle}>
           <div style={sectionTitleStyle}>Quick Actions</div>
           <div style={quickActionsStyle}>
-            <Link to="/upload" style={actionButtonStyle} onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.02)"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+            <Link to="/upload" style={actionButtonStyle} onMouseEnter={(e) => e.currentTarget.style.background = "rgba(59,130,246,0.05)"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
               <span>📤 Upload New Evidence</span>
               <ExternalLink size={14} style={{ color: "#3b82f6" }} />
             </Link>
-            <Link to="/evidence" style={actionButtonStyle} onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.02)"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+            <Link to="/evidence" style={actionButtonStyle} onMouseEnter={(e) => e.currentTarget.style.background = "rgba(59,130,246,0.05)"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
               <span>🔍 Search Evidence</span>
               <ExternalLink size={14} style={{ color: "#3b82f6" }} />
             </Link>
-            <Link to="/custody" style={actionButtonStyle} onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.02)"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+            <Link to="/custody" style={actionButtonStyle} onMouseEnter={(e) => e.currentTarget.style.background = "rgba(59,130,246,0.05)"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
               <span>⛓️ View Custody Chain</span>
               <ExternalLink size={14} style={{ color: "#3b82f6" }} />
             </Link>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import StatusBadge from "../components/StatusBadge";
+import { Search, X } from "lucide-react";
 import { mockCases, mockEvidence, mockCustodyLog } from "../data/mockData";
 import { exportCustodyReport } from "../utils/pdf";
 
@@ -7,6 +7,8 @@ export default function CaseManagement() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedCase, setSelectedCase] = useState(null);
+  const [hoveredCardId, setHoveredCardId] = useState(null);
+  const [hoveredTabId, setHoveredTabId] = useState(null);
 
   const filteredCases = mockCases.filter(c => {
     const matchesSearch = c.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -22,149 +24,511 @@ export default function CaseManagement() {
     exportCustodyReport(caseData, caseEvidence, mockCustodyLog);
   };
 
+  const getStatusBadgeStyle = (status) => {
+    switch (status) {
+      case "Active":
+        return {
+          backgroundColor: "rgba(34, 197, 94, 0.1)",
+          color: "#22c55e",
+          border: "1px solid rgba(34, 197, 94, 0.3)",
+          dotColor: "#22c55e",
+        };
+      case "Under Review":
+        return {
+          backgroundColor: "rgba(234, 179, 8, 0.1)",
+          color: "#eab308",
+          border: "1px solid rgba(234, 179, 8, 0.3)",
+          dotColor: "#eab308",
+        };
+      case "Closed":
+        return {
+          backgroundColor: "rgba(100, 116, 139, 0.1)",
+          color: "#64748b",
+          border: "1px solid rgba(100, 116, 139, 0.3)",
+          dotColor: "#64748b",
+        };
+      default:
+        return {
+          backgroundColor: "rgba(100, 116, 139, 0.1)",
+          color: "#64748b",
+          border: "1px solid rgba(100, 116, 139, 0.3)",
+          dotColor: "#64748b",
+        };
+    }
+  };
+
+  const getTabDotColor = (status) => {
+    switch (status) {
+      case "All":
+        return "#3b82f6";
+      case "Active":
+        return "#22c55e";
+      case "Under Review":
+        return "#eab308";
+      case "Closed":
+        return "#64748b";
+      default:
+        return "#64748b";
+    }
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white">Case Management</h1>
-          <p className="text-gray-400 text-sm mt-1">Overview of all investigations</p>
-        </div>
-        <div className="bg-blue-900 border border-blue-700 text-blue-400 px-3 py-1 rounded-lg text-sm font-semibold">
-          {mockCases.length} Cases
+    <div style={{ backgroundColor: "#0f172a", minHeight: "100vh", padding: "32px" }}>
+      {/* HEADER */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+        <h1 style={{ fontSize: "28px", fontWeight: 700, color: "#f1f5f9" }}>Case Management</h1>
+        <div
+          style={{
+            backgroundColor: "#1e293b",
+            color: "#94a3b8",
+            padding: "4px 12px",
+            borderRadius: "20px",
+            fontSize: "13px",
+            border: "1px solid #334155",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+          }}
+        >
+          <span style={{ textTransform: "uppercase", letterSpacing: "0.5px", fontSize: "11px", fontWeight: 600 }}>Total</span>
+          <span style={{ fontWeight: 700 }}>{mockCases.length}</span>
         </div>
       </div>
 
-      {/* Search */}
-      <input
-        type="text"
-        placeholder="Search cases by ID or title..."
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
-      />
-
-      {/* Status Filter Tabs */}
-      <div className="flex gap-2 flex-wrap">
-        {["All", "Active", "Under Review", "Closed"].map(status => (
-          <button
-            key={status}
-            onClick={() => setStatusFilter(status)}
-            className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
-              statusFilter === status
-                ? "bg-blue-600 text-white"
-                : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-            }`}
-          >
-            {status}
-          </button>
-        ))}
+      {/* SEARCH BAR */}
+      <div style={{ position: "relative", marginBottom: "20px" }}>
+        <Search
+          size={18}
+          style={{
+            position: "absolute",
+            left: "12px",
+            top: "50%",
+            transform: "translateY(-50%)",
+            color: "#64748b",
+            pointerEvents: "none",
+          }}
+        />
+        <input
+          type="text"
+          placeholder="Search by case ID or title..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{
+            width: "100%",
+            backgroundColor: "#1e293b",
+            border: "1px solid #475569",
+            borderRadius: "8px",
+            padding: "10px 16px 10px 40px",
+            color: "#f1f5f9",
+            fontSize: "14px",
+            outline: "none",
+            boxSizing: "border-box",
+          }}
+          onFocus={(e) => {
+            e.target.style.borderColor = "#3b82f6";
+            e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.1)";
+          }}
+          onBlur={(e) => {
+            e.target.style.borderColor = "#475569";
+            e.target.style.boxShadow = "none";
+          }}
+        />
       </div>
 
-      {/* Case Cards Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {filteredCases.map(caseData => (
-          <div key={caseData.id} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-            <div className="flex items-start justify-between mb-3">
-              <div className="font-mono text-blue-400 text-sm">{caseData.id}</div>
-              <StatusBadge status={caseData.status} />
-            </div>
-            <h3 className="text-white font-bold text-lg mb-3">{caseData.title}</h3>
-            <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
-              <div>
-                <p className="text-gray-400 text-xs">Investigating Officer</p>
-                <p className="text-white font-mono">{caseData.officer.slice(0, 6)}...{caseData.officer.slice(-4)}</p>
-              </div>
-              <div>
-                <p className="text-gray-400 text-xs">Date Opened</p>
-                <p className="text-white">{caseData.dateOpened}</p>
-              </div>
-              <div>
-                <p className="text-gray-400 text-xs">Evidence Count</p>
-                <p className="text-white">{caseData.evidenceCount}</p>
-              </div>
-            </div>
+      {/* FILTER TABS */}
+      <div style={{ display: "flex", gap: "8px", marginBottom: "24px", flexWrap: "wrap" }}>
+        {["All", "Active", "Under Review", "Closed"].map((status) => {
+          const isActive = statusFilter === status;
+          return (
             <button
-              onClick={() => setSelectedCase(caseData)}
-              className="w-full border border-blue-500 text-blue-400 hover:bg-blue-900 px-4 py-2 rounded-lg text-sm font-semibold transition"
+              key={status}
+              onClick={() => setStatusFilter(status)}
+              onMouseEnter={(e) => {
+                if (!isActive) {
+                  e.target.style.backgroundColor = "#334155";
+                  e.target.style.color = "#cbd5e1";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) {
+                  e.target.style.backgroundColor = "#1e293b";
+                  e.target.style.color = "#94a3b8";
+                }
+              }}
+              style={{
+                padding: "6px 16px",
+                borderRadius: "20px",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: "pointer",
+                border: isActive ? "1px solid #3b82f6" : "1px solid #334155",
+                backgroundColor: isActive ? "#2563eb" : "#1e293b",
+                color: isActive ? "#ffffff" : "#94a3b8",
+                transition: "all 0.2s",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
             >
-              View Case
+              <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: getTabDotColor(status) }}></span>
+              {status}
             </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Case Detail Overlay */}
+      {/* CASES GRID */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(350px, 1fr))", gap: "16px", marginBottom: "24px" }}>
+        {filteredCases.length > 0 ? (
+          filteredCases.map((caseData) => {
+            const statusStyle = getStatusBadgeStyle(caseData.status);
+            const isHovered = hoveredCardId === caseData.id;
+            return (
+              <div
+                key={caseData.id}
+                onMouseEnter={() => setHoveredCardId(caseData.id)}
+                onMouseLeave={() => setHoveredCardId(null)}
+                style={{
+                  backgroundColor: "#1e293b",
+                  border: isHovered ? "1px solid #3b82f6" : "1px solid #334155",
+                  borderRadius: "12px",
+                  overflow: "hidden",
+                  transition: "border-color 0.2s",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                {/* CARD TOP */}
+                <div style={{ padding: "16px 20px" }}>
+                  {/* Top row with ID and Status */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
+                    <div style={{ fontFamily: "monospace", fontSize: "12px", color: "#64748b" }}>{caseData.id}</div>
+                    <div
+                      style={{
+                        backgroundColor: statusStyle.backgroundColor,
+                        color: statusStyle.color,
+                        border: statusStyle.border,
+                        padding: "3px 10px",
+                        borderRadius: "20px",
+                        fontSize: "12px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <span style={{ width: "4px", height: "4px", borderRadius: "50%", backgroundColor: statusStyle.dotColor }}></span>
+                      {caseData.status}
+                    </div>
+                  </div>
+
+                  {/* Case Title */}
+                  <h3 style={{ fontSize: "17px", fontWeight: 700, color: "#f1f5f9", margin: "8px 0" }}>
+                    {caseData.title}
+                  </h3>
+
+                  {/* Info Grid */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginTop: "12px" }}>
+                    <div>
+                      <p style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>
+                        Officer
+                      </p>
+                      <p style={{ fontSize: "13px", color: "#e2e8f0", fontFamily: "monospace" }}>
+                        {caseData.officer.slice(0, 8)}...{caseData.officer.slice(-6)}
+                      </p>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>
+                        Date Opened
+                      </p>
+                      <p style={{ fontSize: "13px", color: "#e2e8f0" }}>
+                        {caseData.dateOpened}
+                      </p>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>
+                        Evidence
+                      </p>
+                      <p style={{ fontSize: "13px", color: "#e2e8f0" }}>
+                        {caseData.evidenceCount} items
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CARD BOTTOM - View Case Button */}
+                <button
+                  onClick={() => setSelectedCase(caseData)}
+                  onMouseEnter={(e) => {
+                    e.target.style.backgroundColor = "#2563eb";
+                    e.target.style.color = "#ffffff";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.backgroundColor = "#0f172a";
+                    e.target.style.color = "#94a3b8";
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    backgroundColor: "#0f172a",
+                    color: "#94a3b8",
+                    border: "none",
+                    borderTop: "1px solid #334155",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  View Case Details →
+                </button>
+              </div>
+            );
+          })
+        ) : (
+          <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "48px 16px", color: "#64748b", fontSize: "14px" }}>
+            No cases match your search filters
+          </div>
+        )}
+      </div>
+
+      {/* CASE DETAIL MODAL */}
       {selectedCase && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 border border-gray-800 rounded-xl max-w-2xl w-full max-h-screen overflow-y-auto">
-            <div className="p-6 border-b border-gray-800 flex items-start justify-between">
+        <div
+          style={{
+            position: "fixed",
+            inset: "0",
+            backgroundColor: "rgba(0, 0, 0, 0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: "50",
+            padding: "16px",
+          }}
+          onClick={() => setSelectedCase(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: "#1e293b",
+              border: "1px solid #334155",
+              borderRadius: "12px",
+              width: "100%",
+              maxWidth: "700px",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5)",
+            }}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: "20px",
+                borderBottom: "1px solid #334155",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                position: "sticky",
+                top: "0",
+                backgroundColor: "#1e293b",
+                zIndex: 10,
+              }}
+            >
               <div>
-                <div className="font-mono text-blue-400 text-sm mb-2">{selectedCase.id}</div>
-                <h2 className="text-white font-bold text-2xl">{selectedCase.title}</h2>
+                <div style={{ fontFamily: "monospace", fontSize: "12px", color: "#64748b", marginBottom: "8px" }}>
+                  {selectedCase.id}
+                </div>
+                <h2 style={{ fontSize: "22px", fontWeight: 700, color: "#f1f5f9" }}>
+                  {selectedCase.title}
+                </h2>
               </div>
               <button
                 onClick={() => setSelectedCase(null)}
-                className="text-gray-400 hover:text-white text-2xl"
+                style={{
+                  backgroundColor: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#94a3b8",
+                  padding: "4px",
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.color = "#f1f5f9";
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.color = "#94a3b8";
+                }}
               >
-                ✕
+                <X size={24} />
               </button>
             </div>
 
-            <div className="p-6 space-y-6">
+            {/* Modal Content */}
+            <div style={{ padding: "24px" }}>
               {/* Case Metadata */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-gray-400 text-xs mb-1">Status</p>
-                  <StatusBadge status={selectedCase.status} />
-                </div>
-                <div>
-                  <p className="text-gray-400 text-xs mb-1">Date Opened</p>
-                  <p className="text-white">{selectedCase.dateOpened}</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-gray-400 text-xs mb-1">Investigating Officer</p>
-                  <p className="text-white font-mono">{selectedCase.officer}</p>
+              <div style={{ marginBottom: "24px" }}>
+                <h3 style={{ fontSize: "12px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "12px" }}>
+                  Case Information
+                </h3>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
+                  <div>
+                    <p style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px", fontWeight: 600 }}>
+                      Status
+                    </p>
+                    <div
+                      style={{
+                        backgroundColor: getStatusBadgeStyle(selectedCase.status).backgroundColor,
+                        color: getStatusBadgeStyle(selectedCase.status).color,
+                        border: getStatusBadgeStyle(selectedCase.status).border,
+                        padding: "3px 10px",
+                        borderRadius: "20px",
+                        fontSize: "12px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <span style={{ width: "4px", height: "4px", borderRadius: "50%", backgroundColor: getStatusBadgeStyle(selectedCase.status).dotColor }}></span>
+                      {selectedCase.status}
+                    </div>
+                  </div>
+                  <div>
+                    <p style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px", fontWeight: 600 }}>
+                      Date Opened
+                    </p>
+                    <p style={{ fontSize: "13px", color: "#e2e8f0", fontFamily: "monospace" }}>{selectedCase.dateOpened}</p>
+                  </div>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <p style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px", fontWeight: 600 }}>
+                      Investigating Officer
+                    </p>
+                    <p style={{ fontSize: "13px", color: "#e2e8f0", fontFamily: "monospace" }}>{selectedCase.officer}</p>
+                  </div>
                 </div>
               </div>
 
               {/* Evidence Table */}
-              <div>
-                <h3 className="text-white font-bold text-lg mb-3">Associated Evidence</h3>
-                <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-x-auto">
-                  <table className="w-full text-sm">
+              <div style={{ marginBottom: "24px" }}>
+                <h3 style={{ fontSize: "12px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "12px" }}>
+                  Associated Evidence ({getCaseEvidence(selectedCase.id).length})
+                </h3>
+                <div style={{ border: "1px solid #334155", borderRadius: "8px", overflow: "hidden", backgroundColor: "#0f172a" }}>
+                  <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
                     <thead>
-                      <tr className="border-b border-gray-700 bg-gray-900">
-                        <th className="text-left py-3 px-3 text-gray-400 text-xs uppercase">IPFS CID</th>
-                        <th className="text-left py-3 px-3 text-gray-400 text-xs uppercase">File</th>
-                        <th className="text-left py-3 px-3 text-gray-400 text-xs uppercase">Type</th>
-                        <th className="text-left py-3 px-3 text-gray-400 text-xs uppercase">Status</th>
+                      <tr style={{ borderBottom: "1px solid #334155", backgroundColor: "#1e293b" }}>
+                        <th style={{ textAlign: "left", padding: "12px", fontSize: "11px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          IPFS CID
+                        </th>
+                        <th style={{ textAlign: "left", padding: "12px", fontSize: "11px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          File Name
+                        </th>
+                        <th style={{ textAlign: "left", padding: "12px", fontSize: "11px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          Type
+                        </th>
+                        <th style={{ textAlign: "left", padding: "12px", fontSize: "11px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          Status
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {getCaseEvidence(selectedCase.id).map(ev => (
-                        <tr key={ev.id} className="border-b border-gray-700 hover:bg-gray-700 transition">
-                          <td className="py-3 px-3 font-mono text-blue-400 text-xs">{ev.cid.slice(0, 16)}...</td>
-                          <td className="py-3 px-3 text-white text-xs">{ev.fileName}</td>
-                          <td className="py-3 px-3 text-gray-400 text-xs">{ev.fileType}</td>
-                          <td className="py-3 px-3"><StatusBadge status={ev.status} /></td>
+                      {getCaseEvidence(selectedCase.id).length > 0 ? (
+                        getCaseEvidence(selectedCase.id).map((ev) => (
+                          <tr
+                            key={ev.id}
+                            style={{
+                              borderBottom: "1px solid #334155",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = "rgba(59, 130, 246, 0.1)";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = "transparent";
+                            }}
+                          >
+                            <td style={{ padding: "12px", fontFamily: "monospace", color: "#3b82f6", fontSize: "12px" }}>
+                              {ev.cid.slice(0, 12)}...
+                            </td>
+                            <td style={{ padding: "12px", color: "#e2e8f0", fontSize: "12px" }}>{ev.fileName}</td>
+                            <td style={{ padding: "12px", color: "#94a3b8", fontSize: "12px" }}>{ev.fileType}</td>
+                            <td style={{ padding: "12px" }}>
+                              <span
+                                style={{
+                                  backgroundColor: ev.status === "Verified" ? "rgba(34, 197, 94, 0.1)" : "rgba(59, 130, 246, 0.1)",
+                                  color: ev.status === "Verified" ? "#22c55e" : "#3b82f6",
+                                  border: ev.status === "Verified" ? "1px solid rgba(34, 197, 94, 0.3)" : "1px solid rgba(59, 130, 246, 0.3)",
+                                  padding: "3px 8px",
+                                  borderRadius: "4px",
+                                  fontSize: "11px",
+                                  fontWeight: 500,
+                                }}
+                              >
+                                {ev.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="4" style={{ padding: "24px", textAlign: "center", color: "#64748b", fontSize: "13px" }}>
+                            No evidence associated with this case
+                          </td>
                         </tr>
-                      ))}
+                      )}
                     </tbody>
                   </table>
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="flex gap-3">
+              {/* Action Buttons */}
+              <div style={{ display: "flex", gap: "12px" }}>
                 <button
                   onClick={() => handleExportPDF(selectedCase)}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold transition"
+                  style={{
+                    flex: "1",
+                    backgroundColor: "#2563eb",
+                    color: "#ffffff",
+                    padding: "10px 16px",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.backgroundColor = "#1d4ed8";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.backgroundColor = "#2563eb";
+                  }}
                 >
                   Export PDF Report
                 </button>
                 <button
                   onClick={() => setSelectedCase(null)}
-                  className="flex-1 border border-gray-600 text-gray-400 hover:bg-gray-800 px-4 py-2 rounded-lg font-semibold transition"
+                  style={{
+                    flex: "1",
+                    backgroundColor: "transparent",
+                    color: "#94a3b8",
+                    padding: "10px 16px",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    border: "1px solid #475569",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.backgroundColor = "#1e293b";
+                    e.target.style.color = "#e2e8f0";
+                    e.target.style.borderColor = "#64748b";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.backgroundColor = "transparent";
+                    e.target.style.color = "#94a3b8";
+                    e.target.style.borderColor = "#475569";
+                  }}
                 >
                   Close
                 </button>
