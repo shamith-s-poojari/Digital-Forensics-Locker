@@ -1,0 +1,180 @@
+/*
+ * Tailwind v4 (loaded through @tailwindcss/postcss).
+ *
+ * The v3 directives (`@tailwind base; @tailwind components; @tailwind utilities;`) are not
+ * understood by v4: `base` and `components` silently emit nothing and `utilities` emits only
+ * the theme-independent utilities. This file uses the v4 equivalent of "theme + utilities,
+ * without Preflight":
+ *
+ *   - Preflight is deliberately NOT imported. Every page is styled with inline styles on top
+ *     of the explicit reset below, and Preflight would change button/input/heading/svg/table
+ *     defaults and so alter the existing design.
+ *   - To adopt Preflight later, replace the `@layer`/`@import` lines below with
+ *     `@import "tailwindcss";` and re-check every page (measured: it shifts layout on 4 of 5 pages).
+ *   - tailwind.config.js is not read by v4 (it needs an explicit `@config`) so it was removed.
+ *   - Class scanning is limited to index.html and src/ so prose in README/docs cannot
+ *     generate stray utilities.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "../index.html";
+@source "./**/*.{js,jsx}";
+
+/* Kept in the base layer so Tailwind utilities (e.g. px-4) can still override the reset. */
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: 'Space Grotesk', sans-serif;
+  background-color: #0f172a;
+  color: #f0f6fc;
+  margin: 0;
+  padding: 0;
+  line-height: 1.6;
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+}
+
+/* Keyboard focus: visible by default on everything focusable (#93c5fd on #0f172a is ~9:1).
+ * Components that draw their own focus ring set an inline `outline` (or use a more specific
+ * selector such as .evidence-select:focus), which takes precedence over this rule. */
+:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+/* The skip link moves focus here programmatically; a ring around the whole page body is noise. */
+#main-content[tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
+/* Visually hidden, still available to assistive technology. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip link: <a class="skip-link" href="#main-content">. Hidden until it receives keyboard focus. */
+a.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 10000;
+  padding: 10px 16px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+  border-radius: 6px;
+  transform: translateY(-200%);
+}
+
+a.skip-link:focus,
+a.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+.evidence-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #93c5fd 50%),
+    linear-gradient(135deg, #93c5fd 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 42px;
+}
+
+.evidence-select option {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 12px 14px;
+  font-size: 15px;
+}
+
+.evidence-select option:checked,
+.evidence-select option:hover {
+  background: linear-gradient(180deg, rgba(59,130,246,0.32) 0%, rgba(37,99,235,0.22) 100%);
+  color: #f8fafc;
+}
+
+.evidence-select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+  outline: none;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Monospace font for code/hashes */
+code, pre, .mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Respect the OS "reduce motion" setting: no animations or transitions (inline styles included). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
