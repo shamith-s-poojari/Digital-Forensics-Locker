@@ -1,17 +1,19 @@
 // Evidence upload wizard (DEMO).
 //
-// Honest-demo behaviour:
+// Behaviour:
 //  - The SHA-256 of the chosen file is computed locally in the browser (Web Crypto).
-//  - Nothing is uploaded to IPFS: that needs a server-side proxy so that no API secret ships in
-//    the browser bundle. The CID is therefore always shown as "Not uploaded (demo)".
-//  - "Submit" records nothing anywhere; it only shows a dismissible demo-only message.
+//  - The user can optionally pin the file to IPFS. The browser posts it to /api/pin; the server-side proxy
+//    (server/pinataProxy.js) holds the Pinata JWT, so no API secret ships in the bundle. Pinned files are
+//    PUBLIC and unencrypted, which the UI says plainly.
+//  - "Submit" records nothing on a blockchain; it only shows a dismissible demo-only message.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Upload, AlertCircle, FileText, Loader, X, Info, Copy, Check } from "lucide-react";
+import { Upload, AlertCircle, FileText, Loader, X, Info, Copy, Check, CloudUpload } from "lucide-react";
 import { computeSHA256, formatFileSize } from "../utils/hash";
+import { uploadToIPFS } from "../utils/ipfs";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB: the whole file is read into memory to hash it.
-const CID_PLACEHOLDER = "Not uploaded (demo)";
+const CID_PLACEHOLDER = "Not uploaded";
 const INITIAL_FORM = { caseId: "", caseTitle: "", evidenceType: "", description: "" };
 
 // Visually hidden but available to assistive technology (no CSS file needed).
@@ -59,6 +61,12 @@ export default function EvidenceUpload() {
   const [hashError, setHashError] = useState("");
   const [isComputingHash, setIsComputingHash] = useState(false);
 
+  // IPFS pinning (optional): the CID is set only after the proxy confirms the pin.
+  const [cid, setCid] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const uploadControllerRef = useRef(null);
+
   const [isDragging, setIsDragging] = useState(false);
   const [showDemoModal, setShowDemoModal] = useState(false);
 
@@ -80,19 +88,33 @@ export default function EvidenceUpload() {
 
   // --- File + hash ------------------------------------------------------------
 
+  /** Cancels any in-flight upload and forgets the CID (it belonged to the previous file). */
+  const resetUpload = useCallback(() => {
+    uploadControllerRef.current?.abort();
+    uploadControllerRef.current = null;
+    setCid("");
+    setIsUploading(false);
+    setUploadError("");
+  }, []);
+
   const clearFile = useCallback(() => {
     hashRequestRef.current += 1;
+    resetUpload();
     setSelectedFile(null);
     setSha256Hash("");
     setHashError("");
     setIsComputingHash(false);
-  }, []);
+  }, [resetUpload]);
 
-  /** Stores the chosen file, drops any previous hash/error, then hashes it locally. */
+  // Abort a pending upload if the page is left.
+  useEffect(() => () => uploadControllerRef.current?.abort(), []);
+
+  /** Stores the chosen file, drops any previous hash/error/CID, then hashes it locally. */
   const processFile = async (file) => {
     hashRequestRef.current += 1;
     const requestId = hashRequestRef.current;
 
+    resetUpload();
     setSelectedFile(file);
     setSha256Hash("");
     setHashError("");
@@ -156,6 +178,31 @@ export default function EvidenceUpload() {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       openFilePicker();
+    }
+  };
+
+  // --- IPFS upload (through the server-side proxy) ----------------------------
+
+  const handleUploadIPFS = async () => {
+    if (!selectedFile || isUploading) return;
+
+    const controller = new AbortController();
+    uploadControllerRef.current = controller;
+    setIsUploading(true);
+    setUploadError("");
+    setCid("");
+
+    try {
+      const pinnedCid = await uploadToIPFS(selectedFile, { signal: controller.signal });
+      if (uploadControllerRef.current === controller) setCid(pinnedCid);
+    } catch (err) {
+      if (controller.signal.aborted) return; // the file changed or the page was left
+      setUploadError(err?.message || "Upload to IPFS failed. Please try again.");
+    } finally {
+      if (uploadControllerRef.current === controller) {
+        uploadControllerRef.current = null;
+        setIsUploading(false);
+      }
     }
   };
 
@@ -559,21 +606,24 @@ export default function EvidenceUpload() {
         <div style={cardStyle}>
           <h2 style={sectionTitleStyle}>Step 2: Choose Evidence File</h2>
 
-          {/* IPFS is intentionally disabled in this demo */}
+          {/* Pinning to IPFS is optional and public: say so before the user can click it */}
           <div
             role="note"
             style={{
-              ...infoBoxStyle("59,130,246"),
+              ...infoBoxStyle("245,158,11"),
               display: "flex",
               alignItems: "flex-start",
               gap: "10px",
-              color: "#bfdbfe",
+              color: "#fde68a",
               fontSize: "13px",
               lineHeight: 1.5,
             }}
           >
-            <Info size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: "2px", color: "#60a5fa" }} />
-            <span>IPFS upload is disabled in this demo (it requires a server-side proxy).</span>
+            <Info size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: "2px", color: "#fbbf24" }} />
+            <span>
+              Uploading pins the file to the <strong>public</strong> IPFS network via Pinata. Anyone who has the CID can
+              read it, and it is not encrypted. Do not upload real evidence or sensitive data from this demo.
+            </span>
           </div>
 
           {/* Drop zone */}
@@ -603,7 +653,8 @@ export default function EvidenceUpload() {
               {isDragging ? "Drop to hash this file" : "Drag file here or click to select"}
             </div>
             <div style={{ color: "#8b949e", fontSize: "12px", marginTop: "6px" }}>
-              All file types accepted (up to {formatFileSize(MAX_FILE_SIZE)}). The file never leaves your browser.
+              All file types accepted (up to {formatFileSize(MAX_FILE_SIZE)}). The file leaves your browser only if you choose
+              &ldquo;Upload to IPFS&rdquo;.
             </div>
           </div>
 
@@ -663,7 +714,7 @@ export default function EvidenceUpload() {
               Client-Side SHA-256 Hash
             </div>
             <div style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "8px" }}>
-              Computed in your browser using the Web Crypto API; no data leaves your device. The hash is not stored or
+              Computed in your browser using the Web Crypto API; hashing sends nothing anywhere. The hash is not stored or
               registered anywhere in this demo.
             </div>
 
@@ -744,9 +795,93 @@ export default function EvidenceUpload() {
             )}
           </div>
 
-          {/* CID: never uploaded in this demo */}
+          {/* IPFS upload (optional) */}
           <div style={{ fontSize: "12px", color: "#8b949e", marginBottom: "8px" }}>IPFS CID</div>
-          <div style={cidBoxStyle}>{CID_PLACEHOLDER}</div>
+          <div style={cidBoxStyle}>
+            {cid ? (
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                <span style={{ wordBreak: "break-all" }}>{cid}</span>
+                <button
+                  type="button"
+                  onClick={() => copy(cid, "cid")}
+                  aria-label="Copy IPFS CID"
+                  style={copyButtonStyle}
+                >
+                  {copiedKey === "cid" ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+                  {copiedKey === "cid" ? "Copied" : "Copy"}
+                </button>
+              </span>
+            ) : (
+              CID_PLACEHOLDER
+            )}
+          </div>
+          <span style={visuallyHidden} role="status">
+            {copiedKey === "cid" ? "IPFS CID copied to clipboard" : ""}
+          </span>
+
+          {isUploading && (
+            <div
+              role="status"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                background: "rgba(245,158,11,0.08)",
+                border: "1px solid rgba(245,158,11,0.3)",
+                borderRadius: "6px",
+                padding: "12px",
+                color: "#f59e0b",
+                fontSize: "13px",
+                marginBottom: "12px",
+              }}
+            >
+              <Loader size={16} aria-hidden="true" style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
+              Uploading to IPFS&hellip; this may take a moment.
+            </div>
+          )}
+
+          {uploadError && !isUploading && (
+            <div
+              role="alert"
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "10px",
+                background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.3)",
+                borderRadius: "6px",
+                padding: "12px",
+                color: "#f87171",
+                fontSize: "13px",
+                marginBottom: "12px",
+              }}
+            >
+              <AlertCircle size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: "1px" }} />
+              <span>{uploadError}</span>
+            </div>
+          )}
+
+          <button
+            id="upload-ipfs-btn"
+            type="button"
+            onClick={handleUploadIPFS}
+            disabled={!canProceedFromStep2 || isUploading}
+            style={{
+              ...buttonStyle("secondary"),
+              flex: "none",
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              opacity: !canProceedFromStep2 || isUploading ? 0.45 : 1,
+              cursor: !canProceedFromStep2 || isUploading ? "not-allowed" : "pointer",
+            }}
+            {...secondaryHover}
+          >
+            <CloudUpload size={16} aria-hidden="true" />
+            {cid ? "Upload again" : "Upload to IPFS"}
+          </button>
 
           {/* Navigation */}
           <div style={buttonGroupStyle}>
@@ -803,7 +938,7 @@ export default function EvidenceUpload() {
           <div style={hashBoxStyle}>{sha256Hash}</div>
 
           <div style={{ fontSize: "12px", color: "#8b949e", marginBottom: "8px" }}>IPFS CID</div>
-          <div style={cidBoxStyle}>{CID_PLACEHOLDER}</div>
+          <div style={cidBoxStyle}>{cid || CID_PLACEHOLDER}</div>
 
           <div style={buttonGroupStyle}>
             <button id="step3-back-btn" type="button" onClick={() => setCurrentStep(2)} style={buttonStyle("secondary")} {...secondaryHover}>
@@ -831,11 +966,12 @@ export default function EvidenceUpload() {
               Demo only
             </h2>
             <p id="demo-modal-desc" style={{ fontSize: "14px", color: "#cbd5e1", marginBottom: "8px", lineHeight: 1.6 }}>
-              Demo only: nothing was uploaded or recorded.
+              {cid ? "Demo only: nothing was recorded on a blockchain." : "Demo only: nothing was uploaded or recorded."}
             </p>
-            <p style={{ fontSize: "13px", color: "#94a3b8", marginBottom: "16px", lineHeight: 1.6 }}>
-              No file was sent anywhere, nothing was pinned to IPFS and nothing was written to a blockchain. The SHA-256 was
-              computed locally in your browser.
+            <p style={{ fontSize: "13px", color: "#94a3b8", marginBottom: "16px", lineHeight: 1.6, wordBreak: "break-all" }}>
+              {cid
+                ? `The file was pinned to public IPFS (CID ${cid}) and is readable by anyone with that CID. No case record or transaction was created.`
+                : "No file was sent anywhere, nothing was pinned to IPFS and nothing was written to a blockchain. The SHA-256 was computed locally in your browser."}
             </p>
             <button
               id="modal-done-btn"

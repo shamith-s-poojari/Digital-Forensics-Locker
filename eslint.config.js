@@ -19,6 +19,13 @@ export default defineConfig([
     },
   },
   {
+    // Server-side code and build config run under Node, not in the browser.
+    files: ['server/**/*.js', 'vite.config.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
     // Tests run under Node (vitest), so they may use Node globals such as Buffer.
     files: ['**/*.test.{js,jsx}'],
     languageOptions: {
