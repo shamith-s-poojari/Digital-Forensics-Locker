@@ -1,82 +1,139 @@
-# Digital Forensics Locker (Demo)
+# Digital Forensics Locker
 
-A **front-end demo** of a digital-evidence chain-of-custody workflow. It shows what the screens could look like, using fictional sample data. It is **not** an evidence system: nothing is stored, signed, anchored or access-controlled, and it must not be used for real evidence.
+A chain-of-custody system for digital evidence. A React web app and a Solidity smart contract (`EvidenceLocker`) record, for each evidence item, its SHA-256, the content identifier (CID) of the stored copy, and an append-only, hash-chained custody trail, with role-based access control enforced by the contract.
 
-## What exists
+> **Status: development prototype.** The contract has **not been audited or deployed**, the system has not been reviewed by a forensics practitioner or legal counsel, and it is **not evidence-grade**. Do not use it for real evidence. See [Known limitations](#known-limitations).
 
-| Feature | What it really does |
-| --- | --- |
-| UI (Dashboard, Evidence Upload, Evidence Viewer, Chain of Custody, Case Management) | React 19 + Vite 8 single-page app with client-side routing (`react-router-dom`), styled mostly with inline styles plus a small amount of Tailwind v4 CSS. |
-| Sample data | Cases, evidence items, custody events, wallet addresses, hashes, IPFS CIDs and transaction hashes are **fictional** and live in `src/data/mockData.js`. |
-| SHA-256 hashing | The upload wizard hashes the chosen file **in your browser** with the Web Crypto API (`crypto.subtle`, needs HTTPS or localhost). Hashing sends nothing anywhere. |
-| IPFS upload (optional) | "Upload to IPFS" posts the file to `/api/pin`, a small server-side proxy (`server/pinataProxy.js`, mounted by `vite.config.js` on the dev and preview servers) that holds the Pinata JWT and pins the file via Pinata. The browser never sees the credential. Pinned files are **public and unencrypted**. See [IPFS upload setup](#ipfs-upload-setup). |
-| MetaMask account display | "Connect MetaMask" reads the selected account from an injected wallet (`eth_requestAccounts`) and shows it. This only says *which account the browser reports*. It is **not** authentication or authorization: no signature is requested or checked. |
-| PDF report | The custody report is generated in the browser with jsPDF from the sample data. It carries a "demo, not evidence-grade" disclaimer. |
-| Demo labelling and accessibility basics | A persistent "demo, not evidence-grade" banner on every page, a global keyboard focus ring and `prefers-reduced-motion` support (see `src/index.css`). |
+## How it fits together
 
-## What does NOT exist
+```
+ Browser (React)                                  Blockchain                    Storage
+ ┌────────────────────────────┐   wallet signs   ┌─────────────────────┐      ┌──────────────┐
+ │ Case dashboard             │ ───────────────▶ │ EvidenceLocker      │      │ IPFS (Pinata)│
+ │ Evidence upload            │                  │  roles (RBAC)       │      │ via a server │
+ │ Role management            │ ◀─── reads ───── │  evidence + custody │      │ -side proxy  │
+ │ SHA-256 hashing (local)    │                  │  hash chain         │      └──────▲───────┘
+ └──────────────┬─────────────┘                  └─────────────────────┘             │
+                └──────────── file pinned through /api/pin (holds the Pinata key) ───┘
+```
 
-- **No smart contract and no on-chain anchoring.** There is no Solidity code, no deployment and no transaction. Transaction hashes and block numbers shown in the UI are sample values.
-- **No hosted upload service.** The proxy runs inside the Vite dev/preview servers. A deployed site needs the same handler mounted on a real server or serverless function (see [IPFS upload setup](#ipfs-upload-setup)).
-- **No encryption and no access control on pinned files.** Anyone with a CID can read what you pinned.
-- **No real access control.** There are no users, roles, officer allowlists or sessions. Anyone who opens the app sees everything.
-- **No persistence.** All state is in memory and resets on reload. There is no backend and no database.
-- **No tamper evidence.** Hashes shown for sample evidence are not checked against anything.
+- **The contract is the source of truth.** It decides who may write; the web app reads roles from it (`rolesOf`).
+- **The web app only decides what to show.** Hidden buttons and guarded routes are a courtesy to honest users. Every write is checked again by the contract, so removing a guard never grants access.
+- **A ledger adapter** gives the app one interface over two implementations: the real contract (`src/web3/ethersLedger.js`) and an in-memory demo ledger for development (`src/web3/demoLedger.js`). One shared scenario suite runs against both, including the real contract on a local Hardhat chain.
+
+## Roles
+
+| | Admin (Chief) | Investigator | Auditor |
+| --- | --- | --- | --- |
+| View cases, evidence, custody timeline | yes | yes | yes |
+| Check a file against the ledger (free, read-only) | yes | yes | yes |
+| Register evidence | **no** | yes | no |
+| Log access, record a verification result | **no** | yes | no |
+| Transfer custody | **no** | only the current custodian, only to another Investigator | no |
+| Grant and revoke Investigator / Auditor | yes | no | no |
+| Pause and resume all evidence writes | yes | no | no |
+| Reassign custody when the custodian cannot act | yes (recorded as such) | no | no |
+
+- **Separation of duties:** the Chief manages roles but cannot write evidence unless also given the Investigator role.
+- **The Chief role** is one address, moved only by the contract's two-step transfer with a waiting period. Use a multisig, not a personal wallet, for anything real.
+- **"Auditor is read-only" means "no write permission", not secrecy.** Blockchain reads cannot be restricted, so every view function is open. Privacy comes from what is stored (below), not from who may read.
+
+## What is on the chain
+
+Stored: the SHA-256 of the evidence bytes, the CID of the stored copy, an opaque `caseRef`, the submitter and custodian addresses, timestamps, and each custody entry (who, what, when) chained by hash so that tampering is detectable. Role grants are on chain too.
+
+Not stored: file bytes, file names, case numbers or titles, personal data.
+
+**Public-chain privacy warning.** On a public chain, officers' addresses, when they acted and which evidence they touched are public and permanently linkable. For real law-enforcement use deploy on a permissioned or private network. Sepolia is for development only. Also note that `caseRef` is currently an **unsalted hash** of the case number, so anyone who can guess a case number can confirm which records belong to it; a server-side secret (an HMAC) is planned.
 
 ## Getting started
 
-Requires Node.js 22 (the CI version) or any release supported by Vite 8.
+Requires Node.js 22 or newer.
 
 ```bash
 npm install
-npm run dev      # start the dev server (Vite)
+npm run dev          # http://localhost:5173
 ```
+
+With no contract configured, a development build runs on the **in-memory demo ledger** with sample data. After connecting a wallet, the bar under the banner lets you preview the interface as each role. Nothing is recorded anywhere, and a **production build with no contract configured grants access to nobody**.
 
 | Script | What it does |
 | --- | --- |
-| `npm run dev` | Start the Vite dev server with hot reload. |
+| `npm run dev` | Dev server with hot reload (demo ledger unless a contract is configured). |
 | `npm run build` | Production build into `dist/`. |
-| `npm run preview` | Serve the production build locally. |
-| `npm run lint` | Run ESLint over the project. |
-| `npm test` | Run the Vitest + Testing Library suite once (`vitest run`). |
+| `npm run check:bundle` | Fails if `dist/` contains anything secret-like (a JWT, a private key, a credential-named `VITE_` variable). Run after `build`; CI does. |
+| `npm run preview` | Serve the production build. |
+| `npm run lint` | ESLint. |
+| `npm test` | Web app tests (Vitest and Testing Library). |
 
-CI (`.github/workflows/ci.yml`) runs install, lint, test and build on every push and pull request.
+CI (`.github/workflows/ci.yml`) runs lint, tests, build and the bundle scan, and a second job compiles and tests the contracts and checks that the shipped ABI matches the compiled one.
+
+### Using a real contract
+
+```bash
+cd contracts
+npm install
+npm test                                # compile and run the contract tests, including the ledger scenarios
+npx hardhat run scripts/deploy.ts       # deploy to an in-memory chain and print the settings (nothing persists)
+```
+
+To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLOYER_PRIVATE_KEY` in Hardhat's encrypted keystore (`npx hardhat keystore set ...`) and run the deploy script with `--network sepolia`; see [`contracts/README.md`](contracts/README.md). That path has not yet been exercised end to end in this repository. The script prints the values to put in `.env`:
+
+| Variable | Public? | Purpose |
+| --- | --- | --- |
+| `VITE_LOCKER_ADDRESS` | public | Deployed contract address. Empty means demo ledger (development) or no access (production). |
+| `VITE_CHAIN_ID` | public | Network the contract is on (default Sepolia, 11155111). A wallet on another network is asked to switch. |
+| `VITE_LOCKER_DEPLOY_BLOCK` | public | Where to start scanning event logs for transaction links. |
+| `VITE_EXPLORER_URL` | public | Block explorer base URL (defaults for Sepolia and Mainnet). |
+| `PINATA_JWT` | **secret, server only** | Pinata key used by the upload proxy. Never prefix it with `VITE_`. |
+
+After changing the contract, run `npm run abi` in `contracts/` to refresh `src/web3/EvidenceLocker.abi.json`; CI fails if it is stale.
 
 ## IPFS upload setup
 
 1. Create a **new** Pinata API key (JWT) with only the `pinFileToIPFS` permission.
 2. Put it in `.env` as `PINATA_JWT=...` (**no `VITE_` prefix**), then restart `npm run dev`. The proxy still accepts the legacy `VITE_PINATA_JWT` name for now and prints a warning, but that name is a leak waiting to happen.
-3. Open the Evidence Upload page, choose a file, and click **Upload to IPFS**. If the key is missing or wrong the page shows the server's error and the wizard keeps working without a CID.
+3. Register evidence from the upload page. If the key is missing or wrong, the page shows the server's error against the pinning step and nothing is sent to the ledger.
 
-What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-data` only, 10 MB cap, a required `X-Requested-With` header (blocks cross-site form posts), same-origin `Origin` check, 30 s upstream timeout, and errors that never echo the token. It has **no user authentication**, so do not expose a dev or preview server to an untrusted network; anyone who can reach `/api/pin` can spend your Pinata quota.
+What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-data` only, 10 MB cap, a required `X-Requested-With` header (blocks cross-site form posts), same-origin `Origin` check, 30 s upstream timeout, and errors that never echo the token. It has **no user authentication**, so do not expose a dev or preview server to an untrusted network: anyone who can reach `/api/pin` can spend your Pinata quota. A deployed site needs the same handler mounted on a real server with authentication; that is not included.
 
-For a deployed site, mount `handlePinRequest(req, res, { jwt })` from `server/pinataProxy.js` on your own Node server or serverless function and add real authentication first. That deployment is not included.
+**Pinned files are public and unencrypted.** Do not register real evidence until encrypted storage is in place (see the [roadmap](docs/ROADMAP.md), D4 and D7).
 
 ## Security notes
 
-- **Never put secrets in `VITE_*` variables.** Vite inlines every `VITE_*` value into the public JavaScript bundle, so anyone who loads the site can read it. See `.env.example`.
-- **Rotate any key that was ever in a `VITE_*` variable** (for example a Pinata JWT or API key used by an earlier version of this project). Assume it is compromised, including anything in a deployed build or in git history, and revoke it at the provider.
+- **Never put secrets in `VITE_*` variables, and never read `import.meta.env` as a whole object.** Vite copies every `VITE_*` value into the public bundle, and reading the whole object copies all of them. This has already happened once in this repository; `src/web3/noBareEnv.test.js` and `npm run check:bundle` now guard against it.
+- **Rotate any key that was ever in a `VITE_*` variable** (for example a Pinata JWT or API key used by an earlier version). Assume it is compromised, including anything in a deployed build or in git history, and revoke it at the provider.
 - `.env` and `.env.*` are git-ignored (only `.env.example` is tracked). Do not commit real values.
-- The MetaMask connection is display-only. Do not treat a connected address as proof of identity.
-- Uploads go through the server-side proxy, which holds the credential. The proxy does not yet authenticate callers (see [IPFS upload setup](#ipfs-upload-setup)).
-- Files pinned to IPFS are public. Do not upload real evidence until client-side encryption exists.
+- A connected wallet shows which account the browser reports. The web app does not authenticate users to a server yet (no signed login, no sessions); roles are enforced by the contract, and the planned API (roadmap Phase 1) will re-check them.
+- A hash computed in a browser is only as trustworthy as that browser. The ledger proves the registered bytes have not changed since registration, not that the evidence was genuine or intact before it.
 
-## Roadmap
+## Roadmap and threat model
 
-The step-by-step plan for turning this demo into a real system (phases, exit criteria, the per-task process loop and the decision log) is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
-
-The open design questions (what "verified" should mean, who the users are, where keys live, what goes on chain) are laid out in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). It is a template for the project owner to complete; none of its mitigations are implemented yet.
-
-Candidate directions, none committed: server-side upload proxy, wallet-signature login with an officer allowlist, an append-only hash-chained custody log, client-side encryption before any public storage, trusted timestamping.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md): phases, exit criteria, the per-task process loop and the decision log.
+- [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md): assets, adversaries, trust anchors and the status of each threat.
+- [`contracts/README.md`](contracts/README.md): the contract, its roles and how it is tested.
 
 ## Known limitations
 
-- Demo only. Not evidence-grade, not legally admissible, not reviewed by a forensics practitioner.
-- All data is fictional and resets on reload.
-- The wallet connection shows an address; it proves nothing about who is using the browser.
-- File hashing runs in memory, so it suits modestly sized files only.
-- A hash computed in the browser is not compared with any stored or published value.
-- The PDF report contains sample data and is unsigned.
-- No backend, no database, no audit trail that survives a page reload.
-- Fonts load from Google Fonts at runtime (the app falls back to system fonts if blocked).
-- No end-to-end or cross-browser testing beyond the unit/component tests in the repo.
+- Prototype: not audited, not deployed, not legally reviewed. An external contract audit and a forensics and legal review are required before any real use (roadmap Phases 5 and 6).
+- Public-chain privacy (see above), and the unsalted `caseRef`.
+- Files are pinned **unencrypted to public IPFS**, and the pin proxy has no user authentication.
+- No backend, database or server-side authentication yet. Case titles and officers come from sample data, matched by `caseRef`, because the chain holds only opaque references.
+- In-browser hashing reads the whole file into memory, so it is limited to 10 MB.
+- The PDF custody report still exists only for the development sample pages; the dashboard exports a JSON case record instead.
+- The two sample pages (Evidence Viewer, Chain of Custody) show fictional data and exist in development builds only.
+- The main bundle is about 650 KB (the `ethers` library); code splitting is not done yet.
+- No end-to-end or cross-browser tests beyond the unit and component tests.
+
+## Project layout
+
+```
+contracts/                 Solidity contract, Hardhat tests, deploy and ABI-export scripts
+server/pinataProxy.js      Server-side Pinata upload proxy (mounted by vite.config.js)
+scripts/check-bundle.mjs   Secret scan for the production bundle
+src/web3/                  Ledger adapter (ethers + demo), roles, errors, hooks, case model
+src/context/               Wallet and role providers
+src/components/            Layout, navigation, route guard (RequireCapability), Can, UI kit, case dashboard parts
+src/pages/                 Case dashboard, evidence upload, role management (+ two sample pages in dev)
+docs/                      Roadmap, threat model
+```
