@@ -63,6 +63,8 @@ For a deployed site, mount `handlePinRequest(req, res, { jwt })` from `server/pi
 
 ## Roadmap
 
+The step-by-step plan for turning this demo into a real system (phases, exit criteria, the per-task process loop and the decision log) is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
 The open design questions (what "verified" should mean, who the users are, where keys live, what goes on chain) are laid out in [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). It is a template for the project owner to complete; none of its mitigations are implemented yet.
 
 Candidate directions, none committed: server-side upload proxy, wallet-signature login with an officer allowlist, an append-only hash-chained custody log, client-side encryption before any public storage, trusted timestamping.

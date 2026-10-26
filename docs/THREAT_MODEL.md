@@ -39,10 +39,10 @@ Fill in one row per item. Do not assume the answers.
 
 | Question | Answer |
 | --- | --- |
-| Who holds which keys (signing, storage, admin)? | `DECISION:` |
-| What is recorded on chain (if anything): hash only, hash plus metadata, nothing? | `DECISION:` |
-| What stays off chain (file bytes, names, case IDs)? | `DECISION:` |
-| Which chain or timestamping service, and who pays for and operates it? | `DECISION:` |
+| Who holds which keys (signing, storage, admin)? | Decided 2026-10-23 (roadmap D3/D4): the agency operates the system and holds the keys. File-encryption master key in an agency-controlled KMS/HSM; per-file keys wrapped by it; a separate anchoring key signs on-chain anchors. `DECISION:` admin/recovery procedure and who may use each key. |
+| What is recorded on chain (if anything): hash only, hash plus metadata, nothing? | Decided (D5): only the periodic head hash of the custody log. No per-event registry, no names, case IDs or addresses of suspects. |
+| What stays off chain (file bytes, names, case IDs)? | Decided (D5): everything except the head hash. File bytes are encrypted before storage; metadata lives in the agency database. |
+| Which chain or timestamping service, and who pays for and operates it? | Decided in principle (D5): a public chain AND an RFC 3161 authority, both stamping the same head hash. `DECISION:` which chain and which authority (depends on the jurisdiction, roadmap D2/D6) and who pays. |
 | Where do the file bytes live, and who can read them? | `DECISION:` |
 | What is the root of trust for a reviewer checking a record years later? | `DECISION:` |
 
