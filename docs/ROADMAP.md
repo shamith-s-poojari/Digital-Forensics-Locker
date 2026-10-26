@@ -8,7 +8,7 @@ Status: **proposal for the owner to approve, amended 2026-10-26 after the on-cha
 | --- | --- |
 | UI | Case dashboard (cases, evidence with SHA-256 and CID, custody timeline), evidence upload, role management; responsive and accessible basics; web and contract test suites; CI (lint, tests, build, bundle secret scan, contract job). Two sample-data pages remain in development builds only. |
 | Contract | `EvidenceLocker` (OpenZeppelin `AccessControlDefaultAdminRules`): roles Admin/Investigator/Auditor, append-only evidence and hash-chained custody, pause, admin recovery. Tested (including mutation-checked) on a local Hardhat chain. **Not deployed, not audited.** |
-| Identity and roles | Roles are on chain and read by the UI; the contract enforces them on every write. A wallet is identified by its address only: no signed login, no server sessions (Phase 1). |
+| Identity and roles | Roles are on chain and read by the UI; the contract enforces them on every write. Signed wallet login (EIP-4361 nonce, httpOnly session cookie, in-memory store on the Vite server) gates `/api/pin` and every evidence action; a lock, disconnect or account switch ends the session. No shared session store and no role check on the server yet (Phase 1). |
 | Hashing | SHA-256 in the browser, whole file in memory, 10 MB cap. |
 | Upload | Optional public IPFS pin through `/api/pin`, a proxy that only exists in the Vite dev/preview servers. No user authentication; the pinned file is **plaintext on public IPFS** (development only). |
 | Data | The ledger (contract, or an in-memory demo ledger in development builds). Case titles and officers are still fictional sample data matched by `caseRef`; there is no database. |
@@ -64,7 +64,7 @@ Goal: a server that knows who is calling. Addresses T1, T2, T5.
 
 - [ ] API service (Node + TypeScript recommended for new server code) with health checks, structured logging, rate limiting, and security headers (CSP, HSTS).
 - [ ] PostgreSQL with migrations. Tables: users, roles, cases, evidence, custody_events, sessions, audit_log.
-- [ ] **Sign-In with Ethereum (EIP-4361):** server-issued nonce, signature verification, expiry, httpOnly session cookie. Replace "connect shows an address" with real login.
+- [ ] **Sign-In with Ethereum (EIP-4361):** server-issued nonce, signature verification, expiry, httpOnly session cookie. Replace "connect shows an address" with real login. **Partly done (2026-10-26):** nonce, verification, expiry, cookie, replay and forgery tests, and the client's lock, switch and disconnect handling exist (`server/siweAuth.js`, `src/context/WalletContext.jsx`). Still open: move them into the API with the `sessions` table, and read `rolesOf` after verifying.
 - [ ] Roles and the officer allowlist. **Amended 2026-10-26 (D11):** the roles now live in the contract (Admin/Chief, Investigator, Auditor). The API therefore does not keep its own allowlist: after verifying a login signature it reads the signer's roles from the chain (`rolesOf`) and checks them on every endpoint. The database keeps profile data only (display name, agency ID). Spec 1.3 on the `phase1/01-api-scaffold` branch must be updated to match (its `users.role` column and admin API are replaced by contract reads).
 - [ ] Move `/api/pin` from the Vite middleware into this API behind authentication, with per-user rate limits and size limits. Delete the Vite middleware.
 - [ ] Append-only `audit_log` of every login, upload and read.

@@ -95,7 +95,7 @@ After changing the contract, run `npm run abi` in `contracts/` to refresh `src/w
 2. Put it in `.env` as `PINATA_JWT=...` (**no `VITE_` prefix**), then restart `npm run dev`. The proxy still accepts the legacy `VITE_PINATA_JWT` name for now and prints a warning, but that name is a leak waiting to happen.
 3. Register evidence from the upload page. If the key is missing or wrong, the page shows the server's error against the pinning step and nothing is sent to the ledger.
 
-What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-data` only, 10 MB cap, a required `X-Requested-With` header (blocks cross-site form posts), same-origin `Origin` check, 30 s upstream timeout, and errors that never echo the token. It has **no user authentication**, so do not expose a dev or preview server to an untrusted network: anyone who can reach `/api/pin` can spend your Pinata quota. A deployed site needs the same handler mounted on a real server with authentication; that is not included.
+What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-data` only, 10 MB cap, a required `X-Requested-With` header (blocks cross-site form posts), same-origin `Origin` check, 30 s upstream timeout, and errors that never echo the token. It also requires a wallet sign-in session (below). Sessions are kept in the dev server's memory, so do not expose a dev or preview server to an untrusted network: any wallet can sign in, and a signed-in wallet can spend your Pinata quota. A deployed site needs the same handlers mounted on a real server with a shared session store and a check of the signer's on-chain role; that is not included.
 
 **Pinned files are public and unencrypted.** Do not register real evidence until encrypted storage is in place (see the [roadmap](docs/ROADMAP.md), D4 and D7).
 
@@ -104,7 +104,7 @@ What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-da
 - **Never put secrets in `VITE_*` variables, and never read `import.meta.env` as a whole object.** Vite copies every `VITE_*` value into the public bundle, and reading the whole object copies all of them. This has already happened once in this repository; `src/web3/noBareEnv.test.js` and `npm run check:bundle` now guard against it.
 - **Rotate any key that was ever in a `VITE_*` variable** (for example a Pinata JWT or API key used by an earlier version). Assume it is compromised, including anything in a deployed build or in git history, and revoke it at the provider.
 - `.env` and `.env.*` are git-ignored (only `.env.example` is tracked). Do not commit real values.
-- A connected wallet shows which account the browser reports. The web app does not authenticate users to a server yet (no signed login, no sessions); roles are enforced by the contract, and the planned API (roadmap Phase 1) will re-check them.
+- **Wallet sign-in (EIP-4361).** Connecting asks the wallet to sign a message containing a single-use server nonce (`server/siweAuth.js`, `src/auth/`). The server checks the signature, then sets an httpOnly, `SameSite=Strict` session cookie that lasts one hour. The session is bound to one address: if the wallet locks, disconnects or switches account, the app ends the session at once, and every evidence action (upload, custody, access and verification logs, role changes) first re-reads the wallet's selected account and asks for a fresh signature when needed. A session proves who is acting but grants nothing: roles are enforced by the contract. Limits: sessions live in the dev server's memory (a restart signs everyone out), and the server does not yet read the signer's roles (roadmap Phase 1).
 - A hash computed in a browser is only as trustworthy as that browser. The ledger proves the registered bytes have not changed since registration, not that the evidence was genuine or intact before it.
 
 ## Roadmap and threat model
@@ -117,7 +117,7 @@ What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-da
 
 - Prototype: not audited, not deployed, not legally reviewed. An external contract audit and a forensics and legal review are required before any real use (roadmap Phases 5 and 6).
 - Public-chain privacy (see above), and the unsalted `caseRef`.
-- Files are pinned **unencrypted to public IPFS**, and the pin proxy has no user authentication.
+- Files are pinned **unencrypted to public IPFS**, and the pin proxy checks only that the caller signed in with some wallet, not that it holds a role.
 - No backend, database or server-side authentication yet. Case titles and officers come from sample data, matched by `caseRef`, because the chain holds only opaque references.
 - In-browser hashing reads the whole file into memory, so it is limited to 10 MB.
 - The PDF custody report still exists only for the development sample pages; the dashboard exports a JSON case record instead.

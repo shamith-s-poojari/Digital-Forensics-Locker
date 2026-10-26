@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar";
 import DemoBanner from "./DemoBanner";
 import RolePreviewer from "./RolePreviewer";
 import Clock from "./Clock";
+import SessionBanner from "./SessionBanner";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
 import { useWallet } from "../context/walletContext.js";
 
@@ -69,7 +70,7 @@ const SHELL_CSS = `
 `;
 
 export default function Layout({ children }) {
-  const { account, connect, disconnect, error, isConnecting } = useWallet();
+  const { account, connect, disconnect, error, isConnecting, notice } = useWallet();
   const isConnected = Boolean(account);
   const location = useLocation();
 
@@ -513,6 +514,7 @@ export default function Layout({ children }) {
               )}
             </div>
           </div>
+          <SessionBanner />
         </header>
 
         {!isConnected ? (
@@ -525,6 +527,11 @@ export default function Layout({ children }) {
                 Connecting a wallet is not authorization: no officer identity, role or permission is checked, and
                 nothing you do here is recorded on a blockchain.
               </p>
+              {notice && !error && (
+                <div role="status" style={walletErrorStyle}>
+                  {notice}
+                </div>
+              )}
               {error && (
                 <div role="alert" style={walletErrorStyle}>
                   {error}

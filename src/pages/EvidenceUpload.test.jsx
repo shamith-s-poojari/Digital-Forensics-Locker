@@ -24,7 +24,8 @@ const config = {
   deployBlock: 0,
   invalidAddress: false,
 };
-const wallet = { account: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", chainId: 11155111, connect() {}, disconnect() {}, switchChain: async () => true, error: null, isConnecting: false, clearError() {} };
+const ensureSession = vi.fn();
+const wallet = { account: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", chainId: 11155111, connect() {}, disconnect() {}, switchChain: async () => true, error: null, isConnecting: false, clearError() {}, ensureSession };
 
 function makeLedger(overrides = {}) {
   const wait = vi.fn().mockResolvedValue({ hash: TX_HASH, blockNumber: 42, evidenceId: 7 });
@@ -66,6 +67,8 @@ beforeEach(() => {
   if (!globalThis.crypto?.subtle) vi.stubGlobal("crypto", webcrypto);
   uploadToIPFSWithProgress.mockReset();
   uploadToIPFSWithProgress.mockResolvedValue("QmPinnedCid");
+  ensureSession.mockReset();
+  ensureSession.mockResolvedValue({ ok: true });
 });
 afterEach(() => {
   cleanup();
@@ -209,6 +212,32 @@ describe("EvidenceUpload: registering", () => {
     await userEvent.click(submit());
     await screen.findByText("Evidence #7 recorded");
     expect(uploadToIPFSWithProgress).toHaveBeenCalledTimes(2);
+  });
+
+  it("uploads nothing when the sign-in check fails (wallet switched, locked or sign-in declined)", async () => {
+    ensureSession.mockResolvedValueOnce({ ok: false, error: "Your wallet switched to 0x3C44…93BC. Nothing was sent." });
+    const ledger = renderUpload();
+    await fillAndChoose();
+
+    await userEvent.click(submit());
+    await waitFor(() => expect(step("Pin the file to IPFS").dataset.status).toBe("error"));
+    expect(within(step("Pin the file to IPFS")).getByText(/Your wallet switched/)).toBeTruthy();
+    expect(uploadToIPFSWithProgress).not.toHaveBeenCalled();
+    expect(ledger.registerEvidence).not.toHaveBeenCalled();
+  });
+
+  it("re-checks the sign-in before the transaction even when the file was already pinned", async () => {
+    const ledger = makeLedger();
+    ledger.registerEvidence.mockRejectedValueOnce(new LedgerError(LEDGER_ERROR.USER_REJECTED));
+    renderUpload(ledger);
+    await fillAndChoose();
+    await userEvent.click(submit());
+    await waitFor(() => expect(step("Approve in your wallet").dataset.status).toBe("error"));
+
+    ensureSession.mockResolvedValueOnce({ ok: false, error: "Sign-in was cancelled." });
+    await userEvent.click(submit());
+    await waitFor(() => expect(within(step("Approve in your wallet")).getByText("Sign-in was cancelled.")).toBeTruthy());
+    expect(ledger.registerEvidence).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the pin when the wallet signature is rejected, and does not upload again on retry", async () => {

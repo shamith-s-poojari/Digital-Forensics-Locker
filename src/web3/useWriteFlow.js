@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useWallet } from "../context/walletContext.js";
 import { txUrl } from "./config.js";
 import { shorten } from "./format.js";
 import { friendlyMessage } from "./ledgerErrors.js";
@@ -14,6 +15,7 @@ export const WRITE_STEPS = [
  *   1. "Approve in your wallet"  (active while the signature prompt is open)
  *   2. "Confirm on the ledger"   (active while the transaction waits for a block, with an explorer link)
  * Failures are shown against the step that failed, in plain words (rejected signature, no permission, paused, ...).
+ * Before step 1 it calls the wallet's `ensureSession()`, so no transaction is sent without a current sign-in.
  *
  * @param {object} options
  * @param {ReturnType<typeof import("./config.js").readLockerConfig>} options.config
@@ -22,6 +24,7 @@ export const WRITE_STEPS = [
  *        keys "sign" and "confirm"; extra steps (for example "hash" and "pin") can be driven through `flow`.
  */
 export function useWriteFlow({ config, onConfirmed, steps = WRITE_STEPS }) {
+  const { ensureSession } = useWallet();
   const flow = useStepFlow(steps);
   const { reset, start, done, fail, link } = flow;
   const [title, setTitle] = useState("");
@@ -37,6 +40,14 @@ export function useWriteFlow({ config, onConfirmed, steps = WRITE_STEPS }) {
       setTitle(actionTitle);
       if (!keepSteps) reset();
       let current = "sign";
+      // Every evidence action needs a live sign-in for the account the page shows. If the wallet switched account
+      // or locked, or the session expired, this asks for a fresh signature (or stops) before any transaction.
+      start("sign", "Checking your sign-in…");
+      const auth = await ensureSession();
+      if (!auth.ok) {
+        fail("sign", auth.error);
+        return { ok: false };
+      }
       start("sign", "Waiting for you to approve the request in your wallet…");
       try {
         const handle = await send();
@@ -53,7 +64,7 @@ export function useWriteFlow({ config, onConfirmed, steps = WRITE_STEPS }) {
         return { ok: false };
       }
     },
-    [config, onConfirmed, reset, start, done, fail, link]
+    [config, ensureSession, onConfirmed, reset, start, done, fail, link]
   );
 
   return { runWrite, title, flow, steps: flow.steps, isIdle: flow.isIdle, isRunning: flow.isRunning, dismiss: reset };

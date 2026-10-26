@@ -10,6 +10,7 @@
 //    header cross-site without a CORS preflight, which this server never approves, so a random web page
 //    cannot make a visitor's browser pin files with your key.
 //  - If an Origin header is present it must match the Host header.
+//  - When mounted by vite.config.js, the caller must hold a wallet sign-in session (server/siweAuth.js).
 //  - The upstream error text is passed on, the token never is.
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -57,9 +58,11 @@ function originMatchesHost(req) {
 /**
  * @param {import("node:http").IncomingMessage} req
  * @param {import("node:http").ServerResponse} res
- * @param {{ jwt?: string, fetchImpl?: typeof fetch }} options
+ * @param {{ jwt?: string, fetchImpl?: typeof fetch, authorize?: (req: import("node:http").IncomingMessage) => boolean }} options
+ *        authorize: when given, requests it returns false for are refused with 401 (vite.config.js passes the
+ *        wallet sign-in check from server/siweAuth.js).
  */
-export async function handlePinRequest(req, res, { jwt, fetchImpl = fetch } = {}) {
+export async function handlePinRequest(req, res, { jwt, fetchImpl = fetch, authorize } = {}) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return sendJson(res, 405, { error: "Method not allowed." });
@@ -73,6 +76,10 @@ export async function handlePinRequest(req, res, { jwt, fetchImpl = fetch } = {}
 
   if (req.headers["x-requested-with"] !== REQUIRED_HEADER_VALUE || !originMatchesHost(req)) {
     return sendJson(res, 403, { error: "Request rejected." });
+  }
+
+  if (authorize && !authorize(req)) {
+    return sendJson(res, 401, { error: "Sign in with your wallet before uploading evidence." });
   }
 
   const contentType = req.headers["content-type"] || "";

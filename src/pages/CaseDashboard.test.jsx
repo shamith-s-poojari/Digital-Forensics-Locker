@@ -147,7 +147,7 @@ describe("CaseDashboard: reading the ledger", () => {
     const config = { address: null, chainId: 1, chainName: "Test", explorerUrl: "", configured: false, deployBlock: 0, invalidAddress: false };
     render(
       <MemoryRouter>
-        <WalletContext.Provider value={{ account: ACCOUNT, chainId: 1, connect() {}, disconnect() {}, switchChain: async () => true, error: null, isConnecting: false, clearError() {} }}>
+        <WalletContext.Provider value={{ account: ACCOUNT, chainId: 1, connect() {}, disconnect() {}, switchChain: async () => true, error: null, isConnecting: false, clearError() {}, ensureSession: async () => ({ ok: true }) }}>
           <LedgerContext.Provider value={{ mode: "chain", ledger: broken, config }}>
             <RoleTestProvider roles={{ isAuditor: true }}>
               <CaseDashboard />

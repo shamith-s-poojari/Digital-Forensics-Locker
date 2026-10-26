@@ -14,6 +14,14 @@ import { createContext, useContext } from "react";
  *   error: string | null        Human-readable message for the last failed connect attempt.
  *   isConnecting: boolean       True while a connection request is pending.
  *   clearError: () => void      Dismisses `error`.
+ *   session: { address, chainId, expiresAt } | null   Server sign-in session (EIP-4361), or null.
+ *   isSignedIn: boolean         True when `session` belongs to `account`.
+ *   isSigningIn: boolean        True while the wallet's sign-in prompt is open.
+ *   signIn: () => Promise<{ ok: boolean, error?: string }>         Signs in as `account`.
+ *   ensureSession: () => Promise<{ ok: boolean, error?: string }>  Call before every evidence action: re-checks the
+ *                               wallet's selected account and asks for a fresh signature when needed.
+ *   notice: string | null       Why the session ended (wallet locked, account switched, expired).
+ *   clearNotice: () => void     Dismisses `notice`.
  */
 export const WalletContext = createContext(null);
 
@@ -29,6 +37,13 @@ export const WalletContext = createContext(null);
  *   error: string | null,
  *   isConnecting: boolean,
  *   clearError: () => void,
+ *   session: { address: string, chainId: number, expiresAt: number } | null,
+ *   isSignedIn: boolean,
+ *   isSigningIn: boolean,
+ *   signIn: () => Promise<{ ok: true } | { ok: false, error: string }>,
+ *   ensureSession: () => Promise<{ ok: true } | { ok: false, error: string }>,
+ *   notice: string | null,
+ *   clearNotice: () => void,
  * }}
  * @throws {Error} If called outside of a `<WalletProvider>`.
  */

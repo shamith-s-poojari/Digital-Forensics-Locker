@@ -21,6 +21,13 @@ const walletFor = (account) => ({
   error: null,
   isConnecting: false,
   clearError: () => {},
+  session: account ? { address: account, chainId: 11155111, expiresAt: Number.MAX_SAFE_INTEGER } : null,
+  isSignedIn: Boolean(account),
+  isSigningIn: false,
+  signIn: async () => ({ ok: true }),
+  ensureSession: async () => ({ ok: true }),
+  notice: null,
+  clearNotice: () => {},
 });
 const wallets = new Map();
 const stableWallet = (account) => {

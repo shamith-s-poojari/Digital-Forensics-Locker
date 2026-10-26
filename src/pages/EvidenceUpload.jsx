@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, ExternalLink, FileUp, FolderOpen, Info, PauseCircle, RotateCcw, ShieldCheck, X } from "lucide-react";
 import TxProgress from "../components/TxProgress";
 import { Badge, Button, CopyChip, Field, INPUT_CLASS, Panel } from "../components/ui";
+import { useWallet } from "../context/walletContext.js";
 import { computeSHA256, formatFileSize, MAX_HASH_BYTES } from "../utils/hash";
 import { uploadToIPFSWithProgress } from "../utils/ipfs";
 import { txUrl } from "../web3/config.js";
@@ -31,6 +32,7 @@ const UPLOAD_STEPS = [
  */
 export default function EvidenceUpload() {
   const { ledger, config } = useLedger();
+  const { ensureSession } = useWallet();
   const caseId = useId();
   const fileId = useId();
 
@@ -131,6 +133,13 @@ export default function EvidenceUpload() {
       if (cid) {
         flow.done("pin", `Already pinned earlier: ${shorten(cid, 12, 8)}`);
       } else {
+        // The pin server only accepts signed-in callers, and a switched or locked wallet must not upload under the old identity.
+        flow.start("pin", "Checking your sign-in…");
+        const auth = await ensureSession();
+        if (!auth.ok) {
+          flow.fail("pin", auth.error);
+          return;
+        }
         flow.start("pin", "Uploading to IPFS…");
         flow.progress("pin", 0);
         cid = await uploadToIPFSWithProgress(file, {
