@@ -5,7 +5,8 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // contracts/ (Solidity + Hardhat/TypeScript) is a separate package with its own tooling.
+  globalIgnores(['dist', 'contracts']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [

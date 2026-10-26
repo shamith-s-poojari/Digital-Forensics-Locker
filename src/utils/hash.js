@@ -1,3 +1,6 @@
+/** Largest file the in-memory hashing accepts (the whole file is read into memory). */
+export const MAX_HASH_BYTES = 10 * 1024 * 1024;
+
 /**
  * Computes the SHA-256 digest of a File/Blob using the native Web Crypto API.
  * The whole file is read into memory with `file.arrayBuffer()`, so this is

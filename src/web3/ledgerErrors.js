@@ -52,24 +52,66 @@ function isUserRejection(err) {
   );
 }
 
-/** Turns anything thrown by ethers (or by our own code) into a LedgerError. Never throws. */
-export function normalizeError(err) {
+const REVERT_DATA = /^0x[0-9a-fA-F]{8,}$/;
+
+/** Collects hex strings that could be ABI-encoded revert data, wherever a provider happened to put them. */
+function findRevertData(value, depth = 0, seen = new Set()) {
+  if (depth > 5 || value === null || typeof value !== "object" || seen.has(value)) return [];
+  seen.add(value);
+  const found = [];
+  for (const key of Object.keys(value)) {
+    const child = value[key];
+    if (typeof child === "string") {
+      if (REVERT_DATA.test(child)) found.push(child);
+    } else {
+      found.push(...findRevertData(child, depth + 1, seen));
+    }
+  }
+  return found;
+}
+
+/**
+ * Works out which custom error a failed call reverted with. Different wallets and nodes report the revert data in
+ * different places (and a plain "reverted with custom error 'X(...)'" message is all a local node gives), so we
+ * decode any hex data in the error against the contract ABI instead of trusting one field.
+ */
+function decodeRevert(err, iface) {
+  if (err?.revert?.name) return { name: err.revert.name, args: err.revert.args ?? [] };
+  if (err?.errorName) return { name: err.errorName, args: err.errorArgs ?? [] };
+
+  if (iface) {
+    for (const data of findRevertData(err)) {
+      try {
+        const parsed = iface.parseError(data);
+        if (parsed) return { name: parsed.name, args: [...parsed.args] };
+      } catch {
+        /* not revert data for this contract */
+      }
+    }
+  }
+
+  const named = /custom error '([A-Za-z0-9_]+)\(/.exec(String(err?.message ?? err?.shortMessage ?? ""));
+  return named ? { name: named[1], args: [] } : null;
+}
+
+/**
+ * Turns anything thrown by ethers (or by our own code) into a LedgerError. Never throws.
+ * @param {unknown} err
+ * @param {import("ethers").Interface} [iface] The contract interface, used to decode revert data.
+ */
+export function normalizeError(err, iface) {
   if (err instanceof LedgerError) return err;
 
   if (isUserRejection(err)) {
     return new LedgerError(LEDGER_ERROR.USER_REJECTED, "The request was rejected in the wallet.");
   }
 
-  const revertName = err?.revert?.name ?? err?.errorName;
-  if (revertName && REVERT_NAME_TO_CODE[revertName]) {
+  const revert = decodeRevert(err, iface);
+  if (revert && REVERT_NAME_TO_CODE[revert.name]) {
     const details = {};
-    if (revertName === "DuplicateEvidence" && err?.revert?.args?.[0] !== undefined) {
-      details.existingId = Number(err.revert.args[0]);
-    }
-    if (revertName === "NotCustodian" && err?.revert?.args?.[0] !== undefined) {
-      details.custodian = String(err.revert.args[0]);
-    }
-    return new LedgerError(REVERT_NAME_TO_CODE[revertName], `Contract reverted: ${revertName}`, details);
+    if (revert.name === "DuplicateEvidence" && revert.args[0] !== undefined) details.existingId = Number(revert.args[0]);
+    if (revert.name === "NotCustodian" && revert.args[0] !== undefined) details.custodian = String(revert.args[0]);
+    return new LedgerError(REVERT_NAME_TO_CODE[revert.name], `Contract reverted: ${revert.name}`, details);
   }
 
   if (err?.code === "INSUFFICIENT_FUNDS") {

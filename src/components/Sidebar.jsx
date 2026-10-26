@@ -1,15 +1,8 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Upload, Search, GitBranch, FolderOpen, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import WalletConnect from "./WalletConnect";
-
-const LINKS = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/upload", icon: Upload, label: "Evidence Upload" },
-  { to: "/evidence", icon: Search, label: "Evidence Viewer" },
-  { to: "/custody", icon: GitBranch, label: "Chain of Custody" },
-  { to: "/cases", icon: FolderOpen, label: "Case Management" },
-];
+import { useNavLinks } from "./navLinks.js";
 
 // Keyboard-only focus ring. #93c5fd on the #0f172a sidebar is about 9.9:1 (WCAG non-text
 // contrast needs 3:1). Styles are inline everywhere else, but pseudo-classes can't be inline,
@@ -30,6 +23,7 @@ const FOCUS_CSS = `
  */
 export default function Sidebar({ onNavigate }) {
   const [hoveredTo, setHoveredTo] = useState(null);
+  const links = useNavLinks();
 
   const sidebarStyle = {
     // Fills the wrapper Layout gives it (240px on desktop, a drawer on phones).
@@ -116,11 +110,10 @@ export default function Sidebar({ onNavigate }) {
       </div>
 
       <nav aria-label="Main" style={navStyle}>
-        {LINKS.map(({ to, icon: Icon, label }) => (
+        {links.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
-            end={to === "/"}
             className="dfl-nav-link"
             // NavLink sets aria-current="page" on the active link by itself.
             style={({ isActive }) => navLinkStyle(isActive, hoveredTo === to)}

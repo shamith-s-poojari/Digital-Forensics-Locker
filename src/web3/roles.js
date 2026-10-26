@@ -40,14 +40,17 @@ const REQUIRED_FLAG = Object.freeze({
   [CAPABILITIES.REASSIGN]: ["isAdmin"],
 });
 
-/** Which capability each route needs. Unknown routes are not listed and are handled by the 404 route. */
+/**
+ * Which capability each route needs. The single source of truth for both the route guards (App.jsx) and the
+ * navigation (navLinks.js), so a link can never be shown for a page the user could not open, or vice versa.
+ */
 export const ROUTE_CAPABILITY = Object.freeze({
-  "/": CAPABILITIES.VIEW,
   "/cases": CAPABILITIES.VIEW,
-  "/evidence": CAPABILITIES.VIEW,
-  "/custody": CAPABILITIES.VIEW,
   "/upload": CAPABILITIES.UPLOAD,
   "/admin": CAPABILITIES.MANAGE_ROLES,
+  // Sample-data pages, registered in development only.
+  "/evidence": CAPABILITIES.VIEW,
+  "/custody": CAPABILITIES.VIEW,
 });
 
 export const NO_ROLES = Object.freeze({ isAdmin: false, isInvestigator: false, isAuditor: false });
@@ -85,8 +88,3 @@ export function rolesGranting(capability) {
   return required.map((flag) => ROLE_LABELS[byFlag[flag]]);
 }
 
-/** The capability an exact route path needs (a trailing slash is ignored). Returns null for unknown paths. */
-export function capabilityForPath(pathname) {
-  const clean = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-  return ROUTE_CAPABILITY[clean] ?? null;
-}

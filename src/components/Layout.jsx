@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { Menu, X, Wallet, Lock } from "lucide-react";
 import Sidebar from "./Sidebar";
 import DemoBanner from "./DemoBanner";
+import RolePreviewer from "./RolePreviewer";
 import Clock from "./Clock";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
 import { useWallet } from "../context/walletContext.js";
@@ -18,16 +19,16 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const PAGE_TITLES = {
-  "/": "Dashboard",
+  "/": "Case Management", // "/" redirects to /cases
+  "/cases": "Case Management",
   "/upload": "Evidence Upload",
+  "/admin": "Role Management",
   "/evidence": "Evidence Viewer",
   "/custody": "Chain of Custody",
-  "/cases": "Case Management",
 };
 
 /**
- * Human-readable title for a route. Unknown paths get "Not found" (the router has no catch-all
- * route yet, so those paths render an empty content area; App.jsx can add a 404 page later).
+ * Human-readable title for a route. Unknown paths get "Not found" (App.jsx renders a 404 page for them).
  */
 function getPageTitle(pathname) {
   const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, "") || "/" : pathname;
@@ -444,6 +445,7 @@ export default function Layout({ children }) {
       <div style={mainContainerStyle} inert={drawerVisible}>
         <header style={stickyHeaderStyle}>
           <DemoBanner />
+          {isConnected ? <RolePreviewer /> : null}
           <div style={topBarStyle}>
             {isConnected && (
               <button

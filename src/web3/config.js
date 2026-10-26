@@ -8,6 +8,24 @@ export const CHAIN_NAMES = {
   31337: "Hardhat Local",
 };
 
+/**
+ * The only build-time variables this app reads. Every one is a PUBLIC value.
+ *
+ * SECURITY: each variable is read by name, on purpose. Never pass `import.meta.env` around as a whole object (as in
+ * `env = import.meta.env`): Vite then inlines EVERY VITE_* variable in .env into the public JavaScript bundle,
+ * including any secret that was ever put there. A test (noBareEnv.test.js) and a bundle scan guard against this.
+ */
+function publicEnv() {
+  return {
+    VITE_LOCKER_ADDRESS: import.meta.env.VITE_LOCKER_ADDRESS,
+    VITE_CHAIN_ID: import.meta.env.VITE_CHAIN_ID,
+    VITE_LOCKER_DEPLOY_BLOCK: import.meta.env.VITE_LOCKER_DEPLOY_BLOCK,
+    VITE_EXPLORER_URL: import.meta.env.VITE_EXPLORER_URL,
+    DEV: import.meta.env.DEV,
+    MODE: import.meta.env.MODE,
+  };
+}
+
 const DEFAULT_EXPLORERS = {
   1: "https://etherscan.io",
   11155111: "https://sepolia.etherscan.io",
@@ -20,7 +38,7 @@ const DEFAULT_EXPLORERS = {
  *
  * @param {Record<string, string | undefined>} env
  */
-export function readLockerConfig(env = import.meta.env) {
+export function readLockerConfig(env = publicEnv()) {
   const rawAddress = (env.VITE_LOCKER_ADDRESS ?? "").trim();
   const address = rawAddress && isAddress(rawAddress) ? getAddress(rawAddress) : null;
 
@@ -55,6 +73,6 @@ export function addressUrl(config, address) {
  * Demo mode (an in-memory ledger with a role previewer) exists only for development and tests. A production
  * build with no contract configured therefore fails CLOSED: nobody is authorised.
  */
-export function isDemoAllowed(env = import.meta.env) {
+export function isDemoAllowed(env = publicEnv()) {
   return Boolean(env.DEV) || env.MODE === "test";
 }

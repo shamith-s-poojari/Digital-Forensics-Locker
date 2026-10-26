@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Layout from "./Layout";
 import { WalletContext } from "../context/walletContext.js";
+import { RoleTestProvider } from "../test/RoleTestProvider.jsx";
 
 const ACCOUNT = "0x71C7656EC7ab88b098defB751B7401B5f6d8976F";
 const SUFFIX = "Digital Forensics Locker";
@@ -50,7 +51,9 @@ function renderLayout({ account = ACCOUNT, path = "/", wallet = {}, children = <
   const utils = render(
     <MemoryRouter initialEntries={[path]}>
       <WalletContext.Provider value={value}>
-        <Layout>{children}</Layout>
+        <RoleTestProvider isDemo>
+          <Layout>{children}</Layout>
+        </RoleTestProvider>
       </WalletContext.Provider>
     </MemoryRouter>
   );
@@ -144,7 +147,7 @@ describe("Layout document title", () => {
   });
 
   it.each([
-    ["/", "Dashboard"],
+    ["/", "Case Management"],
     ["/upload", "Evidence Upload"],
     ["/evidence", "Evidence Viewer"],
     ["/custody", "Chain of Custody"],
@@ -163,7 +166,7 @@ describe("Layout document title", () => {
   it("restores the previous title on unmount", () => {
     document.title = "Before";
     const { unmount } = renderLayout();
-    expect(document.title).toBe(`Dashboard — ${SUFFIX}`);
+    expect(document.title).toBe(`Case Management — ${SUFFIX}`);
     unmount();
     expect(document.title).toBe("Before");
   });
@@ -292,7 +295,7 @@ describe("Layout on mobile (< 768px)", () => {
     renderLayout();
 
     await user.click(getToggle());
-    await user.click(screen.getByRole("link", { name: "Chain of Custody" }));
+    await user.click(screen.getByRole("link", { name: "Chain of Custody (sample)" }));
 
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(getToggle().getAttribute("aria-expanded")).toBe("false");

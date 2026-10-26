@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { WalletContext } from "./walletContext.js";
+import { parseChainId, WalletContext } from "./walletContext.js";
 
 /** Returns the injected EIP-1193 provider (e.g. MetaMask), or null if there is none. */
 function getEthereumProvider() {
@@ -30,6 +30,7 @@ export function WalletProvider({ children }) {
   const [account, setAccount] = useState(null);
   const [error, setError] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [chainId, setChainId] = useState(null);
   const connectingRef = useRef(false);
 
   const connect = useCallback(async () => {
@@ -48,6 +49,11 @@ export function WalletProvider({ children }) {
       const accounts = await provider.request({ method: "eth_requestAccounts" });
       if (Array.isArray(accounts) && typeof accounts[0] === "string" && accounts[0]) {
         setAccount(accounts[0]);
+        // The chain the wallet is on decides whether the contract can be reached at all. Looked up in the
+        // background so a slow wallet does not hold the "connecting" state open.
+        Promise.resolve(provider.request({ method: "eth_chainId" }))
+          .then((id) => setChainId(parseChainId(id)))
+          .catch(() => setChainId(null));
       } else {
         setError("The wallet did not return any accounts. Unlock your wallet and try again.");
       }
@@ -61,7 +67,27 @@ export function WalletProvider({ children }) {
 
   const disconnect = useCallback(() => {
     setAccount(null);
+    setChainId(null);
     setError(null);
+  }, []);
+
+  /** Asks the wallet to switch networks. Returns true on success; sets `error` otherwise. */
+  const switchChain = useCallback(async (targetChainId) => {
+    const provider = getEthereumProvider();
+    if (!provider) {
+      setError("No Ethereum wallet detected.");
+      return false;
+    }
+    try {
+      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: `0x${targetChainId.toString(16)}` }] });
+      setError(null);
+      return true;
+    } catch (err) {
+      if (err?.code === 4001) setError("Network switch was rejected. Approve it in your wallet to continue.");
+      else if (err?.code === 4902) setError("That network is not in your wallet yet. Add it in your wallet's network settings, then try again.");
+      else setError("Could not switch network. Switch manually in your wallet.");
+      return false;
+    }
   }, []);
 
   const clearError = useCallback(() => setError(null), []);
@@ -81,20 +107,22 @@ export function WalletProvider({ children }) {
         setAccount(accounts[0]);
       }
     };
+    const handleChainChanged = (nextChainId) => setChainId(parseChainId(nextChainId));
 
     provider.on("accountsChanged", handleAccountsChanged);
+    provider.on("chainChanged", handleChainChanged);
     return () => {
-      if (typeof provider.removeListener === "function") {
-        provider.removeListener("accountsChanged", handleAccountsChanged);
-      } else if (typeof provider.off === "function") {
-        provider.off("accountsChanged", handleAccountsChanged);
+      const remove = typeof provider.removeListener === "function" ? "removeListener" : typeof provider.off === "function" ? "off" : null;
+      if (remove) {
+        provider[remove]("accountsChanged", handleAccountsChanged);
+        provider[remove]("chainChanged", handleChainChanged);
       }
     };
   }, [isConnected]);
 
   const value = useMemo(
-    () => ({ account, connect, disconnect, error, isConnecting, clearError }),
-    [account, connect, disconnect, error, isConnecting, clearError]
+    () => ({ account, chainId, connect, disconnect, switchChain, error, isConnecting, clearError }),
+    [account, chainId, connect, disconnect, switchChain, error, isConnecting, clearError]
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
