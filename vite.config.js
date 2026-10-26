@@ -40,5 +40,19 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   return {
     plugins: [react(), pinataProxy(env)],
+    server: {
+      // The SPA and the API share one origin: in development Vite forwards /api/v1 to the API process,
+      // so the browser sees a single origin (no CORS, same-site cookies). /api/pin is still served by the
+      // plugin above until the proxy is retired (Phase 1, PR 9).
+      proxy: {
+        // Regex key (leading ^): matches /api/v1 and /api/v1/..., but not /api/v1foo. The port is the API's
+        // default PORT; change both together if you change it.
+        '^/api/v1(/|$)': { target: 'http://127.0.0.1:8787', changeOrigin: false },
+      },
+    },
+    // The API is its own package with its own test runner; the frontend run must not pick up its tests.
+    test: {
+      exclude: ['**/node_modules/**', '**/dist/**', 'api/**'],
+    },
   }
 })

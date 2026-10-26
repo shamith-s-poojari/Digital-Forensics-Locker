@@ -8,7 +8,11 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "api:dev": "npm --prefix api run dev",
+    "api:lint": "npm --prefix api run lint",
+    "api:typecheck": "npm --prefix api run typecheck",
+    "api:test": "npm --prefix api run test"
   },
   "dependencies": {
     "jspdf": "^4.2.1",

@@ -5,7 +5,8 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // api/ is a separate package with its own (TypeScript-aware) ESLint config.
+  globalIgnores(['dist', 'api']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
