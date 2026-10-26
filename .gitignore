@@ -27,3 +27,6 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Wrapped evidence keys and their access log (development key store; never commit)
+.data/

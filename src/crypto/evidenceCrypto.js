@@ -42,9 +42,13 @@ export function base64ToBytes(text) {
   return Uint8Array.from(binary, (c) => c.charCodeAt(0));
 }
 
+// Realm-safe checks (`instanceof` fails for arrays made in another window, iframe or test environment).
+const isByteView = (value) => ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Uint8Array]";
+const isArrayBuffer = (value) => Object.prototype.toString.call(value) === "[object ArrayBuffer]";
+
 async function toBytes(input) {
-  if (input instanceof Uint8Array) return input;
-  if (input instanceof ArrayBuffer) return new Uint8Array(input);
+  if (isByteView(input)) return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+  if (isArrayBuffer(input)) return new Uint8Array(input);
   if (typeof input?.arrayBuffer === "function") return new Uint8Array(await input.arrayBuffer());
   throw new TypeError("Expected a Blob, File, ArrayBuffer or Uint8Array");
 }
@@ -61,7 +65,7 @@ export async function sha256Hex(bytes) {
  * @returns {{ version: number, keyId: string, iv: Uint8Array, sha256: string, header: Uint8Array } | null}
  */
 export function readEnvelopeHeader(bytes) {
-  if (!(bytes instanceof Uint8Array) || bytes.length < HEADER_BYTES + TAG_BYTES) return null;
+  if (!isByteView(bytes) || bytes.length < HEADER_BYTES + TAG_BYTES) return null;
   for (let i = 0; i < MAGIC.length; i += 1) if (bytes[i] !== MAGIC[i]) return null;
   if (bytes[6] !== ENVELOPE_VERSION || bytes[7] !== ALG_AES_256_GCM) return null;
   return {

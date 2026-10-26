@@ -86,18 +86,27 @@ To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLO
 | `VITE_LOCKER_DEPLOY_BLOCK` | public | Where to start scanning event logs for transaction links. |
 | `VITE_EXPLORER_URL` | public | Block explorer base URL (defaults for Sepolia and Mainnet). |
 | `PINATA_JWT` | **secret, server only** | Pinata key used by the upload proxy. Never prefix it with `VITE_`. |
+| `EVIDENCE_MASTER_KEY` | **secret, server only** | 32 random bytes (base64) that wrap every file's decryption key. Losing it makes every encrypted file unreadable: back it up off this machine. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. |
+| `EVIDENCE_MASTER_KEY_VERSION` | server only | Recorded with each wrapped key, for later rotation (default 1). |
+| `EVIDENCE_KEY_STORE`, `EVIDENCE_KEY_ACCESS_LOG` | server only | Where wrapped keys and the key-release log are written (default `.data/`, git-ignored). |
 
 After changing the contract, run `npm run abi` in `contracts/` to refresh `src/web3/EvidenceLocker.abi.json`; CI fails if it is stale.
 
 ## IPFS upload setup
 
 1. Create a **new** Pinata API key (JWT) with only the `pinFileToIPFS` permission.
-2. Put it in `.env` as `PINATA_JWT=...` (**no `VITE_` prefix**), then restart `npm run dev`. The proxy still accepts the legacy `VITE_PINATA_JWT` name for now and prints a warning, but that name is a leak waiting to happen.
+2. Put it in `.env` as `PINATA_JWT=...` (**no `VITE_` prefix**), add `EVIDENCE_MASTER_KEY` (see the table above), then restart `npm run dev`. The proxy still accepts the legacy `VITE_PINATA_JWT` name for now and prints a warning, but that name is a leak waiting to happen.
 3. Register evidence from the upload page. If the key is missing or wrong, the page shows the server's error against the pinning step and nothing is sent to the ledger.
 
 What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-data` only, 10 MB cap, a required `X-Requested-With` header (blocks cross-site form posts), same-origin `Origin` check, 30 s upstream timeout, and errors that never echo the token. It also requires a wallet sign-in session (below). Sessions are kept in the dev server's memory, so do not expose a dev or preview server to an untrusted network: any wallet can sign in, and a signed-in wallet can spend your Pinata quota. A deployed site needs the same handlers mounted on a real server with a shared session store and a check of the signer's on-chain role; that is not included.
 
-**Pinned files are public and unencrypted.** Do not register real evidence until encrypted storage is in place (see the [roadmap](docs/ROADMAP.md), D4 and D7).
+### Encryption before pinning
+
+The upload page hashes the **original** file (that SHA-256 is what the ledger records and verifies), then encrypts it in the browser with a fresh random AES-256-GCM key (`src/crypto/evidenceCrypto.js`). The key is sent to the key store (`server/keyStore.js`, `POST /api/keys`), which wraps it with `EVIDENCE_MASTER_KEY` and writes only the wrapped form to disk. Only then is the **encrypted copy** pinned, under a neutral file name. The original file and its name never leave the browser.
+
+The pinned file starts with a 68-byte header (format version, key id, IV, plaintext SHA-256) that is authenticated together with the ciphertext, so it cannot be edited unnoticed. To open evidence, choose the encrypted copy in **Check a file against the ledger** on the dashboard: the app checks your sign-in, fetches the key (`GET /api/keys/:keyId`, logged with your address), decrypts in the browser, hashes the plaintext, compares it with the ledger, and offers the decrypted file.
+
+Development limits: the master key is an environment variable, not a KMS or HSM; **any signed-in wallet can fetch any key** (the server does not check on-chain roles yet); the key store is a JSON file for one process. The encrypted copy on public IPFS is permanent, so its safety rests on AES-256 and on the key store. Do not register real evidence yet (see the [roadmap](docs/ROADMAP.md), D4 and D7).
 
 ## Security notes
 
@@ -117,7 +126,7 @@ What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-da
 
 - Prototype: not audited, not deployed, not legally reviewed. An external contract audit and a forensics and legal review are required before any real use (roadmap Phases 5 and 6).
 - Public-chain privacy (see above), and the unsalted `caseRef`.
-- Files are pinned **unencrypted to public IPFS**, and the pin proxy checks only that the caller signed in with some wallet, not that it holds a role.
+- Files are encrypted before they are pinned, but the key server releases a key to **any signed-in wallet** (no role check yet), its master key is an environment variable, and the pin proxy likewise checks only for a sign-in.
 - No backend, database or server-side authentication yet. Case titles and officers come from sample data, matched by `caseRef`, because the chain holds only opaque references.
 - In-browser hashing reads the whole file into memory, so it is limited to 10 MB.
 - The PDF custody report still exists only for the development sample pages; the dashboard exports a JSON case record instead.

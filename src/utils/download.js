@@ -1,6 +1,14 @@
 /** Offers `data` to the user as a downloaded JSON file. */
 export function downloadJson(filename, data) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  downloadBlob(filename, new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+}
+
+/** Offers raw bytes to the user as a downloaded file. */
+export function downloadBytes(filename, bytes, type = "application/octet-stream") {
+  downloadBlob(filename, new Blob([bytes], { type }));
+}
+
+function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

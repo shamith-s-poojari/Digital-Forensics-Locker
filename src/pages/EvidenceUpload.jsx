@@ -4,6 +4,8 @@ import { AlertTriangle, ExternalLink, FileUp, FolderOpen, Info, PauseCircle, Rot
 import TxProgress from "../components/TxProgress";
 import { Badge, Button, CopyChip, Field, INPUT_CLASS, Panel } from "../components/ui";
 import { useWallet } from "../context/walletContext.js";
+import { encryptEvidence } from "../crypto/evidenceCrypto.js";
+import { keyClient as defaultKeyClient } from "../crypto/keyClient.js";
 import { computeSHA256, formatFileSize, MAX_HASH_BYTES } from "../utils/hash";
 import { uploadToIPFSWithProgress } from "../utils/ipfs";
 import { txUrl } from "../web3/config.js";
@@ -15,7 +17,8 @@ import { useWriteFlow } from "../web3/useWriteFlow.js";
 // Module-level so the list is stable across renders.
 const UPLOAD_STEPS = [
   { key: "hash", label: "Compute SHA-256 in your browser" },
-  { key: "pin", label: "Pin the file to IPFS" },
+  { key: "encrypt", label: "Encrypt in your browser and store the key" },
+  { key: "pin", label: "Pin the encrypted copy to IPFS" },
   { key: "sign", label: "Approve in your wallet" },
   { key: "confirm", label: "Confirm on the ledger" },
 ];
@@ -23,14 +26,19 @@ const UPLOAD_STEPS = [
 /**
  * Evidence Upload Interface (Investigators only; the route is guarded and the contract enforces it).
  *
- * One action, four visible stages, each reporting what it is waiting on:
- *   1. hash      SHA-256 of the file, computed locally
- *   2. pin       upload to IPFS through the server-side proxy, with real byte progress
- *   3. sign      the wallet's signature prompt
- *   4. confirm   the transaction waiting for a block, with an explorer link
- * If a later stage fails, earlier results are kept: a file that is already pinned is not pinned again on retry.
+ * One action, five visible stages, each reporting what it is waiting on:
+ *   1. hash      SHA-256 of the ORIGINAL file, computed locally (this is what the ledger records and verifies)
+ *   2. encrypt   AES-256-GCM with a fresh random key, in the browser; the key goes to the key store (server/keyStore.js)
+ *   3. pin       upload of the ENCRYPTED copy to IPFS through the server-side proxy, with real byte progress
+ *   4. sign      the wallet's signature prompt
+ *   5. confirm   the transaction waiting for a block, with an explorer link
+ * Plaintext never leaves the browser, and nothing is pinned unless its key was stored first. If a later stage fails,
+ * earlier results are kept: the same encrypted copy (and key) is reused, and a pinned copy is not pinned again.
+ *
+ * @param {object} props
+ * @param {typeof defaultKeyClient} [props.keyClient] Override for tests.
  */
-export default function EvidenceUpload() {
+export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
   const { ledger, config } = useLedger();
   const { ensureSession } = useWallet();
   const caseId = useId();
@@ -39,7 +47,8 @@ export default function EvidenceUpload() {
   const [caseNumber, setCaseNumber] = useState("");
   const [file, setFile] = useState(null);
   const [hashState, setHashState] = useState({ status: "idle", hash: "", error: "" });
-  const [pinned, setPinned] = useState(null); // { hash, cid } for the file that has been pinned
+  const [encrypted, setEncrypted] = useState(null); // { hash, keyId, envelope } once the key is stored
+  const [pinned, setPinned] = useState(null); // { hash, cid, keyId } for the file that has been pinned
   const [duplicateId, setDuplicateId] = useState(null);
   const [caseError, setCaseError] = useState("");
   const [paused, setPaused] = useState(false);
@@ -67,6 +76,7 @@ export default function EvidenceUpload() {
       const request = ++hashRequest.current;
       flow.reset();
       setResult(null);
+      setEncrypted(null);
       setPinned(null);
       setDuplicateId(null);
       setFile(chosen);
@@ -97,6 +107,7 @@ export default function EvidenceUpload() {
     flow.reset();
     setFile(null);
     setHashState({ status: "idle", hash: "", error: "" });
+    setEncrypted(null);
     setPinned(null);
     setDuplicateId(null);
   }
@@ -120,7 +131,7 @@ export default function EvidenceUpload() {
     const { hash } = hashState;
     const caseRef = deriveCaseRef(caseNumber);
     setSubmitting(true);
-    let stage = "pin";
+    let stage = "encrypt";
     try {
       // Cheap read first: do not upload a file that the ledger will refuse as a duplicate.
       const existing = await ledger.findEvidence(caseRef, hash);
@@ -130,31 +141,52 @@ export default function EvidenceUpload() {
       }
 
       let cid = pinned?.hash === hash ? pinned.cid : null;
+      let keyId = pinned?.hash === hash ? pinned.keyId : null;
       if (cid) {
+        flow.done("encrypt", `Already encrypted earlier (key ${shorten(keyId, 8, 6)})`);
         flow.done("pin", `Already pinned earlier: ${shorten(cid, 12, 8)}`);
       } else {
-        // The pin server only accepts signed-in callers, and a switched or locked wallet must not upload under the old identity.
-        flow.start("pin", "Checking your sign-in…");
+        // The key and pin servers only accept signed-in callers, and a switched or locked wallet must not act under the old identity.
+        flow.start("encrypt", "Checking your sign-in…");
         const auth = await ensureSession();
         if (!auth.ok) {
-          flow.fail("pin", auth.error);
+          flow.fail("encrypt", auth.error);
           return;
         }
-        flow.start("pin", "Uploading to IPFS…");
+
+        let sealed = encrypted?.hash === hash ? encrypted : null;
+        if (sealed) {
+          flow.done("encrypt", `Already encrypted earlier (key ${shorten(sealed.keyId, 8, 6)})`);
+        } else {
+          flow.start("encrypt", "Encrypting with a new AES-256-GCM key…");
+          const { envelope, keyId: newKeyId, key } = await encryptEvidence(file, hash);
+          flow.detail("encrypt", "Storing the decryption key on the key server…");
+          await keyClient.storeKey({ keyId: newKeyId, sha256: hash, key });
+          sealed = { hash, keyId: newKeyId, envelope };
+          setEncrypted(sealed);
+          flow.done("encrypt", `Encrypted; key ${shorten(newKeyId, 8, 6)} stored`);
+        }
+        keyId = sealed.keyId;
+
+        stage = "pin";
+        flow.start("pin", "Uploading the encrypted copy to IPFS…");
         flow.progress("pin", 0);
-        cid = await uploadToIPFSWithProgress(file, {
+        // A neutral name and type: the original file name would otherwise be stored in Pinata's public metadata.
+        const upload = new File([sealed.envelope], `${keyId}.dfl`, { type: "application/octet-stream" });
+        cid = await uploadToIPFSWithProgress(upload, {
           onProgress: (percent) => flow.progress("pin", percent, percent >= 100 ? "Sent. Waiting for Pinata to confirm the pin…" : `Uploading… ${percent}%`),
         });
-        setPinned({ hash, cid });
+        setPinned({ hash, cid, keyId });
         flow.done("pin", `Pinned as ${shorten(cid, 12, 8)}`);
       }
 
       stage = "write";
       const outcome = await runWrite("Register evidence", () => ledger.registerEvidence({ caseRef, sha256: hash, cid }), { keepSteps: true });
-      if (outcome.ok) setResult({ evidenceId: outcome.mined.evidenceId, txHash: outcome.mined.hash, blockNumber: outcome.mined.blockNumber, cid, hash });
+      if (outcome.ok) setResult({ evidenceId: outcome.mined.evidenceId, txHash: outcome.mined.hash, blockNumber: outcome.mined.blockNumber, cid, hash, keyId });
     } catch (err) {
-      // Only the read and the pin can throw here; wallet and chain errors are handled inside runWrite.
-      if (stage === "pin") flow.fail("pin", err?.message ?? friendlyMessage(err));
+      // Only the duplicate check, the encryption, the key store and the pin can throw here; wallet and chain errors are
+      // handled inside runWrite.
+      if (stage === "encrypt" || stage === "pin") flow.fail(stage, err?.message ?? friendlyMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -174,7 +206,7 @@ export default function EvidenceUpload() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div>
         <h1 className="text-xl font-bold text-slate-50">Register Evidence</h1>
-        <p className="text-sm text-slate-300">Hash the file, pin it to IPFS, then record it on the ledger. Each stage is shown as it happens.</p>
+        <p className="text-sm text-slate-300">Hash the file, encrypt it, pin the encrypted copy to IPFS, then record it on the ledger. Each stage is shown as it happens.</p>
       </div>
 
       {paused ? (
@@ -187,8 +219,9 @@ export default function EvidenceUpload() {
       <div role="note" className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
         <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         <span>
-          Pinning puts the file on the <strong>public</strong> IPFS network through Pinata. Anyone who has the CID can read it, and it is not encrypted. Do not register real
-          evidence or sensitive data until encrypted storage is in place.
+          The file is <strong>encrypted in your browser</strong> before it is pinned; only the encrypted copy goes to the <strong>public</strong> IPFS network, where it
+          stays permanently. Its decryption key is kept by the key server, not on IPFS or the ledger. Development build: the server's master key is an environment variable,
+          and any signed-in wallet can request a key. Do not register real evidence yet.
         </span>
       </div>
 
@@ -239,7 +272,7 @@ export default function EvidenceUpload() {
               >
                 <FileUp className="size-8 text-sky-300" aria-hidden="true" />
                 <span className="text-sm font-semibold text-slate-100">{isDragging ? "Drop to hash this file" : "Choose a file or drag it here"}</span>
-                <span className="text-xs text-slate-400">Up to {formatFileSize(MAX_HASH_BYTES)}. Hashing happens in your browser; the file is sent only when you register it.</span>
+                <span className="text-xs text-slate-400">Up to {formatFileSize(MAX_HASH_BYTES)}. Hashing and encryption happen in your browser; the original file is never sent.</span>
               </label>
             </div>
 
@@ -290,7 +323,7 @@ export default function EvidenceUpload() {
 
           <div className="flex flex-wrap items-center gap-3">
             <Button type="submit" variant="primary" size="lg" loading={submitting} disabled={!canSubmit} icon={ShieldCheck}>
-              {submitting ? "Working…" : "Pin and register on the ledger"}
+              {submitting ? "Working…" : "Encrypt, pin and register"}
             </Button>
             {hashState.status === "idle" ? <span className="text-xs text-slate-400">Choose a file to continue.</span> : null}
             {hashState.status === "hashing" ? <span className="text-xs text-slate-400">Waiting for the hash…</span> : null}
@@ -309,6 +342,9 @@ export default function EvidenceUpload() {
                 <p className="text-slate-300">Block {result.blockNumber}</p>
                 <p className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300">
                   CID <CopyChip value={result.cid} display={shorten(result.cid, 12, 8)} label="IPFS CID" textClassName="text-sky-200" />
+                </p>
+                <p className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300">
+                  Key id <CopyChip value={result.keyId} display={shorten(result.keyId, 8, 6)} label="decryption key id" />
                 </p>
                 {explorerHref ? (
                   <a href={explorerHref} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-sky-300 underline underline-offset-2">

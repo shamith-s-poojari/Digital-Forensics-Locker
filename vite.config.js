@@ -2,6 +2,8 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { handlePinRequest, resolvePinataJwt } from './server/pinataProxy.js'
 import { createSiweAuth } from './server/siweAuth.js'
+import { createKeyStore, parseMasterKey } from './server/keyStore.js'
+import { resolve } from 'node:path'
 
 function sendInternalError(res, label, err) {
   console.error(`[${label}] unexpected error:`, err?.message)
@@ -12,7 +14,8 @@ function sendInternalError(res, label, err) {
   }
 }
 
-// Mounts the wallet sign-in endpoints (/api/auth/*) and POST /api/pin on the Vite dev and preview servers.
+// Mounts the wallet sign-in endpoints (/api/auth/*), the evidence key store (/api/keys) and POST /api/pin on the
+// Vite dev and preview servers. The master key, like the Pinata JWT, is read only here.
 // The Pinata JWT is read here, in Node, and is never exposed to the browser bundle (it is not passed through
 // `define` or import.meta.env). /api/pin is refused unless the caller holds a sign-in session.
 function serverApi(env) {
@@ -21,11 +24,22 @@ function serverApi(env) {
   // provider refuses the wrong network on its own, and the contract can only be written on its chain).
   const auth = createSiweAuth()
   const authorize = (req) => auth.getSession(req) !== null
+  const keyStore = createKeyStore({
+    masterKey: parseMasterKey(env.EVIDENCE_MASTER_KEY),
+    masterKeyVersion: Number(env.EVIDENCE_MASTER_KEY_VERSION) > 0 ? Number(env.EVIDENCE_MASTER_KEY_VERSION) : 1,
+    filePath: resolve(env.EVIDENCE_KEY_STORE || '.data/evidence-keys.json'),
+    accessLogPath: resolve(env.EVIDENCE_KEY_ACCESS_LOG || '.data/key-access.log'),
+    getSession: auth.getSession,
+  })
   let warned = false
   const middleware = (req, res, next) => {
     const path = req.url?.split('?')[0]
     if (path?.startsWith('/api/auth/')) {
       auth.handle(req, res).catch((err) => sendInternalError(res, 'siwe-auth', err))
+      return
+    }
+    if (path === '/api/keys' || path?.startsWith('/api/keys/')) {
+      keyStore.handle(req, res).catch((err) => sendInternalError(res, 'key-store', err))
       return
     }
     if (path !== '/api/pin') return next()
