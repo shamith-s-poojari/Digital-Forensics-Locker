@@ -68,7 +68,7 @@ function readCookie(req, name) {
 }
 
 /** Same rule as the pin proxy: a custom header (forces a CORS preflight cross-site) and a same-host Origin. */
-function isSameSiteRequest(req) {
+export function isSameSiteRequest(req) {
   if (req.headers["x-requested-with"] !== REQUIRED_HEADER_VALUE) return false;
   const origin = req.headers.origin;
   if (!origin) return true;
