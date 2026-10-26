@@ -60,6 +60,8 @@ Exit: all section-6 decisions recorded; old key revoked; protected `main` with g
 
 Goal: a server that knows who is calling. Addresses T1, T2, T5.
 
+Specs: [`specs/README.md`](specs/README.md) (API skeleton, database schema, SIWE login, PR plan). The spec recommends creating only the tables Phase 1 uses (`users`, `auth_nonces`, `sessions`, `audit_log`) and deferring `cases`, `evidence` and `custody_events` to the phases whose endpoints use them; the bullets below are the original list.
+
 - [ ] API service (Node + TypeScript recommended for new server code) with health checks, structured logging, rate limiting, and security headers (CSP, HSTS).
 - [ ] PostgreSQL with migrations. Tables: users, roles, cases, evidence, custody_events, sessions, audit_log.
 - [ ] **Sign-In with Ethereum (EIP-4361):** server-issued nonce, signature verification, expiry, httpOnly session cookie. Replace "connect shows an address" with real login.
