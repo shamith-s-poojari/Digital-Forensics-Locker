@@ -21,9 +21,24 @@ function publicEnv() {
     VITE_CHAIN_ID: import.meta.env.VITE_CHAIN_ID,
     VITE_LOCKER_DEPLOY_BLOCK: import.meta.env.VITE_LOCKER_DEPLOY_BLOCK,
     VITE_EXPLORER_URL: import.meta.env.VITE_EXPLORER_URL,
+    VITE_IPFS_GATEWAYS: import.meta.env.VITE_IPFS_GATEWAYS,
     DEV: import.meta.env.DEV,
     MODE: import.meta.env.MODE,
   };
+}
+
+/** Public IPFS gateways tried in order when the app fetches a stored copy to verify it. */
+export const DEFAULT_IPFS_GATEWAYS = ["https://ipfs.io/ipfs/", "https://gateway.pinata.cloud/ipfs/"];
+
+/** "https://a/ipfs/, https://b/ipfs" -> normalised list; HTTPS only (plain HTTP just for a local node). */
+export function parseGateways(value) {
+  const list = String(value ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((s) => /^https:\/\//i.test(s) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(s))
+    .map((s) => (s.endsWith("/") ? s : `${s}/`));
+  return list.length ? list : DEFAULT_IPFS_GATEWAYS;
 }
 
 const DEFAULT_EXPLORERS = {
@@ -52,6 +67,7 @@ export function readLockerConfig(env = publicEnv()) {
     chainName: CHAIN_NAMES[chainId] ?? `Chain ${chainId}`,
     deployBlock,
     explorerUrl,
+    ipfsGateways: parseGateways(env.VITE_IPFS_GATEWAYS),
     configured: address !== null,
     /** True when an address was supplied but is not a valid one (a typo that must not silently become "demo"). */
     invalidAddress: rawAddress !== "" && address === null,

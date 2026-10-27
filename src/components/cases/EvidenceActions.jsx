@@ -1,71 +1,80 @@
 import { useEffect, useId, useState } from "react";
-import { ArrowRightLeft, Download, Eye, FileSearch, ShieldCheck, ShieldX } from "lucide-react";
+import { ArrowRightLeft, CloudDownload, Download, Eye, FileSearch, ShieldCheck, ShieldX } from "lucide-react";
 import { useWallet } from "../../context/walletContext.js";
-import { decryptEvidence, HEADER_BYTES, readEnvelopeHeader, sha256Hex } from "../../crypto/evidenceCrypto.js";
 import { keyClient as defaultKeyClient } from "../../crypto/keyClient.js";
 import { downloadBytes } from "../../utils/download.js";
-import { formatFileSize, MAX_HASH_BYTES } from "../../utils/hash";
+import { formatFileSize } from "../../utils/hash";
+import { MAX_VERIFY_BYTES, openAndHash, verifyStoredCopy } from "../../verify/verifyEvidence.js";
+import { lockerConfig } from "../../web3/config.js";
 import { sameAddress, shorten } from "../../web3/format.js";
 import { friendlyMessage, LedgerError } from "../../web3/ledgerErrors.js";
 import { CAPABILITIES } from "../../web3/roles.js";
 import Can from "../Can";
 import { Badge, Button, CopyChip, Field, INPUT_CLASS, Panel, Spinner } from "../ui";
 
-/** An encrypted copy is its plaintext plus the envelope header and the 16-byte GCM tag. */
-const ENVELOPE_OVERHEAD_BYTES = HEADER_BYTES + 16;
-const IDLE = { phase: "idle", fileName: "", hash: "", matches: null, error: "", detail: "", decrypted: null };
+const IDLE = { phase: "idle", source: "", hash: "", matches: null, error: "", detail: "", decrypted: null, encrypted: false };
+
+/** Ledger errors get the ledger's plain-language wording; the key server, gateways and decryption already speak plainly. */
+const describe = (err) => (err instanceof LedgerError || !err?.message ? friendlyMessage(err) : err.message);
 
 /**
- * Hash a local file (keyed by evidence id by the caller, so a result never carries over to another item) and ask the
- * ledger whether it equals the registered hash.
+ * Verifies one evidence item (keyed by evidence id by the caller, so a result never carries over to another item):
+ * get the bytes, open them if they are an encrypted copy, hash the ORIGINAL bytes in the browser, and ask the ledger
+ * whether that hash is the registered one. Two sources:
  *
- * - An original file: read-only, free, no wallet signature.
- * - An encrypted copy (as pinned to IPFS): its key is fetched from the key server, which needs a current sign-in and
- *   logs the release. The copy is decrypted in the browser and the PLAINTEXT is hashed, so the check always refers to
- *   the original evidence bytes. The decrypted file can then be saved.
+ * - "Fetch from IPFS": the stored copy, by the CID on the ledger, from public gateways. A gateway cannot make a check
+ *   pass: the copy is authenticated by its decryption and the hash is compared with the chain.
+ * - A local file: the original file or an encrypted copy. An original file needs no sign-in.
+ *
+ * Opening an encrypted copy needs a current sign-in to fetch its key, and the key server logs that.
  */
-function CheckFile({ record, ledger, paused, runWrite, keyClient }) {
+function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
   const inputId = useId();
   const { ensureSession } = useWallet();
   const [state, setState] = useState(IDLE);
+  const onStage = (detail) => setState((s) => ({ ...s, detail }));
 
   async function onFile(event) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (file.size > MAX_HASH_BYTES + ENVELOPE_OVERHEAD_BYTES) {
-      setState({ ...IDLE, phase: "error", fileName: file.name, error: `This file is ${formatFileSize(file.size)}; the limit for in-browser hashing is ${formatFileSize(MAX_HASH_BYTES)}.` });
+    if (file.size > MAX_VERIFY_BYTES) {
+      setState({ ...IDLE, phase: "error", source: file.name, error: `This file is ${formatFileSize(file.size)}; the limit for in-browser hashing is 10.00 MB.` });
       return;
     }
-    setState({ ...IDLE, phase: "working", fileName: file.name, detail: `Hashing ${file.name}…` });
+    setState({ ...IDLE, phase: "working", source: file.name, detail: `Reading ${file.name}…` });
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const header = readEnvelopeHeader(bytes);
-      if (!header) {
-        if (file.size > MAX_HASH_BYTES) throw new Error(`This file is ${formatFileSize(file.size)}; the limit for in-browser hashing is ${formatFileSize(MAX_HASH_BYTES)}.`);
-        const hash = await sha256Hex(bytes);
-        const matches = await ledger.verifyHash(record.id, hash);
-        setState({ ...IDLE, phase: "done", fileName: file.name, hash, matches });
-        return;
-      }
-
-      setState((s) => ({ ...s, detail: "Encrypted copy detected. Checking your sign-in…" }));
-      const auth = await ensureSession();
-      if (!auth.ok) throw new Error(auth.error);
-      setState((s) => ({ ...s, detail: "Fetching the decryption key…" }));
-      const { key } = await keyClient.fetchKey(header.keyId);
-      setState((s) => ({ ...s, detail: "Decrypting in your browser…" }));
-      const { plaintext, sha256, matchesHeader } = await decryptEvidence(bytes, key);
-      const matches = matchesHeader && (await ledger.verifyHash(record.id, sha256));
-      setState({ ...IDLE, phase: "done", fileName: file.name, hash: sha256, matches, decrypted: plaintext });
+      const opened = await openAndHash(new Uint8Array(await file.arrayBuffer()), { ensureSession, keyClient, onStage });
+      onStage("Comparing with the hash on the ledger…");
+      const matches = await ledger.verifyHash(record.id, opened.sha256);
+      setState({ ...IDLE, phase: "done", source: file.name, hash: opened.sha256, matches, decrypted: opened.plaintext, encrypted: opened.encrypted });
     } catch (err) {
-      // Ledger errors get the ledger's plain-language wording; the key server and decryption already speak plainly.
-      setState({ ...IDLE, phase: "error", fileName: file.name, error: err instanceof LedgerError || !err?.message ? friendlyMessage(err) : err.message });
+      setState({ ...IDLE, phase: "error", source: file.name, error: describe(err) });
     }
   }
 
+  async function onFetch() {
+    setState({ ...IDLE, phase: "working", source: "IPFS", detail: "Fetching the stored copy…" });
+    try {
+      const result = await verifyStoredCopy({ record, ledger, gateways, ensureSession, keyClient, onStage });
+      const source = `Stored copy ${shorten(record.cid, 10, 6)} via ${new URL(result.gateway).host}`;
+      setState({ ...IDLE, phase: "done", source, hash: result.sha256, matches: result.matches, decrypted: result.plaintext, encrypted: result.encrypted });
+    } catch (err) {
+      setState({ ...IDLE, phase: "error", source: "IPFS", error: describe(err) });
+    }
+  }
+
+  const working = state.phase === "working";
+
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button icon={CloudDownload} disabled={working} onClick={() => void onFetch()}>
+          Fetch from IPFS and verify
+        </Button>
+        <span className="text-xs text-slate-400">Downloads the stored copy by its CID, opens it, hashes it here and compares with the ledger.</span>
+      </div>
+
       <Field
         label="Check a file against the ledger"
         htmlFor={inputId}
@@ -74,13 +83,14 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient }) {
         <input
           id={inputId}
           type="file"
+          disabled={working}
           onChange={(e) => void onFile(e)}
           className={`${INPUT_CLASS} file:mr-3 file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1 file:text-sm file:font-semibold file:text-slate-100`}
         />
       </Field>
 
       <div aria-live="polite">
-        {state.phase === "working" ? <Spinner label={state.detail} /> : null}
+        {working ? <Spinner label={state.detail} /> : null}
         {state.phase === "error" ? (
           <p role="alert" className="text-sm text-rose-300">
             {state.error}
@@ -93,8 +103,8 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient }) {
               {state.matches ? "This file's hash equals the hash registered on the ledger." : "This file's hash does NOT match the hash registered on the ledger."}
             </p>
             <p className="mt-1 text-xs text-slate-300">
-              {state.fileName}
-              {state.decrypted ? " (encrypted copy, decrypted in your browser)" : ""} · SHA-256 of the {state.decrypted ? "decrypted " : ""}contents{" "}
+              {state.source}
+              {state.encrypted ? " (encrypted copy, decrypted in your browser)" : ""} · SHA-256 of the {state.encrypted ? "decrypted " : ""}contents{" "}
               <CopyChip value={state.hash} display={shorten(state.hash, 10, 8)} label="computed SHA-256" />
             </p>
             <p className="mt-2 text-xs text-slate-400">
@@ -123,6 +133,7 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient }) {
     </div>
   );
 }
+
 
 /** Investigator-only form that moves custody; the Chief uses the same form for emergency reassignment. */
 function CustodyForm({ record, ledger, account, paused, runWrite, mode }) {
@@ -199,14 +210,14 @@ function CustodyForm({ record, ledger, account, paused, runWrite, mode }) {
  * Actions on the selected evidence item. Everyone who can view can check a file; writing actions appear only for the
  * roles that may perform them (the contract enforces this regardless of what is shown).
  */
-export default function EvidenceActions({ record, ledger, account, paused, runWrite, keyClient = defaultKeyClient }) {
+export default function EvidenceActions({ record, ledger, account, paused, runWrite, keyClient = defaultKeyClient, gateways = lockerConfig.ipfsGateways }) {
   if (!record) return null;
   const isCustodian = sameAddress(record.custodian, account);
 
   return (
     <Panel title="Actions" titleId="actions-heading">
       <div className="space-y-4">
-        <CheckFile key={record.id} record={record} ledger={ledger} paused={paused} runWrite={runWrite} keyClient={keyClient} />
+        <CheckFile key={record.id} record={record} ledger={ledger} paused={paused} runWrite={runWrite} keyClient={keyClient} gateways={gateways} />
 
         <Can capability={CAPABILITIES.LOG_CUSTODY}>
           <div className="flex flex-wrap items-center gap-2 border-t border-slate-800 pt-3">

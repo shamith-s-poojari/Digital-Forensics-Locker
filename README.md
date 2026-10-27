@@ -87,6 +87,7 @@ To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLO
 | `VITE_CHAIN_ID` | public | Network the contract is on (default Sepolia, 11155111). A wallet on another network is asked to switch. |
 | `VITE_LOCKER_DEPLOY_BLOCK` | public | Where to start scanning event logs for transaction links. |
 | `VITE_EXPLORER_URL` | public | Block explorer base URL (defaults for Sepolia and Mainnet). |
+| `VITE_IPFS_GATEWAYS` | public | Comma-separated IPFS gateways tried in order when verifying a stored copy (default `https://ipfs.io/ipfs/,https://gateway.pinata.cloud/ipfs/`). HTTPS only, or plain HTTP to a local node. |
 | `PINATA_JWT` | **secret, server only** | Pinata key used by the upload proxy. Never prefix it with `VITE_`. |
 | `EVIDENCE_MASTER_KEY` | **secret, server only** | 32 random bytes (base64) that wrap every file's decryption key. Losing it makes every encrypted file unreadable: back it up off this machine. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. |
 | `EVIDENCE_MASTER_KEY_VERSION` | server only | Recorded with each wrapped key, for later rotation (default 1). |
@@ -109,6 +110,15 @@ The upload page hashes the **original** file (that SHA-256 is what the ledger re
 The pinned file starts with a 68-byte header (format version, key id, IV, plaintext SHA-256) that is authenticated together with the ciphertext, so it cannot be edited unnoticed. To open evidence, choose the encrypted copy in **Check a file against the ledger** on the dashboard: the app checks your sign-in, fetches the key (`GET /api/keys/:keyId`, logged with your address), decrypts in the browser, hashes the plaintext, compares it with the ledger, and offers the decrypted file.
 
 Development limits: the master key is an environment variable, not a KMS or HSM; **any signed-in wallet can fetch any key** (the server does not check on-chain roles yet); the key store is a JSON file for one process. The encrypted copy on public IPFS is permanent, so its safety rests on AES-256 and on the key store. Do not register real evidence yet (see the [roadmap](docs/ROADMAP.md), D4 and D7).
+
+## Verification
+
+Two checks run in the browser, on the case dashboard (`src/verify/`):
+
+- **One evidence item: Fetch from IPFS and verify.** The app downloads the stored copy by the CID on the ledger (from the gateways in `VITE_IPFS_GATEWAYS`, in order, capped at the 10 MB limit), decrypts it if it is an encrypted copy (this needs a sign-in, and the key release is logged), hashes the **original** bytes locally and asks the contract whether that hash is the registered one. A gateway is not trusted: altered bytes fail decryption, and the hash is compared with the chain, so a gateway can make a check fail but never pass. The same pipeline checks a file you choose from disk.
+- **A whole case: Case chain.** The selected case's records are taken in order and every link is recomputed from the record's own fields and the previous link (`h_0 = SHA256(caseId)`, `h_i = SHA256(h_{i-1} || e_i || CID_i || W_i || T_i)`), stopping at the first mismatch. It reports which record broke and why (link mismatch, missing or out-of-order record, record from another case); later records are marked not checked. This walk re-derives the result from the record data and does not ask the contract; the contract's own `verifyCaseChain` is a second, independent check.
+
+Privacy: a public gateway learns that someone fetched a given CID, and from which IP address.
 
 ## Security notes
 

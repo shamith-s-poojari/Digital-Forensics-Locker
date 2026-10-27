@@ -33,6 +33,35 @@ const seeded = () => createDemoStore();
 const loaded = () => screen.findByRole("heading", { name: /Evidence · / });
 const caseButtons = () => within(screen.getByRole("heading", { name: "Cases" }).closest("section")).getAllByRole("button");
 
+describe("CaseDashboard: case chain", () => {
+  it("re-walks the selected case's chain in the browser and reports it intact", async () => {
+    renderWithDemo(<CaseDashboard />, { store: seeded() });
+    await loaded();
+    const panel = screen.getByRole("heading", { name: "Case chain" }).closest("section");
+    expect(within(panel).getByRole("status").textContent).toMatch(/Case chain intact: all \d+ records? re-linked/);
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Show the walk" }));
+    const steps = within(within(panel).getByRole("list", { name: "Case chain walk" })).getAllByRole("listitem");
+    expect(steps.every((li) => li.dataset.status === "ok")).toBe(true);
+  });
+
+  it("names the first broken record when a stored record was altered, and checks nothing after it", async () => {
+    const store = seeded();
+    const first = groupByCase(store.evidence)[0];
+    const ordered = [...first.evidence].sort((a, b) => a.caseIndex - b.caseIndex);
+    store.evidence.find((e) => e.id === ordered[0].id).submittedAt -= 86_400; // backdated by a day
+    renderWithDemo(<CaseDashboard />, { store });
+    await loaded();
+
+    const panel = screen.getByRole("heading", { name: "Case chain" }).closest("section");
+    expect(within(panel).getByRole("status").textContent).toContain(`CASE CHAIN BROKEN at position 0 (evidence #${ordered[0].id})`);
+    fireEvent.click(within(panel).getByRole("button", { name: "Show the walk" }));
+    const statuses = within(panel).getAllByRole("listitem").map((li) => li.dataset.status);
+    expect(statuses[0]).toBe("link-mismatch");
+    expect(statuses.slice(1).every((s) => s === "not-checked")).toBe(true);
+  });
+});
+
 describe("CaseDashboard: reading the ledger", () => {
   it("summarises the ledger and lists the evidence of the selected case with its hash and CID", async () => {
     const store = seeded();

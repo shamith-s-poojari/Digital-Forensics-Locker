@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, Download, FilePlus2, Inbox } from "lucide-react";
 import Can from "../components/Can";
+import CaseChainCheck from "../components/cases/CaseChainCheck";
 import CaseList from "../components/cases/CaseList";
 import CustodyTimeline from "../components/cases/CustodyTimeline";
 import DashboardHeader from "../components/cases/DashboardHeader";
@@ -145,6 +146,7 @@ export default function CaseDashboard() {
           </div>
 
           <div className="min-w-0 space-y-4">
+            <CaseChainCheck group={group} />
             <EvidenceTable group={group} selectedId={record?.id ?? null} onSelect={(id) => setSelection({ caseRef: group.caseRef, id })} account={account} />
             <EvidenceActions record={record} ledger={ledger} account={account} paused={paused} runWrite={runWrite} />
           </div>
