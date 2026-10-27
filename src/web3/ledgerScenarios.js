@@ -11,7 +11,7 @@ import { LEDGER_ERROR } from "./ledgerErrors.js";
  * Each scenario receives a fresh context `ctx`:
  *   ctx.as(name)      -> the ledger bound to that actor
  *   ctx.address(name) -> the actor's address
- * Actors: chief (Admin), alice and bob (Investigators), carol (Auditor), dave (no role).
+ * Actors: chief (the Chief), alice and bob (Investigators), carol (Auditor), dave (no role).
  */
 
 const HASH_1 = "11".repeat(32);
@@ -64,7 +64,7 @@ export const scenarios = [
     },
   },
   {
-    name: "only investigators can register evidence (not the admin, auditors or outsiders)",
+    name: "only investigators can register evidence (not the Chief, auditors or outsiders)",
     async run(ctx) {
       for (const who of ["chief", "carol", "dave"]) {
         await rejectsWith(ctx.as(who).registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: CID, caseDigest: DIGEST }), LEDGER_ERROR.NOT_AUTHORIZED);
@@ -151,30 +151,59 @@ export const scenarios = [
     },
   },
   {
-    name: "the admin grants and revokes roles; members are listed; others cannot grant",
+    name: "the Chief grants and revokes roles; members are listed; others cannot grant",
     async run(ctx) {
       const members = await ctx.as("dave").listRoleMembers();
-      assert.equal(members.admin, ctx.address("chief"));
+      assert.equal(members.chief, ctx.address("chief"));
       assert.deepEqual([...members.investigators].sort(), [ctx.address("alice"), ctx.address("bob")].sort());
       assert.deepEqual(members.auditors, [ctx.address("carol")]);
+      assert.deepEqual(members.admins, []);
 
       await rejectsWith(ctx.as("alice").grantRole("auditor", ctx.address("dave")), LEDGER_ERROR.NOT_AUTHORIZED);
 
       await mine(ctx.as("chief").grantRole("investigator", ctx.address("dave")));
-      assert.deepEqual(await ctx.as("dave").getRoles(ctx.address("dave")), { isAdmin: false, isInvestigator: true, isAuditor: false });
+      assert.deepEqual(await ctx.as("dave").getRoles(ctx.address("dave")), { isChief: false, isAdmin: false, isInvestigator: true, isAuditor: false });
       assert.equal(await registerAs(ctx, "dave"), 1);
 
       await mine(ctx.as("chief").revokeRole("investigator", ctx.address("dave")));
-      assert.deepEqual(await ctx.as("dave").getRoles(ctx.address("dave")), { isAdmin: false, isInvestigator: false, isAuditor: false });
+      assert.deepEqual(await ctx.as("dave").getRoles(ctx.address("dave")), { isChief: false, isAdmin: false, isInvestigator: false, isAuditor: false });
       await rejectsWith(ctx.as("dave").logAccess(1), LEDGER_ERROR.NOT_AUTHORIZED);
       assert.ok(!(await ctx.as("dave").listRoleMembers()).investigators.includes(ctx.address("dave")));
 
-      // The admin has no evidence powers of its own.
-      assert.deepEqual(await ctx.as("chief").getRoles(ctx.address("chief")), { isAdmin: true, isInvestigator: false, isAuditor: false });
+      // The Chief has no evidence powers of its own.
+      assert.deepEqual(await ctx.as("chief").getRoles(ctx.address("chief")), { isChief: true, isAdmin: false, isInvestigator: false, isAuditor: false });
     },
   },
   {
-    name: "pause stops investigator writes; the admin can still recover stranded custody",
+    name: "the Chief appoints Admins; an Admin manages working roles and can pause, but cannot appoint Admins or write evidence",
+    async run(ctx) {
+      await rejectsWith(ctx.as("alice").grantRole("admin", ctx.address("dave")), LEDGER_ERROR.NOT_AUTHORIZED);
+      await mine(ctx.as("chief").grantRole("admin", ctx.address("dave")));
+      assert.deepEqual(await ctx.as("carol").getRoles(ctx.address("dave")), { isChief: false, isAdmin: true, isInvestigator: false, isAuditor: false });
+      assert.deepEqual((await ctx.as("carol").listRoleMembers()).admins, [ctx.address("dave")]);
+
+      // Working roles: yes.
+      await mine(ctx.as("dave").grantRole("auditor", ctx.address("alice")));
+      assert.deepEqual(await ctx.as("carol").getRoles(ctx.address("alice")), { isChief: false, isAdmin: false, isInvestigator: true, isAuditor: true });
+      await mine(ctx.as("dave").revokeRole("auditor", ctx.address("alice")));
+      assert.equal((await ctx.as("carol").getRoles(ctx.address("alice"))).isAuditor, false);
+
+      // Other Admins: no.
+      await rejectsWith(ctx.as("dave").grantRole("admin", ctx.address("carol")), LEDGER_ERROR.NOT_AUTHORIZED);
+
+      // Pause: yes. Evidence: no.
+      await mine(ctx.as("dave").pause());
+      assert.equal(await ctx.as("carol").isPaused(), true);
+      await mine(ctx.as("dave").unpause());
+      await rejectsWith(ctx.as("dave").registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: CID, caseDigest: DIGEST }), LEDGER_ERROR.NOT_AUTHORIZED);
+
+      // Removed by the Chief, the powers go at once.
+      await mine(ctx.as("chief").revokeRole("admin", ctx.address("dave")));
+      await rejectsWith(ctx.as("dave").grantRole("auditor", ctx.address("bob")), LEDGER_ERROR.NOT_AUTHORIZED);
+    },
+  },
+  {
+    name: "pause stops investigator writes; the Chief can still recover stranded custody",
     async run(ctx) {
       await registerAs(ctx, "alice");
       await mine(ctx.as("chief").pause());

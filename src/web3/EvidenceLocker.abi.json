@@ -412,6 +412,19 @@
   },
   {
     "inputs": [],
+    "name": "ADMIN_ROLE",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "AUDITOR_ROLE",
     "outputs": [
       {
@@ -1207,6 +1220,11 @@
     ],
     "name": "rolesOf",
     "outputs": [
+      {
+        "internalType": "bool",
+        "name": "isChief",
+        "type": "bool"
+      },
       {
         "internalType": "bool",
         "name": "isAdmin",

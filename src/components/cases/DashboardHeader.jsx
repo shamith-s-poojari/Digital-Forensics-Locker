@@ -6,7 +6,7 @@ import { shorten } from "../../web3/format.js";
 import { ROLE_LABELS, ROLES } from "../../web3/roles.js";
 import { Badge, Button, CopyChip } from "../ui";
 
-const ROLE_TONE = { [ROLES.ADMIN]: "warning", [ROLES.INVESTIGATOR]: "info", [ROLES.AUDITOR]: "neutral", [ROLES.NONE]: "danger" };
+const ROLE_TONE = { [ROLES.CHIEF]: "warning", [ROLES.ADMIN]: "warning", [ROLES.INVESTIGATOR]: "info", [ROLES.AUDITOR]: "neutral", [ROLES.NONE]: "danger" };
 
 function Kpi({ icon: Icon, label, value, tone = "text-slate-100", hint, valueClass = "text-2xl" }) {
   return (

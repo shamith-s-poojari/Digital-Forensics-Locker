@@ -71,10 +71,10 @@ describe("createAccessRequestStore", () => {
     expect(JSON.parse(await readFile(filePath, "utf8")).requests[0].address).toBe(ALICE);
   });
 
-  it("refuses the admin role, unknown roles and over-long reasons", async () => {
+  it("refuses the Chief seat, unknown roles and over-long reasons", async () => {
     const { submit } = setup();
-    expect((await submit({ role: "admin" })).status).toBe(400);
-    expect((await submit({ role: "chief" })).status).toBe(400);
+    expect((await submit({ role: "chief" })).status).toBe(400); // the Chief seat moves only by transfer
+    expect((await submit({ role: "superuser" })).status).toBe(400);
     expect((await submit({ role: "auditor", reason: "x".repeat(501) })).status).toBe(400);
     expect((await submit("not json")).status).toBe(400);
   });

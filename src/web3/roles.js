@@ -10,13 +10,15 @@ export const ROLES = Object.freeze({
   AUDITOR: "auditor",
   INVESTIGATOR: "investigator",
   ADMIN: "admin",
+  CHIEF: "chief",
 });
 
 export const ROLE_LABELS = Object.freeze({
   [ROLES.NONE]: "No role",
   [ROLES.AUDITOR]: "Auditor",
   [ROLES.INVESTIGATOR]: "Investigator",
-  [ROLES.ADMIN]: "Admin (Chief)",
+  [ROLES.ADMIN]: "Admin",
+  [ROLES.CHIEF]: "Chief",
 });
 
 export const CAPABILITIES = Object.freeze({
@@ -24,20 +26,25 @@ export const CAPABILITIES = Object.freeze({
   UPLOAD: "upload", // register new evidence
   LOG_CUSTODY: "logCustody", // log access, record verification on chain
   TRANSFER: "transfer", // hand custody to another investigator
-  MANAGE_ROLES: "manageRoles", // grant and revoke Investigator / Auditor
+  MANAGE_ROLES: "manageRoles", // grant and revoke Investigator / Auditor, decide access requests
+  MANAGE_ADMINS: "manageAdmins", // appoint and remove Admins
   PAUSE: "pause", // pause and unpause all investigator writes
   REASSIGN: "reassign", // recover stranded custody
 });
 
-/** Which role flag unlocks which capability. Separation of duties: the admin has NO evidence-writing capability. */
+/**
+ * Which role flag unlocks which capability, mirroring the contract. Separation of duties: neither the Chief nor an
+ * Admin has any evidence-writing capability unless also an Investigator.
+ */
 const REQUIRED_FLAG = Object.freeze({
-  [CAPABILITIES.VIEW]: ["isAdmin", "isInvestigator", "isAuditor"],
+  [CAPABILITIES.VIEW]: ["isChief", "isAdmin", "isInvestigator", "isAuditor"],
   [CAPABILITIES.UPLOAD]: ["isInvestigator"],
   [CAPABILITIES.LOG_CUSTODY]: ["isInvestigator"],
   [CAPABILITIES.TRANSFER]: ["isInvestigator"],
-  [CAPABILITIES.MANAGE_ROLES]: ["isAdmin"],
-  [CAPABILITIES.PAUSE]: ["isAdmin"],
-  [CAPABILITIES.REASSIGN]: ["isAdmin"],
+  [CAPABILITIES.MANAGE_ROLES]: ["isChief", "isAdmin"],
+  [CAPABILITIES.MANAGE_ADMINS]: ["isChief"],
+  [CAPABILITIES.PAUSE]: ["isChief", "isAdmin"],
+  [CAPABILITIES.REASSIGN]: ["isChief"],
 });
 
 /**
@@ -53,11 +60,12 @@ export const ROUTE_CAPABILITY = Object.freeze({
   "/custody": CAPABILITIES.VIEW,
 });
 
-export const NO_ROLES = Object.freeze({ isAdmin: false, isInvestigator: false, isAuditor: false });
+export const NO_ROLES = Object.freeze({ isChief: false, isAdmin: false, isInvestigator: false, isAuditor: false });
 
-/** Normalises whatever the ledger returned into three strict booleans. */
+/** Normalises whatever the ledger returned into four strict booleans. */
 export function toRoleFlags(value) {
   return {
+    isChief: value?.isChief === true,
     isAdmin: value?.isAdmin === true,
     isInvestigator: value?.isInvestigator === true,
     isAuditor: value?.isAuditor === true,
@@ -67,6 +75,7 @@ export function toRoleFlags(value) {
 /** The single most privileged role, for badges. An address can hold several; use `can()` for decisions. */
 export function primaryRole(flags) {
   const f = toRoleFlags(flags);
+  if (f.isChief) return ROLES.CHIEF;
   if (f.isAdmin) return ROLES.ADMIN;
   if (f.isInvestigator) return ROLES.INVESTIGATOR;
   if (f.isAuditor) return ROLES.AUDITOR;
@@ -84,7 +93,7 @@ export function can(flags, capability) {
 /** Roles (as labels) that would grant a capability, for "you need X" messages. */
 export function rolesGranting(capability) {
   const required = REQUIRED_FLAG[capability] ?? [];
-  const byFlag = { isAdmin: ROLES.ADMIN, isInvestigator: ROLES.INVESTIGATOR, isAuditor: ROLES.AUDITOR };
+  const byFlag = { isChief: ROLES.CHIEF, isAdmin: ROLES.ADMIN, isInvestigator: ROLES.INVESTIGATOR, isAuditor: ROLES.AUDITOR };
   return required.map((flag) => ROLE_LABELS[byFlag[flag]]);
 }
 

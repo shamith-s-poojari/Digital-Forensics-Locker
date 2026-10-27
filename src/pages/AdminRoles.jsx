@@ -5,6 +5,7 @@ import { useAccessRequests } from "../access/accessRequestContext.js";
 import Can from "../components/Can";
 import WriteActivity from "../components/WriteActivity";
 import { Badge, Button, CopyChip, Field, INPUT_CLASS, Panel, Spinner } from "../components/ui";
+import { useRole } from "../context/roleContext.js";
 import { useWallet } from "../context/walletContext.js";
 import { sameAddress } from "../web3/format.js";
 import { useLedger } from "../web3/ledgerContext.js";
@@ -20,18 +21,27 @@ const loadAdminData = async (ledger) => {
 const ROLE_OPTIONS = [
   { value: "investigator", label: "Investigator", help: "Can register evidence, log access and verification, and transfer custody." },
   { value: "auditor", label: "Auditor", help: "Read-only: can view the ledger and check files against it. Cannot write." },
+  {
+    value: "admin",
+    label: "Admin",
+    help: "Can grant and revoke Investigators and Auditors, approve access requests and pause the ledger. Cannot appoint Admins or write evidence.",
+    chiefOnly: true,
+  },
 ];
+
+const MEMBER_LIST = { admin: "admins", investigator: "investigators", auditor: "auditors" };
+const holdersOf = (members, role) => members[MEMBER_LIST[role]] ?? [];
 
 /**
  * Pending access requests. Approving grants the role on the ledger (a transaction the contract checks) and only then
- * marks the request approved; rejecting just records the decision.
+ * marks the request approved; rejecting just records the decision. Only the Chief can approve an Admin request.
  */
-function RequestsPanel({ members, busy, runWrite, ledger }) {
+function RequestsPanel({ members, busy, runWrite, ledger, canManageAdmins }) {
   const requests = useAccessRequests();
   const [error, setError] = useState("");
   if (requests.status === "unavailable") return null;
 
-  const holds = (r) => (r.role === "investigator" ? members.investigators : members.auditors).some((a) => sameAddress(a, r.address));
+  const holds = (r) => holdersOf(members, r.role).some((a) => sameAddress(a, r.address));
 
   async function approve(r) {
     setError("");
@@ -82,9 +92,13 @@ function RequestsPanel({ members, busy, runWrite, ledger }) {
                 {r.reason ? <p className="text-sm text-slate-300">{r.reason}</p> : null}
                 <p className="text-xs text-slate-500">Requested {new Date(r.createdAt).toLocaleString()}</p>
               </div>
-              <Button size="sm" variant="primary" icon={Check} disabled={busy} onClick={() => void approve(r)} aria-label={`Approve ${ROLE_LABELS[r.role]} for ${r.address}`}>
-                Approve
-              </Button>
+              {r.role === "admin" && !canManageAdmins ? (
+                <span className="text-xs text-slate-400">Only the Chief can approve Admins</span>
+              ) : (
+                <Button size="sm" variant="primary" icon={Check} disabled={busy} onClick={() => void approve(r)} aria-label={`Approve ${ROLE_LABELS[r.role]} for ${r.address}`}>
+                  Approve
+                </Button>
+              )}
               <Button size="sm" variant="ghost" icon={X} disabled={busy} onClick={() => void reject(r)} aria-label={`Reject request from ${r.address}`}>
                 Reject
               </Button>
@@ -96,13 +110,13 @@ function RequestsPanel({ members, busy, runWrite, ledger }) {
   );
 }
 
-function MemberRow({ address, role, isYou, disabled, onRevoke }) {
+function MemberRow({ address, role, isYou, disabled, canRevoke = true, onRevoke }) {
   const [confirming, setConfirming] = useState(false);
   return (
     <li className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-4 py-2 last:border-b-0">
       <CopyChip value={address} label={`${role} address`} className="min-w-0 flex-1" />
       {isYou ? <Badge tone="info">you</Badge> : null}
-      {confirming ? (
+      {!canRevoke ? null : confirming ? (
         <span className="flex items-center gap-1.5">
           <Button
             size="sm"
@@ -129,14 +143,16 @@ function MemberRow({ address, role, isYou, disabled, onRevoke }) {
 }
 
 /**
- * Role Management (Admin / Chief only). Registers authorised addresses and assigns or revokes the Investigator and
- * Auditor roles on the contract, and can pause or resume all evidence writes.
+ * Role Management (Chief and Admins). Assigns or revokes the Investigator and Auditor roles on the contract, decides
+ * access requests, and can pause or resume all evidence writes. Only the Chief appoints or removes Admins.
  *
- * The Chief can manage roles but, by design, cannot register evidence unless also given the Investigator role.
+ * By design neither the Chief nor an Admin can register evidence unless also given the Investigator role.
  */
 export default function AdminRoles() {
   const { ledger, config } = useLedger();
   const { account } = useWallet();
+  const canManageAdmins = useRole().can(CAPABILITIES.MANAGE_ADMINS);
+  const roleOptions = ROLE_OPTIONS.filter((r) => !r.chiefOnly || canManageAdmins);
   const { status, data, error, reload } = useLedgerQuery(loadAdminData);
   const write = useWriteFlow({ config, onConfirmed: reload });
 
@@ -157,8 +173,7 @@ export default function AdminRoles() {
       setFormError("Enter a valid wallet address (0x followed by 40 hex characters).");
       return;
     }
-    const holders = role === "investigator" ? members.investigators : members.auditors;
-    if (holders.some((a) => sameAddress(a, trimmed))) {
+    if (holdersOf(members, role).some((a) => sameAddress(a, trimmed))) {
       setFormError(`That address is already an ${roleInfo.label}.`);
       return;
     }
@@ -191,14 +206,14 @@ export default function AdminRoles() {
         <>
           <Panel title="Chief" titleId="chief-heading" bodyClassName="flex flex-wrap items-center gap-2 p-4">
             <Crown className="size-4 text-amber-300" aria-hidden="true" />
-            <CopyChip value={members.admin} label="Chief address" />
-            {sameAddress(members.admin, account) ? <Badge tone="info">you</Badge> : null}
+            <CopyChip value={members.chief} label="Chief address" />
+            {sameAddress(members.chief, account) ? <Badge tone="info">you</Badge> : null}
             <p className="basis-full text-xs text-slate-400">
               The Chief role moves only through the contract&apos;s two-step transfer with a waiting period. It cannot be granted from this page.
             </p>
           </Panel>
 
-          <RequestsPanel members={members} busy={busy} runWrite={write.runWrite} ledger={ledger} />
+          <RequestsPanel members={members} busy={busy} runWrite={write.runWrite} ledger={ledger} canManageAdmins={canManageAdmins} />
 
           <Panel title="Authorise an address" titleId="grant-heading">
             <form onSubmit={(e) => void onGrant(e)} noValidate className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end">
@@ -219,7 +234,7 @@ export default function AdminRoles() {
               </Field>
               <Field label="Role" htmlFor={roleId}>
                 <select id={roleId} value={role} onChange={(e) => setRole(e.target.value)} className={INPUT_CLASS}>
-                  {ROLE_OPTIONS.map((r) => (
+                  {roleOptions.map((r) => (
                     <option key={r.value} value={r.value}>
                       {r.label}
                     </option>
@@ -234,9 +249,10 @@ export default function AdminRoles() {
           </Panel>
 
           {[
-            { key: "investigator", title: "Investigators", list: members.investigators },
-            { key: "auditor", title: "Auditors", list: members.auditors },
-          ].map(({ key, title, list }) => (
+            { key: "admin", title: "Admins", list: members.admins, canRevoke: canManageAdmins },
+            { key: "investigator", title: "Investigators", list: members.investigators, canRevoke: true },
+            { key: "auditor", title: "Auditors", list: members.auditors, canRevoke: true },
+          ].map(({ key, title, list, canRevoke }) => (
             <Panel key={key} title={`${title} (${list.length})`} titleId={`${key}-heading`} bodyClassName="p-0">
               {list.length === 0 ? (
                 <p className="px-4 py-6 text-center text-sm text-slate-400">No addresses hold this role.</p>
@@ -249,6 +265,7 @@ export default function AdminRoles() {
                       role={key}
                       isYou={sameAddress(a, account)}
                       disabled={busy}
+                      canRevoke={canRevoke}
                       onRevoke={() => void write.runWrite(`Revoke ${key} role`, () => ledger.revokeRole(key, a))}
                     />
                   ))}

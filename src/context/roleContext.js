@@ -5,8 +5,8 @@ import { createContext, useContext } from "react";
  *
  *   status   "loading" | "ready" | "disconnected" | "wrong-network" | "unconfigured" | "misconfigured" | "error"
  *   mode     "chain" | "demo" | ... (see ledgerContext.js)
- *   roles    { isAdmin, isInvestigator, isAuditor }; all false unless status is "ready"
- *   role     the single most privileged role, for badges ("none" | "auditor" | "investigator" | "admin")
+ *   roles    { isChief, isAdmin, isInvestigator, isAuditor }; all false unless status is "ready"
+ *   role     the single most privileged role, for badges ("none" | "auditor" | "investigator" | "admin" | "chief")
  *   can(cap) true only when status is "ready" AND the role grants the capability (fails closed)
  *   error    message when status is "error"
  *   refresh  re-reads the roles from the ledger

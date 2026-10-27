@@ -8,7 +8,8 @@ import { LedgerError, LEDGER_ERROR, normalizeError } from "./ledgerErrors.js";
  * (ledgerScenarios.js) runs against both, so the demo cannot drift from the real contract.
  *
  * Shapes
- *   RoleFlags   { isAdmin, isInvestigator, isAuditor }
+ *   RoleFlags   { isChief, isAdmin, isInvestigator, isAuditor }
+ *   Members     { chief, admins[], investigators[], auditors[] }
  *   Evidence    { id, caseRef, sha256, cid, submitter, custodian, submittedAt, custodyCount, custodyHead, link, caseIndex,
  *                 caseDigest, custody[] }   (link: this record's case-chain value h_i; caseIndex: its position in the
  *                 case; caseDigest: the case-details digest it anchored)
@@ -25,6 +26,7 @@ const ZERO_HASH = `0x${"0".repeat(64)}`;
 
 /** Role ids are keccak256 of the role name, exactly as in the contract. */
 export const ROLE_IDS = Object.freeze({
+  admin: keccakId("ADMIN_ROLE"),
   investigator: keccakId("INVESTIGATOR_ROLE"),
   auditor: keccakId("AUDITOR_ROLE"),
 });
@@ -138,8 +140,8 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
     // ---- reads ---------------------------------------------------------------------------------------------
     getRoles: (account) =>
       guard(async () => {
-        const [isAdmin, isInvestigator, isAuditor] = await reader.rolesOf(account);
-        return { isAdmin, isInvestigator, isAuditor };
+        const [isChief, isAdmin, isInvestigator, isAuditor] = await reader.rolesOf(account);
+        return { isChief, isAdmin, isInvestigator, isAuditor };
       }),
 
     listEvidence: () =>
@@ -176,12 +178,13 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
 
     listRoleMembers: () =>
       guard(async () => {
-        const [admin, investigators, auditors] = await Promise.all([
+        const [chief, admins, investigators, auditors] = await Promise.all([
           reader.defaultAdmin(),
+          reader.getRoleMembers(ROLE_IDS.admin),
           reader.getRoleMembers(ROLE_IDS.investigator),
           reader.getRoleMembers(ROLE_IDS.auditor),
         ]);
-        return { admin, investigators: [...investigators], auditors: [...auditors] };
+        return { chief, admins: [...admins], investigators: [...investigators], auditors: [...auditors] };
       }),
 
     isPaused: () => guard(() => reader.paused()),

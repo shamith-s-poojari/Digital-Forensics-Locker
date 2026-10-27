@@ -42,12 +42,12 @@ describe("Sidebar by role", () => {
   });
 
   it("shows the Chief the dashboard and role management, but not evidence upload", () => {
-    renderSidebar({}, "/cases", { roles: { isAdmin: true }, isDemo: false });
+    renderSidebar({}, "/cases", { roles: { isChief: true }, isDemo: false });
     expect(names()).toEqual(["Case Management", "Role Management"]);
   });
 
   it("shows someone holding both roles everything they may use", () => {
-    renderSidebar({}, "/cases", { roles: { isAdmin: true, isInvestigator: true }, isDemo: false });
+    renderSidebar({}, "/cases", { roles: { isChief: true, isInvestigator: true }, isDemo: false });
     expect(names()).toEqual(["Case Management", "Evidence Upload", "Role Management"]);
   });
 
@@ -58,7 +58,7 @@ describe("Sidebar by role", () => {
     renderSidebar({}, "/cases", { roles: {}, isDemo: false });
     expect(names()).toEqual([]);
     cleanup();
-    renderSidebar({}, "/cases", { status: "error", roles: { isAdmin: true }, isDemo: false });
+    renderSidebar({}, "/cases", { status: "error", roles: { isChief: true }, isDemo: false });
     expect(names()).toEqual([]);
   });
 

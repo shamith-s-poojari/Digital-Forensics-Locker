@@ -11,10 +11,13 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
  *         write access.
  *
  * Roles
- *  - Admin (the "Chief"): OpenZeppelin DEFAULT_ADMIN_ROLE. Grants and revokes the two working roles, pauses the
- *    contract and can reassign stranded custody. Transferring the admin role is two-step and time-delayed
- *    (AccessControlDefaultAdminRules). The admin can NOT register or log evidence unless it is also given the
- *    investigator role: separation of duties.
+ *  - Chief: OpenZeppelin DEFAULT_ADMIN_ROLE, held by exactly one address. Appoints and removes Admins, grants and
+ *    revokes the two working roles, pauses the contract and can reassign stranded custody. Transferring the Chief
+ *    seat is two-step and time-delayed (AccessControlDefaultAdminRules).
+ *  - Admin: ADMIN_ROLE, any number of holders, appointed by the Chief. Grants and revokes the two working roles and
+ *    pauses the contract. Cannot appoint other Admins or reassign custody.
+ *  - Neither the Chief nor an Admin can register or log evidence unless also given the investigator role:
+ *    separation of duties.
  *  - Investigator: registers evidence, logs access and verification, transfers custody.
  *  - Auditor: holds no write permission. Everything is readable by everyone (see below), so the role exists to
  *    make the audience explicit and for the UI; it grants no on-chain secrecy.
@@ -55,6 +58,8 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     // Roles
     // ---------------------------------------------------------------------------------------------------------
 
+    /// @dev Administered by DEFAULT_ADMIN_ROLE (the Chief), OpenZeppelin's default for a new role.
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant INVESTIGATOR_ROLE = keccak256("INVESTIGATOR_ROLE");
     bytes32 public constant AUDITOR_ROLE = keccak256("AUDITOR_ROLE");
 
@@ -140,7 +145,7 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     mapping(uint256 caseId => uint256[] ids) private _caseRecords;
     /// @dev keccak256(caseId, sha256Hash) => id, to reject registering the same bytes twice under one case.
     mapping(bytes32 key => uint256 id) private _idByKey;
-    /// @dev Members of the two working roles, so the admin UI can list authorised addresses without scanning logs.
+    /// @dev Members of ADMIN_ROLE and the two working roles, so the UI can list them without scanning logs.
     mapping(bytes32 role => EnumerableSet.AddressSet) private _members;
 
     // ---------------------------------------------------------------------------------------------------------
@@ -195,6 +200,33 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     constructor(uint48 initialAdminDelay, address initialAdmin)
         AccessControlDefaultAdminRules(initialAdminDelay, initialAdmin)
     {}
+
+    /// @dev The Chief or an Admin.
+    modifier onlyChiefOrAdmin() {
+        if (!hasRole(DEFAULT_ADMIN_ROLE, msg.sender) && !hasRole(ADMIN_ROLE, msg.sender)) {
+            revert AccessControlUnauthorizedAccount(msg.sender, ADMIN_ROLE);
+        }
+        _;
+    }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // Role management
+    // ---------------------------------------------------------------------------------------------------------
+
+    /**
+     * @notice Grants a role. The Chief may grant ADMIN_ROLE and the working roles; an Admin may grant only the
+     *         working roles (INVESTIGATOR_ROLE, AUDITOR_ROLE). The Chief seat itself moves only by two-step transfer.
+     */
+    function grantRole(bytes32 role, address account) public override {
+        if (_isWorkingRole(role) && hasRole(ADMIN_ROLE, msg.sender)) _grantRole(role, account);
+        else super.grantRole(role, account);
+    }
+
+    /// @notice Revokes a role, with the same permissions as `grantRole`.
+    function revokeRole(bytes32 role, address account) public override {
+        if (_isWorkingRole(role) && hasRole(ADMIN_ROLE, msg.sender)) _revokeRole(role, account);
+        else super.revokeRole(role, account);
+    }
 
     // ---------------------------------------------------------------------------------------------------------
     // Investigator actions (all revert while paused)
@@ -289,11 +321,11 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     }
 
     /// @notice Stops all investigator writes (for example after a suspected key compromise).
-    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function pause() external onlyChiefOrAdmin {
         _pause();
     }
 
-    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function unpause() external onlyChiefOrAdmin {
         _unpause();
     }
 
@@ -417,23 +449,35 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
         return head == st.custodyHead;
     }
 
-    /// @notice Addresses currently holding INVESTIGATOR_ROLE or AUDITOR_ROLE. Any other role returns an empty list.
+    /// @notice Addresses currently holding ADMIN_ROLE, INVESTIGATOR_ROLE or AUDITOR_ROLE. Any other role returns an
+    ///         empty list (the Chief is `defaultAdmin()`).
     function getRoleMembers(bytes32 role) external view returns (address[] memory) {
         return _members[role].values();
     }
 
-    /// @notice Which roles an address holds. A single address can hold several (for example admin and investigator).
-    function rolesOf(address account) external view returns (bool isAdmin, bool isInvestigator, bool isAuditor) {
-        return (hasRole(DEFAULT_ADMIN_ROLE, account), hasRole(INVESTIGATOR_ROLE, account), hasRole(AUDITOR_ROLE, account));
+    /// @notice Which roles an address holds. A single address can hold several (for example Chief and investigator).
+    function rolesOf(address account)
+        external
+        view
+        returns (bool isChief, bool isAdmin, bool isInvestigator, bool isAuditor)
+    {
+        return (
+            hasRole(DEFAULT_ADMIN_ROLE, account),
+            hasRole(ADMIN_ROLE, account),
+            hasRole(INVESTIGATOR_ROLE, account),
+            hasRole(AUDITOR_ROLE, account)
+        );
     }
 
     /**
-     * @notice The single most privileged role an address holds: "Admin", "Investigator", "Auditor" or "None".
-     * @dev For display and simple gating only. An address can hold several roles (an admin who is also an
+     * @notice The single most privileged role an address holds: "Chief", "Admin", "Investigator", "Auditor" or
+     *         "None".
+     * @dev For display and simple gating only. An address can hold several roles (a Chief who is also an
      *      investigator), so access decisions should use `rolesOf` or `hasRole`.
      */
     function getUserRole(address user) external view returns (string memory) {
-        if (hasRole(DEFAULT_ADMIN_ROLE, user)) return "Admin";
+        if (hasRole(DEFAULT_ADMIN_ROLE, user)) return "Chief";
+        if (hasRole(ADMIN_ROLE, user)) return "Admin";
         if (hasRole(INVESTIGATOR_ROLE, user)) return "Investigator";
         if (hasRole(AUDITOR_ROLE, user)) return "Auditor";
         return "None";
@@ -513,17 +557,25 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     }
 
     // ---------------------------------------------------------------------------------------------------------
-    // Member tracking for the two working roles. Every grant and revoke (including renounce) funnels through these
-    // two internal hooks, so the lists cannot drift from the real role state.
+    // Member tracking for ADMIN_ROLE and the two working roles. Every grant and revoke (including renounce) funnels
+    // through these two internal hooks, so the lists cannot drift from the real role state.
     // ---------------------------------------------------------------------------------------------------------
+
+    function _isWorkingRole(bytes32 role) private pure returns (bool) {
+        return role == INVESTIGATOR_ROLE || role == AUDITOR_ROLE;
+    }
+
+    function _isListedRole(bytes32 role) private pure returns (bool) {
+        return role == ADMIN_ROLE || _isWorkingRole(role);
+    }
 
     function _grantRole(bytes32 role, address account) internal override returns (bool granted) {
         granted = super._grantRole(role, account);
-        if (granted && (role == INVESTIGATOR_ROLE || role == AUDITOR_ROLE)) _members[role].add(account);
+        if (granted && _isListedRole(role)) _members[role].add(account);
     }
 
     function _revokeRole(bytes32 role, address account) internal override returns (bool revoked) {
         revoked = super._revokeRole(role, account);
-        if (revoked && (role == INVESTIGATOR_ROLE || role == AUDITOR_ROLE)) _members[role].remove(account);
+        if (revoked && _isListedRole(role)) _members[role].remove(account);
     }
 }

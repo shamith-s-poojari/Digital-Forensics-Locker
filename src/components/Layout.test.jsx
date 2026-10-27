@@ -162,8 +162,8 @@ describe("Layout role gate", () => {
   });
 
   it("shows the most privileged role when the wallet holds several", () => {
-    renderLayout({ roles: { isAdmin: true, isInvestigator: true } });
-    expect(screen.getByText("Admin (Chief)", { selector: "[data-role]" })).toBeTruthy();
+    renderLayout({ roles: { isChief: true, isInvestigator: true } });
+    expect(screen.getByText("Chief", { selector: "[data-role]" })).toBeTruthy();
   });
 
   it("denies an address with no role: no page, no sidebar, no badge, and a way to disconnect", () => {

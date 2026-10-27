@@ -22,11 +22,12 @@ async function deploy() {
   const locker = await ethers.deployContract("EvidenceLocker", [ADMIN_DELAY, chief.address]);
   const INVESTIGATOR = await locker.INVESTIGATOR_ROLE();
   const AUDITOR = await locker.AUDITOR_ROLE();
-  const ADMIN = await locker.DEFAULT_ADMIN_ROLE();
+  const ADMIN = await locker.DEFAULT_ADMIN_ROLE(); // the Chief
+  const ADMINS = await locker.ADMIN_ROLE(); // the multi-holder Admin role
   await locker.connect(chief).grantRole(INVESTIGATOR, alice.address);
   await locker.connect(chief).grantRole(INVESTIGATOR, bob.address);
   await locker.connect(chief).grantRole(AUDITOR, carol.address);
-  return { locker, chief, alice, bob, carol, dave, eve, INVESTIGATOR, AUDITOR, ADMIN };
+  return { locker, chief, alice, bob, carol, dave, eve, INVESTIGATOR, AUDITOR, ADMIN, ADMINS };
 }
 
 async function withEvidence() {
@@ -39,27 +40,27 @@ describe("EvidenceLocker", () => {
   describe("roles", () => {
     it("makes the constructor argument the admin and nobody else anything", async () => {
       const { locker, chief, alice, dave } = await deploy();
-      expect(await locker.rolesOf(chief.address)).to.deep.equal([true, false, false]);
-      expect(await locker.rolesOf(alice.address)).to.deep.equal([false, true, false]);
-      expect(await locker.rolesOf(dave.address)).to.deep.equal([false, false, false]);
+      expect(await locker.rolesOf(chief.address)).to.deep.equal([true, false, false, false]);
+      expect(await locker.rolesOf(alice.address)).to.deep.equal([false, false, true, false]);
+      expect(await locker.rolesOf(dave.address)).to.deep.equal([false, false, false, false]);
       expect(await locker.defaultAdmin()).to.equal(chief.address);
     });
 
     it("reports a holder of several roles correctly", async () => {
       const { locker, chief, alice, AUDITOR } = await deploy();
       await locker.connect(chief).grantRole(AUDITOR, alice.address);
-      expect(await locker.rolesOf(alice.address)).to.deep.equal([false, true, true]);
+      expect(await locker.rolesOf(alice.address)).to.deep.equal([false, false, true, true]);
     });
 
     it("names the highest role an address holds, or None", async () => {
       const { locker, chief, alice, carol, dave, INVESTIGATOR, AUDITOR } = await deploy();
-      expect(await locker.getUserRole(chief.address)).to.equal("Admin");
+      expect(await locker.getUserRole(chief.address)).to.equal("Chief");
       expect(await locker.getUserRole(alice.address)).to.equal("Investigator");
       expect(await locker.getUserRole(carol.address)).to.equal("Auditor");
       expect(await locker.getUserRole(dave.address)).to.equal("None");
 
       await locker.connect(chief).grantRole(INVESTIGATOR, chief.address);
-      expect(await locker.getUserRole(chief.address)).to.equal("Admin"); // the highest role wins
+      expect(await locker.getUserRole(chief.address)).to.equal("Chief"); // the highest role wins
       await locker.connect(chief).grantRole(AUDITOR, alice.address);
       expect(await locker.getUserRole(alice.address)).to.equal("Investigator");
       await locker.connect(chief).revokeRole(INVESTIGATOR, alice.address);
@@ -124,6 +125,67 @@ describe("EvidenceLocker", () => {
       expect(await locker.defaultAdmin()).to.equal(dave.address);
       expect((await locker.rolesOf(chief.address))[0]).to.equal(false);
       expect((await locker.rolesOf(dave.address))[0]).to.equal(true);
+    });
+  });
+
+  describe("Admin role (ADMIN_ROLE)", () => {
+    it("is appointed and removed only by the Chief", async () => {
+      const { locker, chief, alice, dave, eve, ADMINS } = await deploy();
+      await locker.connect(chief).grantRole(ADMINS, dave.address);
+      expect(await locker.rolesOf(dave.address)).to.deep.equal([false, true, false, false]);
+      expect(await locker.getUserRole(dave.address)).to.equal("Admin");
+      expect(await locker.getRoleMembers(ADMINS)).to.deep.equal([dave.address]);
+
+      // Neither an Admin nor anyone else can appoint or remove Admins.
+      await expect(locker.connect(dave).grantRole(ADMINS, eve.address))
+        .to.be.revertedWithCustomError(locker, "AccessControlUnauthorizedAccount")
+        .withArgs(dave.address, ethers.ZeroHash);
+      await expect(locker.connect(alice).grantRole(ADMINS, eve.address)).to.be.revertedWithCustomError(locker, "AccessControlUnauthorizedAccount");
+      await locker.connect(chief).grantRole(ADMINS, eve.address);
+      await expect(locker.connect(dave).revokeRole(ADMINS, eve.address)).to.be.revertedWithCustomError(locker, "AccessControlUnauthorizedAccount");
+
+      await locker.connect(chief).revokeRole(ADMINS, dave.address);
+      expect(await locker.getRoleMembers(ADMINS)).to.deep.equal([eve.address]);
+      expect(await locker.getUserRole(dave.address)).to.equal("None");
+    });
+
+    it("lets an Admin grant and revoke the working roles, but never the Chief seat", async () => {
+      const { locker, chief, alice, dave, eve, INVESTIGATOR, AUDITOR, ADMIN, ADMINS } = await deploy();
+      await locker.connect(chief).grantRole(ADMINS, dave.address);
+
+      await expect(locker.connect(dave).grantRole(INVESTIGATOR, eve.address)).to.emit(locker, "RoleGranted").withArgs(INVESTIGATOR, eve.address, dave.address);
+      await locker.connect(dave).grantRole(AUDITOR, eve.address);
+      expect(await locker.rolesOf(eve.address)).to.deep.equal([false, false, true, true]);
+      await locker.connect(dave).revokeRole(INVESTIGATOR, alice.address);
+      expect(await locker.getRoleMembers(INVESTIGATOR)).to.not.include(alice.address);
+
+      await expect(locker.connect(dave).grantRole(ADMIN, eve.address)).to.be.revertedWithCustomError(locker, "AccessControlEnforcedDefaultAdminRules");
+      await expect(locker.connect(dave).revokeRole(ADMIN, chief.address)).to.be.revertedWithCustomError(locker, "AccessControlEnforcedDefaultAdminRules");
+      expect(await locker.defaultAdmin()).to.equal(chief.address);
+    });
+
+    it("lets an Admin pause and unpause, but not reassign custody or write evidence", async () => {
+      const { locker, chief, alice, bob, dave, ADMINS } = await deploy();
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST);
+      await locker.connect(chief).grantRole(ADMINS, dave.address);
+
+      await locker.connect(dave).pause();
+      expect(await locker.paused()).to.equal(true);
+      await locker.connect(dave).unpause();
+      expect(await locker.paused()).to.equal(false);
+
+      await expect(locker.connect(dave).reassignCustody(1, bob.address, NOTE)).to.be.revertedWithCustomError(locker, "AccessControlUnauthorizedAccount");
+      await expect(locker.connect(dave).registerEvidence(CASE_B, HASH_2, CID_1, DIGEST)).to.be.revertedWithCustomError(locker, "AccessControlUnauthorizedAccount");
+      await expect(locker.connect(dave).logAccess(1, NOTE)).to.be.revertedWithCustomError(locker, "AccessControlUnauthorizedAccount");
+    });
+
+    it("loses its powers as soon as it is revoked or renounced", async () => {
+      const { locker, chief, dave, eve, INVESTIGATOR, ADMINS } = await deploy();
+      await locker.connect(chief).grantRole(ADMINS, dave.address);
+      await locker.connect(dave).renounceRole(ADMINS, dave.address);
+      expect(await locker.getRoleMembers(ADMINS)).to.have.lengthOf(0);
+      await expect(locker.connect(dave).grantRole(INVESTIGATOR, eve.address)).to.be.revertedWithCustomError(locker, "AccessControlUnauthorizedAccount");
+      await expect(locker.connect(dave).pause()).to.be.revertedWithCustomError(locker, "AccessControlUnauthorizedAccount");
     });
   });
 

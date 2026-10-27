@@ -23,18 +23,20 @@ A chain-of-custody system for digital evidence. A React web app and a Solidity s
 
 ## Roles
 
-| | Admin (Chief) | Investigator | Auditor |
-| --- | --- | --- | --- |
-| View cases, evidence, custody timeline | yes | yes | yes |
-| Check a file against the ledger (free, read-only) | yes | yes | yes |
-| Register evidence | **no** | yes | no |
-| Log access, record a verification result | **no** | yes | no |
-| Transfer custody | **no** | only the current custodian, only to another Investigator | no |
-| Grant and revoke Investigator / Auditor | yes | no | no |
-| Pause and resume all evidence writes | yes | no | no |
-| Reassign custody when the custodian cannot act | yes (recorded as such) | no | no |
+| | Chief | Admin | Investigator | Auditor |
+| --- | --- | --- | --- | --- |
+| View cases, evidence, custody timeline | yes | yes | yes | yes |
+| Check a file against the ledger (free, read-only) | yes | yes | yes | yes |
+| Register evidence | **no** | **no** | yes | no |
+| Log access, record a verification result | **no** | **no** | yes | no |
+| Transfer custody | **no** | **no** | only the current custodian, only to another Investigator | no |
+| Grant and revoke Investigator / Auditor, decide access requests | yes | yes | no | no |
+| Appoint and remove Admins | yes | **no** | no | no |
+| Pause and resume all evidence writes | yes | yes | no | no |
+| Reassign custody when the custodian cannot act | yes (recorded as such) | no | no | no |
 
-- **Separation of duties:** the Chief manages roles but cannot write evidence unless also given the Investigator role.
+- **Chief and Admins:** there is one Chief (the contract's `DEFAULT_ADMIN_ROLE`) and any number of Admins (`ADMIN_ROLE`), whom only the Chief appoints. Admins share the day-to-day role management so the Chief is not a bottleneck.
+- **Separation of duties:** neither the Chief nor an Admin can write evidence unless also given the Investigator role.
 - **The Chief role** is one address, moved only by the contract's two-step transfer with a waiting period. Use a multisig, not a personal wallet, for anything real.
 - **"Auditor is read-only" means "no write permission", not secrecy.** Blockchain reads cannot be restricted, so every view function is open. Privacy comes from what is stored (below), not from who may read.
 
@@ -59,12 +61,13 @@ npm run dev          # http://localhost:5173
 
 With no contract configured, a development build runs on the **in-memory demo ledger** with sample data. It enforces roles like the contract: a wallet only gets in if it holds a role, and any other wallet sees **Access Denied: Address not registered**.
 
-**Getting access.** On the Access Denied screen a wallet can **request a role** (Investigator or Auditor, with an optional reason). The Chief sees pending requests, with a count on the Role Management link, and approves (which grants the role on the ledger) or rejects. A request grants nothing by itself. On the demo ledger, if nobody is the Chief yet, the Access Denied screen also offers **Make this wallet the Chief**. To try it with one browser, use two MetaMask accounts: make the first the Chief, switch to the second and request a role, then switch back to approve. Demo roles and requests are lost when the page reloads.
+**Getting access.** On the Access Denied screen a wallet can **request a role** (Admin, Investigator or Auditor, with an optional reason). The Chief and Admins see pending requests, with a count on the Role Management link, and approve (which grants the role on the ledger) or reject. Only the Chief can approve an Admin request. A request grants nothing by itself. On the demo ledger, if nobody is the Chief yet, the Access Denied screen also offers **Make this wallet the Chief**. To try it with one browser, use two MetaMask accounts: make the first the Chief, switch to the second and request a role, then switch back to approve. Demo roles and requests are lost when the page reloads.
 
 To keep roles across reloads, give your own MetaMask accounts roles in `.env` (use a different account per role to try each one), then restart `npm run dev`:
 
 ```bash
-VITE_DEMO_ADMIN=0xYourChiefAccount
+VITE_DEMO_CHIEF=0xYourChiefAccount
+VITE_DEMO_ADMINS=0xYourAdminAccount
 VITE_DEMO_INVESTIGATORS=0xYourInvestigatorAccount
 VITE_DEMO_AUDITORS=0xYourAuditorAccount
 ```
@@ -100,7 +103,7 @@ npx hardhat node        # terminal 1, leave running; prints test accounts and th
 
 ```bash
 cd contracts
-INVESTIGATORS=0xYourInvestigatorAccount AUDITORS=0xYourAuditorAccount npx hardhat run scripts/deploy.ts --network localhost
+ADMINS=0xYourAdminAccount INVESTIGATORS=0xYourInvestigatorAccount AUDITORS=0xYourAuditorAccount npx hardhat run scripts/deploy.ts --network localhost
 ```
 
 The Chief is the first test account printed by `hardhat node`; import its private key into MetaMask (it is a public, test-only key) to manage roles. Add the network to MetaMask (RPC `http://127.0.0.1:8545`, chain id 31337), copy the printed `VITE_*` values into `.env` and restart `npm run dev`. The accounts you name are sent 10 test ETH for gas. Restarting `hardhat node` wipes the chain, so deploy again after a restart.

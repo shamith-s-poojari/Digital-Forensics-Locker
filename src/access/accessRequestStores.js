@@ -7,7 +7,8 @@
 //   (account: the acting address. The demo uses it; the server ignores it and uses the signed-in session.)
 //
 //   Request = { id, address, role, reason, status, createdAt, resolvedBy, resolvedAt }
-//             role: "investigator" | "auditor"; status: "pending" | "approved" | "rejected"
+//             role: "admin" | "investigator" | "auditor"; status: "pending" | "approved" | "rejected"
+//             (The Chief seat cannot be requested; it moves only by the contract's two-step transfer.)
 //
 // A request grants nothing. Access comes only from the role on the ledger, which the Chief grants in a transaction
 // that the contract checks; "approved" is bookkeeping recorded after that transaction is confirmed.
@@ -17,7 +18,7 @@
 
 import { sameAddress } from "../web3/format.js";
 
-export const REQUESTABLE_ROLES = Object.freeze(["investigator", "auditor"]);
+export const REQUESTABLE_ROLES = Object.freeze(["admin", "investigator", "auditor"]);
 export const MAX_REASON_LENGTH = 500;
 
 const HEADERS = { "X-Requested-With": "forensics-locker" };
@@ -47,7 +48,7 @@ export const httpAccessRequestStore = {
 /** Validates a request's fields (shared with the server). Returns { role, reason } or { error }. */
 export function readRequestFields(input) {
   const role = input?.role;
-  if (!REQUESTABLE_ROLES.includes(role)) return { error: "Choose Investigator or Auditor." };
+  if (!REQUESTABLE_ROLES.includes(role)) return { error: "Choose Admin, Investigator or Auditor." };
   const reason = String(input?.reason ?? "").replace(/\s+/g, " ").trim();
   if (reason.length > MAX_REASON_LENGTH) return { error: `The reason is longer than ${MAX_REASON_LENGTH} characters.` };
   return { role, reason };

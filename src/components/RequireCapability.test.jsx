@@ -43,7 +43,7 @@ describe("RequireCapability", () => {
   });
 
   it("blocks the Chief from evidence upload (separation of duties)", () => {
-    renderGuard({ roles: { isAdmin: true } });
+    renderGuard({ roles: { isChief: true } });
     expect(screen.queryByText("SECRET-PAGE")).toBeNull();
     expect(screen.getByRole("heading", { name: "Not authorised" })).toBeTruthy();
   });
@@ -61,14 +61,14 @@ describe("RequireCapability", () => {
   });
 
   it("shows a loading state while the role is being read, never the page", () => {
-    renderGuard({ status: "loading", roles: { isAdmin: true, isInvestigator: true } });
+    renderGuard({ status: "loading", roles: { isChief: true, isInvestigator: true } });
     expect(screen.queryByText("SECRET-PAGE")).toBeNull();
     expect(screen.getByRole("status").textContent).toMatch(/checking your role/i);
   });
 
   it("denies when the role could not be read, offering a retry", async () => {
     const refresh = vi.fn(async () => {});
-    renderGuard({ status: "error", error: "Could not reach the blockchain network.", refresh, roles: { isAdmin: true } });
+    renderGuard({ status: "error", error: "Could not reach the blockchain network.", refresh, roles: { isChief: true } });
     expect(screen.queryByText("SECRET-PAGE")).toBeNull();
     expect(screen.getByText(/Could not reach the blockchain network/)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
@@ -85,7 +85,7 @@ describe("RequireCapability", () => {
   });
 
   it.each(["unconfigured", "misconfigured"])("denies everyone when the ledger is %s", (status) => {
-    renderGuard({ status, roles: { isAdmin: true, isInvestigator: true } });
+    renderGuard({ status, roles: { isChief: true, isInvestigator: true } });
     expect(screen.queryByText("SECRET-PAGE")).toBeNull();
     expect(screen.getByRole("region").textContent).toMatch(/VITE_LOCKER_ADDRESS/);
   });
@@ -122,7 +122,7 @@ describe("Can", () => {
   });
 
   it.each(["loading", "error", "wrong-network", "unconfigured"])("hides content while the status is %s, whatever the roles say", (status) => {
-    renderCan({ status, roles: { isAdmin: true, isInvestigator: true } });
+    renderCan({ status, roles: { isChief: true, isInvestigator: true } });
     expect(screen.queryByRole("button", { name: "Upload Evidence" })).toBeNull();
   });
 });

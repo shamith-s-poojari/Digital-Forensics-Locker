@@ -18,7 +18,7 @@ const loaded = () => screen.findByRole("heading", { name: "Chief" });
 describe("AdminRoles", () => {
   it("lists the Chief and everyone holding a working role", async () => {
     const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    renderWithDemo(<AdminRoles />, { store, role: "chief" });
     await loaded();
 
     // Giving the connected wallet the admin role makes it the Chief.
@@ -30,7 +30,7 @@ describe("AdminRoles", () => {
 
   it("rejects something that is not an address, without sending anything", async () => {
     const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    renderWithDemo(<AdminRoles />, { store, role: "chief" });
     await loaded();
 
     await userEvent.type(screen.getByLabelText("Wallet address"), "not-an-address");
@@ -41,7 +41,7 @@ describe("AdminRoles", () => {
 
   it("rejects an address that already holds the role", async () => {
     const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    renderWithDemo(<AdminRoles />, { store, role: "chief" });
     await loaded();
 
     await userEvent.type(screen.getByLabelText("Wallet address"), DEMO_AUDITOR);
@@ -52,7 +52,7 @@ describe("AdminRoles", () => {
 
   it("grants a role, narrates the transaction, and shows the new member", async () => {
     const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    renderWithDemo(<AdminRoles />, { store, role: "chief" });
     await loaded();
 
     await userEvent.type(screen.getByLabelText("Wallet address"), NEW_ADDRESS);
@@ -69,7 +69,7 @@ describe("AdminRoles", () => {
   it("revokes a role only after a second, explicit confirmation", async () => {
     const store = createDemoStore();
     store.setRole(OTHER_INVESTIGATOR, "investigator");
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    renderWithDemo(<AdminRoles />, { store, role: "chief" });
     await loaded();
 
     await userEvent.click(screen.getByRole("button", { name: `Revoke investigator role from ${OTHER_INVESTIGATOR}` }));
@@ -86,7 +86,7 @@ describe("AdminRoles", () => {
 
   it("pauses and resumes the ledger", async () => {
     const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    renderWithDemo(<AdminRoles />, { store, role: "chief" });
     await loaded();
 
     await userEvent.click(screen.getByRole("button", { name: "Pause ledger" }));
@@ -101,9 +101,9 @@ describe("AdminRoles", () => {
 
   it("shows the refusal when the ledger rejects the change (the role was removed meanwhile)", async () => {
     const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    renderWithDemo(<AdminRoles />, { store, role: "chief" });
     await loaded();
-    store.roles.set(ACCOUNT.toLowerCase(), { isAdmin: false, isInvestigator: false, isAuditor: false }); // revoked behind the page's back
+    store.roles.set(ACCOUNT.toLowerCase(), { isChief: false, isInvestigator: false, isAuditor: false }); // revoked behind the page's back
 
     await userEvent.type(screen.getByLabelText("Wallet address"), NEW_ADDRESS);
     await userEvent.click(screen.getByRole("button", { name: "Grant role" }));
@@ -125,7 +125,7 @@ describe("AdminRoles: access requests", () => {
       <AccessRequestProvider store={requests}>
         <AdminRoles />
       </AccessRequestProvider>,
-      { store, role: "admin" }
+      { store, role: "chief" }
     );
     await loaded();
     await screen.findByText("Internal audit team");
@@ -151,5 +151,50 @@ describe("AdminRoles: access requests", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Access requests (0)" })).toBeTruthy());
     expect(screen.queryByText(REQUESTER, { exact: false })).toBeNull();
     expect((await requests.mine(REQUESTER)).status).toBe("rejected");
+  });
+});
+
+describe("AdminRoles: the Admin role", () => {
+  const REQUESTER = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc";
+
+  it("lets an Admin manage Investigators and Auditors but not appoint or remove Admins", async () => {
+    const store = createDemoStore();
+    store.setRole(REQUESTER, "admin"); // another Admin
+    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    await loaded();
+
+    const options = within(screen.getByLabelText("Role")).getAllByRole("option").map((o) => o.textContent);
+    expect(options).toEqual(["Investigator", "Auditor"]);
+    expect(screen.queryByRole("button", { name: `Revoke admin role from ${REQUESTER}` })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /Revoke investigator role/ }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Pause ledger/ })).toBeTruthy();
+  });
+
+  it("lets the Chief appoint an Admin", async () => {
+    const store = createDemoStore();
+    renderWithDemo(<AdminRoles />, { store, role: "chief" });
+    await loaded();
+
+    await userEvent.type(screen.getByLabelText("Wallet address"), REQUESTER);
+    await userEvent.selectOptions(screen.getByLabelText("Role"), "admin");
+    await userEvent.click(screen.getByRole("button", { name: "Grant role" }));
+
+    await waitFor(() => expect(within(section("Admins (1)")).getByText(REQUESTER, { exact: false })).toBeTruthy());
+    expect(screen.getByRole("button", { name: `Revoke admin role from ${REQUESTER}` })).toBeTruthy();
+  });
+
+  it("only lets the Chief approve a request for the Admin role", async () => {
+    const requests = createDemoAccessRequestStore();
+    await requests.submit({ role: "admin", reason: "Deputy chief" }, REQUESTER);
+    renderWithDemo(
+      <AccessRequestProvider store={requests}>
+        <AdminRoles />
+      </AccessRequestProvider>,
+      { store: createDemoStore(), role: "admin" }
+    );
+    await loaded();
+    await screen.findByText("Deputy chief");
+    expect(screen.queryByRole("button", { name: `Approve Admin for ${REQUESTER}` })).toBeNull();
+    expect(screen.getByText("Only the Chief can approve Admins")).toBeTruthy();
   });
 });

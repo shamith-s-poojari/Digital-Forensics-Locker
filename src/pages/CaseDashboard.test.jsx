@@ -275,7 +275,7 @@ describe("CaseDashboard: what each role can do", () => {
   });
 
   it("gives the Chief recovery powers but no evidence-writing buttons", async () => {
-    renderWithDemo(<CaseDashboard />, { store: seeded(), role: "admin" });
+    renderWithDemo(<CaseDashboard />, { store: seeded(), role: "chief" });
     await loaded();
 
     expect(screen.getByRole("button", { name: /Reassign custody \(Chief\)/ })).toBeTruthy();

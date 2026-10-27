@@ -6,7 +6,8 @@
 
 | Role | Holder | Can |
 | --- | --- | --- |
-| Admin ("Chief") | `DEFAULT_ADMIN_ROLE`, one address, two-step delayed transfer | Grant and revoke Investigator and Auditor, pause and unpause, reassign stranded custody. **Cannot** register or log evidence unless also made an Investigator. |
+| Chief | `DEFAULT_ADMIN_ROLE`, one address, two-step delayed transfer | Appoint and remove Admins, grant and revoke Investigator and Auditor, pause and unpause, reassign stranded custody. **Cannot** register or log evidence unless also made an Investigator. |
+| Admin | `ADMIN_ROLE`, any number, appointed only by the Chief | Grant and revoke Investigator and Auditor, pause and unpause. Cannot appoint Admins, reassign custody, or write evidence. |
 | Investigator | `INVESTIGATOR_ROLE` | Register evidence, log access, log verification, transfer custody (only if current custodian, only to another Investigator). |
 | Auditor | `AUDITOR_ROLE` | No write permission. Reads and verifies like everyone else. |
 
@@ -30,10 +31,10 @@ npm test                     # contract tests plus the web app's ledger scenario
 npm run abi                  # copies the ABI into ../src/web3/EvidenceLocker.abi.json
 npx hardhat run scripts/deploy.ts          # deploy to an in-memory chain
 npx hardhat node                           # persistent local chain for MetaMask (chain id 31337), then:
-INVESTIGATORS=0x... AUDITORS=0x... npx hardhat run scripts/deploy.ts --network localhost
+ADMINS=0x... INVESTIGATORS=0x... AUDITORS=0x... npx hardhat run scripts/deploy.ts --network localhost
 ```
 
-`getUserRole(address)` returns the highest role an address holds as a string (`"Admin"`, `"Investigator"`, `"Auditor"` or `"None"`), for display. Use `rolesOf` or `hasRole` for decisions, since an address can hold several roles.
+`getUserRole(address)` returns the highest role an address holds as a string (`"Chief"`, `"Admin"`, `"Investigator"`, `"Auditor"` or `"None"`), for display. Use `rolesOf` or `hasRole` for decisions, since an address can hold several roles.
 
 Deploying to Sepolia: store `SEPOLIA_RPC_URL` and a throwaway `DEPLOYER_PRIVATE_KEY` in Hardhat's encrypted keystore (`npx hardhat keystore set ...`), then `npx hardhat run scripts/deploy.ts --network sepolia`. The script prints the `VITE_LOCKER_*` values for the web app. Never commit keys.
 

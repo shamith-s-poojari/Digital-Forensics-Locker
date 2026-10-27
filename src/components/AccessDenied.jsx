@@ -13,6 +13,7 @@ import { Button, Field, INPUT_CLASS, Spinner } from "./ui";
 const ROLE_CHOICES = [
   { value: "investigator", help: "Register evidence, log access and verification, transfer custody." },
   { value: "auditor", help: "Read-only: view the ledger and check files against it." },
+  { value: "admin", help: "Manage Investigators and Auditors, approve access requests, pause the ledger. Only the Chief can approve this." },
 ];
 
 function RequestForm({ previous, onSubmit }) {

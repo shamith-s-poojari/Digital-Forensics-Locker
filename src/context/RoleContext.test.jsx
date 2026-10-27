@@ -11,9 +11,9 @@ const A = "0x1111111111111111111111111111111111111111";
 const B = "0x2222222222222222222222222222222222222222";
 const config = { address: null, chainId: 11155111, chainName: "Sepolia", explorerUrl: "", configured: true, deployBlock: 0, invalidAddress: false };
 
-const ADMIN = { isAdmin: true, isInvestigator: false, isAuditor: false };
-const INVESTIGATOR = { isAdmin: false, isInvestigator: true, isAuditor: false };
-const NONE = { isAdmin: false, isInvestigator: false, isAuditor: false };
+const ADMIN = { isChief: true, isInvestigator: false, isAuditor: false };
+const INVESTIGATOR = { isChief: false, isInvestigator: true, isAuditor: false };
+const NONE = { isChief: false, isInvestigator: false, isAuditor: false };
 
 function Probe() {
   const { status, role, error, can, refresh, switchNetwork } = useRole();
@@ -102,11 +102,11 @@ describe("RoleProvider", () => {
 
     await act(async () => screen.getByText("refresh").click());
     await waitFor(() => expect(text("status")).toBe("ready"));
-    expect(text("role")).toBe("admin");
+    expect(text("role")).toBe("chief");
   });
 
   it("treats a malformed ledger answer as no role", async () => {
-    const ledger = fakeLedger(async () => ({ isAdmin: "yes", isInvestigator: 1 }));
+    const ledger = fakeLedger(async () => ({ isChief: "yes", isInvestigator: 1 }));
     setup({ ledger });
     await waitFor(() => expect(text("status")).toBe("ready"));
     expect(text("role")).toBe("none");
@@ -117,7 +117,7 @@ describe("RoleProvider", () => {
     let resolveB;
     const ledger = fakeLedger((account) => (account === A ? Promise.resolve(ADMIN) : new Promise((r) => (resolveB = r))));
     const { rerenderWith } = setup({ ledger });
-    await waitFor(() => expect(text("role")).toBe("admin"));
+    await waitFor(() => expect(text("role")).toBe("chief"));
 
     rerenderWith(B, "chain", ledger);
     // Account B's answer has not arrived: A's admin rights must not carry over.

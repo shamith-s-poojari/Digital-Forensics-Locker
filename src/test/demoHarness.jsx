@@ -44,7 +44,7 @@ const stableWallet = (account) => {
  * @param {object} [options]
  * @param {ReturnType<typeof createDemoStore>} [options.store]  Defaults to a freshly seeded store.
  * @param {string | null} [options.account]                      The connected wallet.
- * @param {"none"|"auditor"|"investigator"|"admin"} [options.role] Role of that wallet (default investigator).
+ * @param {"none"|"auditor"|"investigator"|"admin"|"chief"} [options.role] Role of that wallet (default investigator).
  * @param {string} [options.path]
  * @param {object} [options.caseStore]  Case store (default: the in-memory demo store, seeded with the sample cases).
  */

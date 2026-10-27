@@ -27,7 +27,7 @@ import { useWriteFlow } from "../web3/useWriteFlow.js";
  * demo in development) and lets each role do only what its role allows:
  *   Auditor       view, search, check a file against the ledger (read-only)
  *   Investigator  + log access, record verification, transfer custody
- *   Admin (Chief) + reassign stranded custody (role management lives on /admin)
+ *   Chief       + reassign stranded custody (role management lives on /admin)
  * Hidden buttons are a courtesy; the contract rejects anything the wallet is not entitled to do.
  */
 export default function CaseDashboard() {

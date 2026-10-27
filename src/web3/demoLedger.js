@@ -14,7 +14,7 @@ import { CUSTODY_ACTIONS } from "./ethersLedger.js";
  * Nothing here is persisted or recorded anywhere.
  */
 
-export const DEMO_ADMIN = "0x00000000000000000000000000000000000d3a01";
+export const DEMO_CHIEF = "0x00000000000000000000000000000000000d3a01";
 export const DEMO_AUDITOR = "0x00000000000000000000000000000000000a0d17";
 
 const ZERO_HASH = `0x${"0".repeat(64)}`;
@@ -25,6 +25,7 @@ const lower = (a) => String(a).toLowerCase();
 /** The sample data's addresses have made-up mixed-case spellings; normalise to real EIP-55 checksummed ones. */
 const toAddress = (a) => getAddress(lower(a));
 const flagsFor = (role) => ({
+  isChief: role === "chief",
   isAdmin: role === "admin",
   isInvestigator: role === "investigator",
   isAuditor: role === "auditor",
@@ -107,15 +108,15 @@ function seedEvidence(store) {
  * scenario suite plays several actors against the same state.
  *
  * @param {object} [options]
- * @param {{ admin?: string | null, investigators?: string[], auditors?: string[] }} [options.roles] Real wallets to
- *        authorise from the start (see readDemoRoles in config.js). `admin` replaces the sample Chief. Any other
- *        address holds no role until the Chief grants one.
+ * @param {{ chief?: string | null, admins?: string[], investigators?: string[], auditors?: string[] }} [options.roles]
+ *        Real wallets to authorise from the start (see readDemoRoles in config.js). `chief` replaces the sample Chief.
+ *        Any other address holds no role until it is granted one.
  */
 export function createDemoStore({ now = () => Math.floor(Date.now() / 1000), seed = true, roles } = {}) {
   const store = {
     now,
-    admin: DEMO_ADMIN,
-    roles: new Map([[lower(DEMO_ADMIN), flagsFor("admin")]]),
+    chief: DEMO_CHIEF,
+    roles: new Map([[lower(DEMO_CHIEF), flagsFor("chief")]]),
     evidence: [],
     paused: false,
     block: 1000,
@@ -126,10 +127,10 @@ export function createDemoStore({ now = () => Math.floor(Date.now() / 1000), see
     },
     /** Replaces the roles of one address (used by tests). There is one Chief at a time. */
     setRole(address, role) {
-      if (role === "admin" && lower(store.admin) !== lower(address)) {
-        const previous = store.roles.get(lower(store.admin));
-        if (previous) store.roles.set(lower(store.admin), { ...previous, isAdmin: false });
-        store.admin = address;
+      if (role === "chief" && lower(store.chief) !== lower(address)) {
+        const previous = store.roles.get(lower(store.chief));
+        if (previous) store.roles.set(lower(store.chief), { ...previous, isChief: false });
+        store.chief = address;
       }
       store.roles.set(lower(address), flagsFor(role));
       store.changed();
@@ -137,13 +138,14 @@ export function createDemoStore({ now = () => Math.floor(Date.now() / 1000), see
   };
   if (seed) seedEvidence(store);
 
-  if (roles?.admin) {
-    store.roles.delete(lower(DEMO_ADMIN));
-    store.admin = roles.admin;
-    store.roles.set(lower(roles.admin), flagsFor("admin"));
+  if (roles?.chief) {
+    store.roles.delete(lower(DEMO_CHIEF));
+    store.chief = roles.chief;
+    store.roles.set(lower(roles.chief), flagsFor("chief"));
   }
   // Additive, like grantRole: one address may hold several roles (for example the Chief who is also an investigator).
   const grant = (address, flag) => store.roles.set(lower(address), { ...(store.roles.get(lower(address)) ?? flagsFor("none")), [flag]: true });
+  for (const address of roles?.admins ?? []) grant(address, "isAdmin");
   for (const address of roles?.investigators ?? []) grant(address, "isInvestigator");
   for (const address of roles?.auditors ?? []) grant(address, "isAuditor");
   return store;
@@ -160,8 +162,16 @@ const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)
  */
 export function createDemoLedger({ store, account, signDelayMs = 700, confirmDelayMs = 1200 }) {
   const flags = (address) => store.roles.get(lower(address)) ?? flagsFor("none");
-  const need = (flag) => {
-    if (!account || !flags(account)[flag]) throw new LedgerError(LEDGER_ERROR.NOT_AUTHORIZED);
+  /** The acting account must hold at least one of the given role flags. */
+  const need = (...anyOf) => {
+    if (!account || !anyOf.some((flag) => flags(account)[flag])) throw new LedgerError(LEDGER_ERROR.NOT_AUTHORIZED);
+  };
+  const ROLE_FLAG = { admin: "isAdmin", investigator: "isInvestigator", auditor: "isAuditor" };
+  /** Same rule as the contract: only the Chief manages Admins; the Chief or an Admin manages the working roles. */
+  const needRoleManager = (role) => {
+    if (!ROLE_FLAG[role]) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
+    if (role === "admin") need("isChief");
+    else need("isChief", "isAdmin");
   };
   const live = () => {
     if (store.paused) throw new LedgerError(LEDGER_ERROR.PAUSED);
@@ -222,8 +232,9 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
       return {}; // the demo has no transactions to link to
     },
     listRoleMembers: async () => {
-      const members = { admin: getAddress(lower(store.admin)), investigators: [], auditors: [] };
+      const members = { chief: getAddress(lower(store.chief)), admins: [], investigators: [], auditors: [] };
       for (const [address, f] of store.roles) {
+        if (f.isAdmin) members.admins.push(getAddress(address));
         if (f.isInvestigator) members.investigators.push(getAddress(address));
         if (f.isAuditor) members.auditors.push(getAddress(address));
       }
@@ -292,7 +303,7 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
 
     reassignCustody: (id, to, noteHash) =>
       transact(() => {
-        need("isAdmin");
+        need("isChief");
         const ev = find(id);
         const recipient = requireInvestigator(to);
         ev.custodian = recipient;
@@ -301,30 +312,26 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
 
     grantRole: (role, address) =>
       transact(() => {
-        need("isAdmin");
-        if (role !== "investigator" && role !== "auditor") throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
+        needRoleManager(role);
         if (!isAddress(address)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
-        const current = flags(address);
-        store.roles.set(lower(address), { ...current, [role === "investigator" ? "isInvestigator" : "isAuditor"]: true });
+        store.roles.set(lower(address), { ...flags(address), [ROLE_FLAG[role]]: true });
       }),
 
     revokeRole: (role, address) =>
       transact(() => {
-        need("isAdmin");
-        if (role !== "investigator" && role !== "auditor") throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
+        needRoleManager(role);
         if (!isAddress(address)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
-        const current = flags(address);
-        store.roles.set(lower(address), { ...current, [role === "investigator" ? "isInvestigator" : "isAuditor"]: false });
+        store.roles.set(lower(address), { ...flags(address), [ROLE_FLAG[role]]: false });
       }),
 
     pause: () =>
       transact(() => {
-        need("isAdmin");
+        need("isChief", "isAdmin");
         store.paused = true;
       }),
     unpause: () =>
       transact(() => {
-        need("isAdmin");
+        need("isChief", "isAdmin");
         store.paused = false;
       }),
 
@@ -334,13 +341,13 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
     },
 
     /**
-     * Demo only. True while no real wallet is the Chief (VITE_DEMO_ADMIN unset and nobody has claimed it), so a
+     * Demo only. True while no real wallet is the Chief (VITE_DEMO_CHIEF unset and nobody has claimed it), so a
      * developer is never stuck with nobody able to approve access. A real contract gets its Chief at deployment.
      */
-    isChiefUnclaimed: () => lower(store.admin) === lower(DEMO_ADMIN),
+    isChiefUnclaimed: () => lower(store.chief) === lower(DEMO_CHIEF),
     claimChief: async () => {
-      if (!account || lower(store.admin) !== lower(DEMO_ADMIN)) throw new LedgerError(LEDGER_ERROR.NOT_AUTHORIZED);
-      store.setRole(account, "admin");
+      if (!account || lower(store.chief) !== lower(DEMO_CHIEF)) throw new LedgerError(LEDGER_ERROR.NOT_AUTHORIZED);
+      store.setRole(account, "chief");
     },
   };
 }

@@ -48,7 +48,7 @@ const STRANGER = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc";
 
 beforeEach(() => {
   window.history.pushState({}, "", "/");
-  vi.stubEnv("VITE_DEMO_ADMIN", CHIEF);
+  vi.stubEnv("VITE_DEMO_CHIEF", CHIEF);
   vi.stubEnv("VITE_DEMO_INVESTIGATORS", ACCOUNT);
   vi.stubEnv("VITE_DEMO_AUDITORS", AUDITOR);
   installWallet();
@@ -85,7 +85,7 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
 
     // The Chief switches MetaMask to their account and finds the request waiting.
     window.ethereum.switchTo(CHIEF);
-    await screen.findByText("Admin (Chief)", { selector: "[data-role]" });
+    await screen.findByText("Chief", { selector: "[data-role]" });
     expect(await screen.findByText("pending access requests")).toBeTruthy(); // sidebar count on Role Management
     goTo("/admin");
     expect(await screen.findByText("Internal audit team")).toBeTruthy();
@@ -93,12 +93,12 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
   });
 
   it("lets the first wallet claim the Chief role when none is configured (demo only)", async () => {
-    vi.stubEnv("VITE_DEMO_ADMIN", "");
+    vi.stubEnv("VITE_DEMO_CHIEF", "");
     installWallet(STRANGER);
     render(<App />);
     await userEvent.click(screen.getAllByRole("button", { name: /Connect/ })[0]);
     await userEvent.click(await screen.findByRole("button", { name: "Make this wallet the Chief" }));
-    expect(await screen.findByText("Admin (Chief)", { selector: "[data-role]" })).toBeTruthy();
+    expect(await screen.findByText("Chief", { selector: "[data-role]" })).toBeTruthy();
   });
 
   it("does not offer to claim the Chief role when one is configured", async () => {
@@ -120,7 +120,7 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
     installWallet(CHIEF);
     render(<App />);
     await connect();
-    expect(await screen.findByText("Admin (Chief)", { selector: "[data-role]" })).toBeTruthy();
+    expect(await screen.findByText("Chief", { selector: "[data-role]" })).toBeTruthy();
   });
 
   it("shows nothing but the connect screen until a wallet is connected", () => {
@@ -185,7 +185,7 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
     await screen.findByRole("heading", { name: "Case Management" });
     goTo("/admin");
     expect(await screen.findByRole("heading", { name: "Not authorised" })).toBeTruthy();
-    expect(screen.getByText(/Required: Admin/)).toBeTruthy();
+    expect(screen.getByText(/Required: Chief or Admin/)).toBeTruthy();
   });
 
   it("shows a 404 for unknown pages", async () => {

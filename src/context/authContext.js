@@ -11,7 +11,7 @@ import { createContext, useContext } from "react";
  *                 granted      the address holds at least one role
  *                 unavailable  the role cannot be read (wrong network, no contract configured, read error)
  *   account     connected address, or null
- *   role        "none" | "auditor" | "investigator" | "admin" (see roles.js); "none" unless the gate is "granted"
+ *   role        "none" | "auditor" | "investigator" | "admin" | "chief" (see roles.js); "none" unless the gate is "granted"
  *   roleLabel   human label for `role`, for the header badge
  *   connect / disconnect / isConnecting / error / notice   passed through from the wallet
  *   isDemo      true on the in-memory demo ledger, where roles come from VITE_DEMO_* in .env

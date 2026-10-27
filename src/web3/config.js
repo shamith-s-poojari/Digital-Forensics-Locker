@@ -22,7 +22,8 @@ function publicEnv() {
     VITE_LOCKER_DEPLOY_BLOCK: import.meta.env.VITE_LOCKER_DEPLOY_BLOCK,
     VITE_EXPLORER_URL: import.meta.env.VITE_EXPLORER_URL,
     VITE_IPFS_GATEWAYS: import.meta.env.VITE_IPFS_GATEWAYS,
-    VITE_DEMO_ADMIN: import.meta.env.VITE_DEMO_ADMIN,
+    VITE_DEMO_CHIEF: import.meta.env.VITE_DEMO_CHIEF,
+    VITE_DEMO_ADMINS: import.meta.env.VITE_DEMO_ADMINS,
     VITE_DEMO_INVESTIGATORS: import.meta.env.VITE_DEMO_INVESTIGATORS,
     VITE_DEMO_AUDITORS: import.meta.env.VITE_DEMO_AUDITORS,
     DEV: import.meta.env.DEV,
@@ -101,13 +102,15 @@ function parseAddressList(value) {
  * Who holds which role on the in-memory demo ledger, the demo's equivalent of deploying the contract and granting
  * roles. Without it every wallet that connects to the demo has no role and is denied. All values are public addresses.
  *
- *   VITE_DEMO_ADMIN          the Chief (one address)
+ *   VITE_DEMO_CHIEF          the Chief (one address)
+ *   VITE_DEMO_ADMINS         comma-separated
  *   VITE_DEMO_INVESTIGATORS  comma-separated
  *   VITE_DEMO_AUDITORS       comma-separated
  */
 export function readDemoRoles(env = publicEnv()) {
   return {
-    admin: parseAddressList(env.VITE_DEMO_ADMIN)[0] ?? null,
+    chief: parseAddressList(env.VITE_DEMO_CHIEF)[0] ?? null,
+    admins: parseAddressList(env.VITE_DEMO_ADMINS),
     investigators: parseAddressList(env.VITE_DEMO_INVESTIGATORS),
     auditors: parseAddressList(env.VITE_DEMO_AUDITORS),
   };
