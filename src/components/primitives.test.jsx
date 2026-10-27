@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import DemoBanner from "./DemoBanner";
+import PreReleaseBanner from "./PreReleaseBanner";
 import Layout from "./Layout";
 import Pagination from "./Pagination";
 import StatusBadge from "./StatusBadge";
@@ -11,12 +11,12 @@ import { useWallet } from "../context/walletContext.js";
 
 const decodeEntities = (html) => html.replace(/&amp;/g, "&").replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
 
-describe("DemoBanner", () => {
-  it("renders the honesty message as a note", () => {
-    const html = renderToStaticMarkup(<DemoBanner />);
+describe("PreReleaseBanner", () => {
+  it("renders the pre-release notice as a note", () => {
+    const html = renderToStaticMarkup(<PreReleaseBanner />);
     expect(html).toContain('role="note"');
     expect(html.replace(/<[^>]+>/g, "")).toBe(
-      "DEMO — sample data only. Nothing is recorded on a blockchain and this is not evidence-grade."
+      "PRE-RELEASE — not audited and not yet evidence-grade."
     );
   });
 });
@@ -116,18 +116,18 @@ describe("Layout (no wallet connected)", () => {
     )
   );
 
-  it("shows the demo banner on the restricted screen", () => {
+  it("shows the pre-release notice on the restricted screen", () => {
     expect(html).toContain('role="note"');
-    expect(html).toContain("sample data only");
+    expect(html).toContain("not audited");
   });
 
   it("gates children behind the wallet", () => {
     expect(html).not.toContain("SECRET-PAGE-CONTENT");
   });
 
-  it("does not claim secure verification and says a wallet is not authorization", () => {
+  it("does not claim secure verification and says roles, not the wallet, decide access", () => {
     expect(html).not.toMatch(/secure chain-of-custody verification/i);
-    expect(html).toMatch(/demo/i);
-    expect(html).toMatch(/not authorization/i);
+    expect(html).not.toMatch(/demo|sample data/i);
+    expect(html).toMatch(/decided by the roles the EvidenceLocker contract grants/i);
   });
 });

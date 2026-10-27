@@ -1,4 +1,4 @@
-import { Activity, ExternalLink, FlaskConical, Layers, PauseCircle, RefreshCw, ShieldAlert, Users } from "lucide-react";
+import { Activity, ExternalLink, Layers, PauseCircle, RefreshCw, ShieldAlert, Users } from "lucide-react";
 import { useRole } from "../../context/roleContext.js";
 import { useWallet } from "../../context/walletContext.js";
 import { addressUrl } from "../../web3/config.js";
@@ -23,10 +23,10 @@ function Kpi({ icon: Icon, label, value, tone = "text-slate-100", hint, valueCla
 
 /**
  * Top strip of the dashboard: which network and contract the data comes from, who is looking and in what role,
- * whether writes are paused, and the headline numbers. In demo mode it also offers a role previewer.
+ * whether writes are paused, and the headline numbers.
  */
 export default function DashboardHeader({ summary, paused, onRefresh, refreshing }) {
-  const { role, config, mode } = useRole();
+  const { role, config } = useRole();
   const { account } = useWallet();
   const contractLink = addressUrl(config, config.address);
 
@@ -41,8 +41,8 @@ export default function DashboardHeader({ summary, paused, onRefresh, refreshing
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={mode === "chain" ? "success" : "warning"} icon={mode === "chain" ? Activity : FlaskConical}>
-            {mode === "chain" ? config.chainName : "Demo ledger"}
+          <Badge tone="success" icon={Activity}>
+            {config.chainName}
           </Badge>
           {config.address ? (
             <span className="inline-flex items-center gap-1">

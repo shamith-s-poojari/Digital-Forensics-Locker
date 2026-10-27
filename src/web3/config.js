@@ -22,8 +22,6 @@ function publicEnv() {
     VITE_LOCKER_DEPLOY_BLOCK: import.meta.env.VITE_LOCKER_DEPLOY_BLOCK,
     VITE_EXPLORER_URL: import.meta.env.VITE_EXPLORER_URL,
     VITE_IPFS_GATEWAYS: import.meta.env.VITE_IPFS_GATEWAYS,
-    DEV: import.meta.env.DEV,
-    MODE: import.meta.env.MODE,
   };
 }
 
@@ -69,7 +67,7 @@ export function readLockerConfig(env = publicEnv()) {
     explorerUrl,
     ipfsGateways: parseGateways(env.VITE_IPFS_GATEWAYS),
     configured: address !== null,
-    /** True when an address was supplied but is not a valid one (a typo that must not silently become "demo"). */
+    /** True when an address was supplied but is not a valid one (a typo that must not look like "not configured"). */
     invalidAddress: rawAddress !== "" && address === null,
   };
 }
@@ -83,12 +81,4 @@ export function txUrl(config, hash) {
 
 export function addressUrl(config, address) {
   return config.explorerUrl && address ? `${config.explorerUrl}/address/${address}` : null;
-}
-
-/**
- * Demo mode (an in-memory ledger with a role previewer) exists only for development and tests. A production
- * build with no contract configured therefore fails CLOSED: nobody is authorised.
- */
-export function isDemoAllowed(env = publicEnv()) {
-  return Boolean(env.DEV) || env.MODE === "test";
 }

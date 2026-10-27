@@ -3,11 +3,11 @@ import { useWallet } from "../context/walletContext.js";
 import { useLedger } from "../web3/ledgerContext.js";
 import { computeCaseDigest } from "./caseDigest.js";
 import { CaseDirectoryContext, UNAVAILABLE_DIRECTORY } from "./caseDirectoryContext.js";
-import { createDemoCaseStore, httpCaseStore } from "./caseStores.js";
+import { httpCaseStore } from "./caseStores.js";
 
 /**
- * Provides the case directory (see caseDirectoryContext.js), read from the case store that matches the ledger: the
- * server store with a real contract, the in-memory sample store with the demo ledger, none otherwise.
+ * Provides the case directory (see caseDirectoryContext.js), read from the server case store once the app is connected
+ * to the contract; none otherwise.
  *
  * @param {object} props
  * @param {object} [props.store] Override for tests (any object with the case-store interface in caseStores.js).
@@ -15,8 +15,7 @@ import { createDemoCaseStore, httpCaseStore } from "./caseStores.js";
 export function CaseDirectoryProvider({ children, store: override }) {
   const { mode } = useLedger();
   const { account, ensureSession } = useWallet();
-  const [demoStore] = useState(() => createDemoCaseStore());
-  const store = override ?? (mode === "demo" ? demoStore : mode === "chain" ? httpCaseStore : null);
+  const store = override ?? (mode === "chain" ? httpCaseStore : null);
   const needsSignIn = store?.kind === "server";
   const key = store && account ? `${store.kind}:${account}` : null;
 
@@ -70,7 +69,7 @@ export function CaseDirectoryProvider({ children, store: override }) {
       byRef,
       error: fresh ? state.error : null,
       reload,
-      // The acting account is passed along for the demo store; the server takes it from the session instead.
+      // The acting account is passed along for test stores; the server takes it from the session instead.
       create: (fields) => write(() => store.create(fields, account)),
       addVersion: (caseRef, fields) => write(() => store.addVersion(caseRef, fields, account)),
       currentDigest: (caseRef) => {

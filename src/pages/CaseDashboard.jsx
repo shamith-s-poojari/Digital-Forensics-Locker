@@ -23,8 +23,7 @@ import { useWriteFlow } from "../web3/useWriteFlow.js";
 /**
  * Case Management Dashboard.
  *
- * Reads every evidence record and custody trail from the ledger (the contract on a real chain, or the in-memory
- * demo in development) and lets each role do only what its role allows:
+ * Reads every evidence record and custody trail from the EvidenceLocker contract and lets each role do only what its role allows:
  *   Auditor       view, search, check a file against the ledger (read-only)
  *   Investigator  + log access, record verification, transfer custody
  *   Admin (Chief) + reassign stranded custody (role management lives on /admin)

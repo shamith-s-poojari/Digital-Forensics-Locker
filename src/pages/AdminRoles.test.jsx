@@ -2,8 +2,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ACCOUNT, OTHER_INVESTIGATOR, renderWithDemo } from "../test/demoHarness.jsx";
-import { createDemoStore, DEMO_AUDITOR } from "../web3/demoLedger.js";
+import { ACCOUNT, OTHER_INVESTIGATOR, renderWithLedger } from "../test/ledgerHarness.jsx";
+import { createMemoryStore, TEST_AUDITOR } from "../test/memoryLedger.js";
 import AdminRoles from "./AdminRoles";
 
 const NEW_ADDRESS = "0x90F79bf6EB2c4f870365E785982E1f101E93b906";
@@ -15,8 +15,8 @@ const loaded = () => screen.findByRole("heading", { name: "Chief" });
 
 describe("AdminRoles", () => {
   it("lists the Chief and everyone holding a working role", async () => {
-    const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    const store = createMemoryStore();
+    renderWithLedger(<AdminRoles />, { store, role: "admin" });
     await loaded();
 
     // Previewing as Admin makes the connected wallet the Chief.
@@ -27,8 +27,8 @@ describe("AdminRoles", () => {
   });
 
   it("rejects something that is not an address, without sending anything", async () => {
-    const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    const store = createMemoryStore();
+    renderWithLedger(<AdminRoles />, { store, role: "admin" });
     await loaded();
 
     await userEvent.type(screen.getByLabelText("Wallet address"), "not-an-address");
@@ -38,19 +38,19 @@ describe("AdminRoles", () => {
   });
 
   it("rejects an address that already holds the role", async () => {
-    const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    const store = createMemoryStore();
+    renderWithLedger(<AdminRoles />, { store, role: "admin" });
     await loaded();
 
-    await userEvent.type(screen.getByLabelText("Wallet address"), DEMO_AUDITOR);
+    await userEvent.type(screen.getByLabelText("Wallet address"), TEST_AUDITOR);
     await userEvent.selectOptions(screen.getByLabelText("Role"), "auditor");
     await userEvent.click(screen.getByRole("button", { name: "Grant role" }));
     expect((await screen.findByRole("alert")).textContent).toMatch(/already an Auditor/);
   });
 
   it("grants a role, narrates the transaction, and shows the new member", async () => {
-    const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    const store = createMemoryStore();
+    renderWithLedger(<AdminRoles />, { store, role: "admin" });
     await loaded();
 
     await userEvent.type(screen.getByLabelText("Wallet address"), NEW_ADDRESS);
@@ -65,9 +65,9 @@ describe("AdminRoles", () => {
   });
 
   it("revokes a role only after a second, explicit confirmation", async () => {
-    const store = createDemoStore();
+    const store = createMemoryStore();
     store.setRole(OTHER_INVESTIGATOR, "investigator");
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    renderWithLedger(<AdminRoles />, { store, role: "admin" });
     await loaded();
 
     await userEvent.click(screen.getByRole("button", { name: `Revoke investigator role from ${OTHER_INVESTIGATOR}` }));
@@ -83,8 +83,8 @@ describe("AdminRoles", () => {
   });
 
   it("pauses and resumes the ledger", async () => {
-    const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    const store = createMemoryStore();
+    renderWithLedger(<AdminRoles />, { store, role: "admin" });
     await loaded();
 
     await userEvent.click(screen.getByRole("button", { name: "Pause ledger" }));
@@ -98,8 +98,8 @@ describe("AdminRoles", () => {
   });
 
   it("shows the refusal when the ledger rejects the change (the role was removed meanwhile)", async () => {
-    const store = createDemoStore();
-    renderWithDemo(<AdminRoles />, { store, role: "admin" });
+    const store = createMemoryStore();
+    renderWithLedger(<AdminRoles />, { store, role: "admin" });
     await loaded();
     store.roles.set(ACCOUNT.toLowerCase(), { isAdmin: false, isInvestigator: false, isAuditor: false }); // revoked behind the page's back
 

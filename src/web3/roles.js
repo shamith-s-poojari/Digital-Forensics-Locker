@@ -48,9 +48,6 @@ export const ROUTE_CAPABILITY = Object.freeze({
   "/cases": CAPABILITIES.VIEW,
   "/upload": CAPABILITIES.UPLOAD,
   "/admin": CAPABILITIES.MANAGE_ROLES,
-  // Sample-data pages, registered in development only.
-  "/evidence": CAPABILITIES.VIEW,
-  "/custody": CAPABILITIES.VIEW,
 });
 
 export const NO_ROLES = Object.freeze({ isAdmin: false, isInvestigator: false, isAuditor: false });

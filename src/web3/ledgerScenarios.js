@@ -4,8 +4,8 @@ import { deriveCaseRef } from "./format.js";
 import { LEDGER_ERROR } from "./ledgerErrors.js";
 
 /**
- * Behavioural scenarios every ledger implementation must satisfy. They run against the in-memory demo ledger
- * (src/web3/demoLedger.test.js) AND against the real EvidenceLocker contract on a local Hardhat chain
+ * Behavioural scenarios every ledger implementation must satisfy. They run against the in-memory test ledger
+ * (src/test/memoryLedger.test.js) AND against the real EvidenceLocker contract on a local Hardhat chain
  * (contracts/test/ethersLedger.test.ts). If the two ever disagree, one of those runs fails.
  *
  * Each scenario receives a fresh context `ctx`:

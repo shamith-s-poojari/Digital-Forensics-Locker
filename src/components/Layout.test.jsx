@@ -51,7 +51,7 @@ function renderLayout({ account = ACCOUNT, path = "/", wallet = {}, children = <
   const utils = render(
     <MemoryRouter initialEntries={[path]}>
       <WalletContext.Provider value={value}>
-        <RoleTestProvider isDemo>
+        <RoleTestProvider>
           <Layout>{children}</Layout>
         </RoleTestProvider>
       </WalletContext.Provider>
@@ -97,7 +97,7 @@ describe("Layout accessibility basics", () => {
     expect(screen.getAllByRole("main")).toHaveLength(1);
     expect(screen.getByRole("main").textContent).toContain("PAGE-BODY");
     expect(screen.getByRole("banner")).toBeTruthy();
-    expect(screen.getByRole("note").textContent).toMatch(/sample data only/);
+    expect(screen.getByRole("note").textContent).toMatch(/PRE-RELEASE.*not audited/);
   });
 
   it("labels the toggle and wires aria-expanded / aria-controls to the sidebar", () => {
@@ -122,7 +122,7 @@ describe("Layout without a connected wallet", () => {
     expect(screen.queryByText("PAGE-BODY")).toBeNull();
     expect(getSidebar()).toBeNull();
     expect(screen.queryByRole("button", { name: "Navigation menu" })).toBeNull();
-    expect(screen.getByText(/not authorization/i)).toBeTruthy();
+    expect(screen.getByText(/decided by the roles the EvidenceLocker contract grants/i)).toBeTruthy();
     // The skip link still has a target.
     expect(getMain().id).toBe("main-content");
 
@@ -149,8 +149,8 @@ describe("Layout document title", () => {
   it.each([
     ["/", "Case Management"],
     ["/upload", "Evidence Upload"],
-    ["/evidence", "Evidence Viewer"],
-    ["/custody", "Chain of Custody"],
+    ["/admin", "Role Management"],
+    ["/evidence", "Not found"],
     ["/cases", "Case Management"],
     ["/cases/", "Case Management"],
   ])("uses the page name for %s", (path, name) => {
@@ -295,11 +295,11 @@ describe("Layout on mobile (< 768px)", () => {
     renderLayout();
 
     await user.click(getToggle());
-    await user.click(screen.getByRole("link", { name: "Chain of Custody (sample)" }));
+    await user.click(screen.getByRole("link", { name: "Evidence Upload" }));
 
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(getToggle().getAttribute("aria-expanded")).toBe("false");
-    expect(document.title).toBe(`Chain of Custody — ${SUFFIX}`);
+    expect(document.title).toBe(`Evidence Upload — ${SUFFIX}`);
     expect(document.activeElement).toBe(getMain());
   });
 

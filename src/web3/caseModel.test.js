@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCaseExport, CASE_DIRECTORY, groupByCase, integrityState, matchesQuery, summarize } from "./caseModel.js";
+import { buildCaseExport, groupByCase, integrityState, matchesQuery, summarize } from "./caseModel.js";
 import { deriveCaseRef } from "./format.js";
 
 const entry = (action, timestamp, index = 0) => ({ index, action, actor: "0xA", counterparty: null, timestamp, noteHash: null });
@@ -34,6 +34,7 @@ describe("integrityState", () => {
 
 describe("groupByCase", () => {
   const known = deriveCaseRef("CASE-2025-0042");
+  const directory = { [known]: { caseNumber: "CASE-2025-0042", title: "Cyber Fraud Investigation" } };
   const records = [
     record(1, known, [entry("Submitted", 100)]),
     record(2, "0x" + "cd".repeat(32), [entry("Submitted", 300), entry("VerifiedMismatch", 400, 1)]),
@@ -47,9 +48,9 @@ describe("groupByCase", () => {
   });
 
   it("uses the directory for names and a short reference otherwise", () => {
-    const groups = groupByCase(records);
+    const groups = groupByCase(records, directory);
     expect(groups[1].caseNumber).toBe("CASE-2025-0042");
-    expect(groups[1].title).toBe(CASE_DIRECTORY[known].title);
+    expect(groups[1].title).toBe("Cyber Fraud Investigation");
     expect(groups[0].caseNumber).toBeNull();
     expect(groups[0].label).toMatch(/^Case 0x[0-9a-f]{6}…[0-9a-f]{4}$/);
   });
@@ -71,7 +72,8 @@ describe("summarize", () => {
 });
 
 describe("matchesQuery", () => {
-  const group = groupByCase([record(7, deriveCaseRef("CASE-2025-0042"), [entry("Submitted", 1)], { cid: "bafyfindme", sha256: "ee".repeat(32) })])[0];
+  const ref = deriveCaseRef("CASE-2025-0042");
+  const group = groupByCase([record(7, ref, [entry("Submitted", 1)], { cid: "bafyfindme", sha256: "ee".repeat(32) })], { [ref]: { caseNumber: "CASE-2025-0042", title: "Cyber Fraud Investigation" } })[0];
 
   it.each([
     ["", true],
@@ -102,9 +104,7 @@ describe("buildCaseExport", () => {
     expect(out.evidence[0].sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("labels demo data as demo data", () => {
-    const out = buildCaseExport({ group, config: { chainId: 1, address: null }, mode: "demo" });
-    expect(out.source.note).toMatch(/DEMO DATA/);
-    expect(out.source.note).toMatch(/nothing here is recorded on a blockchain/);
+  it("tells the reviewer how to verify independently", () => {
+    expect(buildCaseExport({ group, config, mode: "chain" }).source.note).toContain("verify(), verifyCaseChain() and verifyCustodyChain()");
   });
 });

@@ -2,7 +2,7 @@
 
 A chain-of-custody system for digital evidence. A React web app and a Solidity smart contract (`EvidenceLocker`) record, for each evidence item, its SHA-256, the content identifier (CID) of the stored copy, and an append-only, hash-chained custody trail, with role-based access control enforced by the contract.
 
-> **Status: development prototype.** The contract has **not been audited or deployed**, the system has not been reviewed by a forensics practitioner or legal counsel, and it is **not evidence-grade**. Do not use it for real evidence. See [Known limitations](#known-limitations).
+> **Status: pre-release.** The contract has **not been audited or deployed**, the system has not been reviewed by a forensics practitioner or legal counsel, and it is **not evidence-grade**. Do not use it for real evidence. See [Known limitations](#known-limitations).
 
 ## How it fits together
 
@@ -19,7 +19,7 @@ A chain-of-custody system for digital evidence. A React web app and a Solidity s
 
 - **The contract is the source of truth.** It decides who may write; the web app reads roles from it (`rolesOf`).
 - **The web app only decides what to show.** Hidden buttons and guarded routes are a courtesy to honest users. Every write is checked again by the contract, so removing a guard never grants access.
-- **A ledger adapter** gives the app one interface over two implementations: the real contract (`src/web3/ethersLedger.js`) and an in-memory demo ledger for development (`src/web3/demoLedger.js`). One shared scenario suite runs against both, including the real contract on a local Hardhat chain.
+- **A ledger adapter** gives the app one interface over two implementations: the real contract (`src/web3/ethersLedger.js`) and an in-memory ledger used only by the tests (`src/test/memoryLedger.js`). One shared scenario suite runs against both, including the real contract on a local Hardhat chain, so the test ledger cannot drift from the contract.
 
 ## Roles
 
@@ -57,11 +57,20 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-With no contract configured, a development build runs on the **in-memory demo ledger** with sample data. After connecting a wallet, the bar under the banner lets you preview the interface as each role. Nothing is recorded anywhere, and a **production build with no contract configured grants access to nobody**.
+The app always talks to a deployed `EvidenceLocker` contract; **with no contract configured it grants access to nobody**. For development, run a local chain:
+
+```bash
+cd contracts
+npm install
+npm run node          # terminal 1: local chain on http://127.0.0.1:8545 (chain id 31337), prints funded test accounts
+npm run deploy:local  # terminal 2: deploys EvidenceLocker and prints the VITE_* values for .env
+```
+
+Put the printed `VITE_LOCKER_ADDRESS`, `VITE_LOCKER_DEPLOY_BLOCK` and `VITE_CHAIN_ID=31337` in `.env`, restart `npm run dev`, and in MetaMask add the network (RPC `http://127.0.0.1:8545`, chain id 31337). Import test account #0 (the deployer, which becomes the Chief) and another test account. As the Chief, grant the other account the Investigator role on the Role Management page. The node prints those accounts' private keys: they are public, so use them only on the local chain. The local chain is reset every time the node restarts, so deploy again and update `.env`.
 
 | Script | What it does |
 | --- | --- |
-| `npm run dev` | Dev server with hot reload (demo ledger unless a contract is configured). |
+| `npm run dev` | Dev server with hot reload. Needs a deployed contract (see above). |
 | `npm run build` | Production build into `dist/`. |
 | `npm run check:bundle` | Fails if `dist/` contains anything secret-like (a JWT, a private key, a credential-named `VITE_` variable). Run after `build`; CI does. |
 | `npm run preview` | Serve the production build. |
@@ -83,7 +92,7 @@ To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLO
 
 | Variable | Public? | Purpose |
 | --- | --- | --- |
-| `VITE_LOCKER_ADDRESS` | public | Deployed contract address. Empty means demo ledger (development) or no access (production). |
+| `VITE_LOCKER_ADDRESS` | public | Deployed contract address. Empty means no access for anyone. |
 | `VITE_CHAIN_ID` | public | Network the contract is on (default Sepolia, 11155111). A wallet on another network is asked to switch. |
 | `VITE_LOCKER_DEPLOY_BLOCK` | public | Where to start scanning event logs for transaction links. |
 | `VITE_EXPLORER_URL` | public | Block explorer base URL (defaults for Sepolia and Mainnet). |
@@ -114,7 +123,7 @@ Development limits: the master key is an environment variable, not a KMS or HSM;
 
 ## Case details
 
-Case titles and descriptions are sensitive, so they stay off chain in a case store: `server/caseStore.js` (`/api/cases`, needs a wallet sign-in) with a real contract, or an in-memory store seeded with the fictional sample cases with the demo ledger (`src/cases/caseStores.js`). The store keeps an **append-only version history**: an edit adds a version and never changes an earlier one, and no endpoint deletes a version.
+Case titles and descriptions are sensitive, so they stay off chain in a case store: `server/caseStore.js` (`/api/cases`, needs a wallet sign-in; the client is `src/cases/caseStores.js`). The store keeps an **append-only version history**: an edit adds a version and never changes an earlier one, and no endpoint deletes a version.
 
 Each evidence registration anchors the digest of the case's **current** version on chain:
 
@@ -162,13 +171,12 @@ Privacy: a public gateway learns that someone fetched a given CID, and from whic
 
 ## Known limitations
 
-- Prototype: not audited, not deployed, not legally reviewed. An external contract audit and a forensics and legal review are required before any real use (roadmap Phases 5 and 6).
+- Pre-release: not audited, not deployed, not legally reviewed. An external contract audit and a forensics and legal review are required before any real use (roadmap Phases 5 and 6).
 - Public-chain privacy (see above), and the unsalted `caseRef`.
 - Files are encrypted before they are pinned, but the key server releases a key to **any signed-in wallet** (no role check yet), its master key is an environment variable, and the pin proxy likewise checks only for a sign-in.
-- No backend or database yet: sign-in sessions, wrapped keys and case details are kept by the Vite dev server (memory and JSON files under `.data/`), and the server checks only for a sign-in, not for an on-chain role. With the demo ledger, case titles are fictional sample data.
+- No backend or database yet: sign-in sessions, wrapped keys and case details are kept by the Vite dev server (memory and JSON files under `.data/`), and the server checks only for a sign-in, not for an on-chain role.
 - In-browser hashing reads the whole file into memory, so it is limited to 10 MB.
-- The PDF custody report still exists only for the development sample pages; the dashboard exports a JSON case record instead.
-- The two sample pages (Evidence Viewer, Chain of Custody) show fictional data and exist in development builds only.
+- No PDF custody report: the dashboard exports a JSON case record (a server-generated report is roadmap Phase 4).
 - The main bundle is about 650 KB (the `ethers` library); code splitting is not done yet.
 - No end-to-end or cross-browser tests beyond the unit and component tests.
 
@@ -178,11 +186,12 @@ Privacy: a public gateway learns that someone fetched a given CID, and from whic
 contracts/                 Solidity contract, Hardhat tests, deploy and ABI-export scripts
 server/                    Dev-server handlers mounted by vite.config.js: Pinata upload proxy, wallet sign-in,
                            key store, case store
-src/cases/                 Case details: digest, demo and server stores, the case directory provider
+src/cases/                 Case details: digest, server-store client, the case directory provider
 scripts/check-bundle.mjs   Secret scan for the production bundle
-src/web3/                  Ledger adapter (ethers + demo), roles, errors, hooks, case model
+src/web3/                  Ledger adapter (ethers), roles, errors, hooks, case model, shared ledger scenarios
 src/context/               Wallet and role providers
 src/components/            Layout, navigation, route guard (RequireCapability), Can, UI kit, case dashboard parts
-src/pages/                 Case dashboard, evidence upload, role management (+ two sample pages in dev)
+src/pages/                 Case dashboard, evidence upload, role management
+src/test/                  Test-only code: in-memory ledger and case store, fixtures, render harness
 docs/                      Roadmap, threat model
 ```

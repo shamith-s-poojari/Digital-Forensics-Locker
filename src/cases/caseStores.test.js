@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { deriveCaseRef } from "../web3/format.js";
 import { computeCaseDigest } from "./caseDigest.js";
-import { createDemoCaseStore } from "./caseStores.js";
-import { SAMPLE_CASE_DIGESTS, SAMPLE_CASES } from "./sampleCases.js";
+import { createMemoryCaseStore } from "../test/memoryCaseStore.js";
+import { FIXTURE_CASE_DIGESTS, FIXTURE_CASES } from "../test/fixtures/caseFixtures.js";
 
 const EDITOR = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const recompute = (entry, v) => computeCaseDigest({ caseRef: entry.caseRef, caseNumber: entry.caseNumber, title: v.title, description: v.description, salt: v.salt });
@@ -38,15 +38,15 @@ describe("caseDigest", () => {
   });
 });
 
-describe("createDemoCaseStore", () => {
-  it("is seeded with the sample cases, whose digests the demo ledger anchors", async () => {
-    const cases = await createDemoCaseStore().list();
-    expect(cases.map((c) => c.caseNumber).sort()).toEqual(SAMPLE_CASES.map((c) => c.caseNumber).sort());
-    for (const c of cases) expect(recompute(c, c.versions[0])).toBe(SAMPLE_CASE_DIGESTS[c.caseRef]);
+describe("createMemoryCaseStore", () => {
+  it("is seeded with the fixture cases, whose digests the seeded in-memory ledger anchors", async () => {
+    const cases = await createMemoryCaseStore().list();
+    expect(cases.map((c) => c.caseNumber).sort()).toEqual(FIXTURE_CASES.map((c) => c.caseNumber).sort());
+    for (const c of cases) expect(recompute(c, c.versions[0])).toBe(FIXTURE_CASE_DIGESTS[c.caseRef]);
   });
 
   it("creates version 1 under the normalised case number, with a random salt and the editor", async () => {
-    const store = createDemoCaseStore({ seed: false });
+    const store = createMemoryCaseStore({ seed: false });
     const created = await store.create({ caseNumber: " case-7 ", title: " Title ", description: "Desc" }, EDITOR);
     expect(created).toMatchObject({ caseRef: deriveCaseRef("CASE-7"), caseNumber: "CASE-7", createdBy: EDITOR });
     expect(created.versions).toHaveLength(1);
@@ -57,7 +57,7 @@ describe("createDemoCaseStore", () => {
   });
 
   it("refuses a missing title or case number, and a case that already exists", async () => {
-    const store = createDemoCaseStore({ seed: false });
+    const store = createMemoryCaseStore({ seed: false });
     await expect(store.create({ caseNumber: "CASE-7", title: "  " })).rejects.toThrow(/title is required/);
     await expect(store.create({ caseNumber: " ", title: "T" })).rejects.toThrow(/case number is required/);
     await store.create({ caseNumber: "CASE-7", title: "T" });
@@ -65,7 +65,7 @@ describe("createDemoCaseStore", () => {
   });
 
   it("appends a version for an edit and never changes an earlier one", async () => {
-    const store = createDemoCaseStore({ seed: false });
+    const store = createMemoryCaseStore({ seed: false });
     const { caseRef, versions: [v1] } = await store.create({ caseNumber: "CASE-7", title: "First" });
     const edited = await store.addVersion(caseRef, { title: "Second", description: "More" }, EDITOR);
     expect(edited.versions.map((v) => v.version)).toEqual([1, 2]);
@@ -76,14 +76,14 @@ describe("createDemoCaseStore", () => {
   });
 
   it("adds nothing for an unchanged edit, and refuses an unknown case", async () => {
-    const store = createDemoCaseStore({ seed: false });
+    const store = createMemoryCaseStore({ seed: false });
     const { caseRef } = await store.create({ caseNumber: "CASE-7", title: "Same", description: "Same" });
     expect((await store.addVersion(caseRef, { title: " Same ", description: "Same" })).versions).toHaveLength(1);
     await expect(store.addVersion(deriveCaseRef("CASE-404"), { title: "T" })).rejects.toThrow(/No such case/);
   });
 
   it("returns copies, so a caller cannot rewrite the stored history", async () => {
-    const store = createDemoCaseStore({ seed: false });
+    const store = createMemoryCaseStore({ seed: false });
     const created = await store.create({ caseNumber: "CASE-7", title: "Original" });
     created.versions[0].title = "Changed by the caller";
     (await store.list())[0].versions[0].title = "Changed again";

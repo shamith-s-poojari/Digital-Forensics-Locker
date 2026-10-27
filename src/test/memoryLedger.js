@@ -1,28 +1,28 @@
 import { AbiCoder, getAddress, id as keccakId, isAddress, keccak256 } from "ethers";
-import { mockCustodyLog, mockEvidence } from "../data/mockData";
-import { SAMPLE_CASE_DIGESTS } from "../cases/sampleCases.js";
-import { caseGenesis, computeLink, isValidCid } from "./caseChain.js";
-import { bytes32ToHex, deriveCaseRef, hexToBytes32, sameAddress } from "./format.js";
-import { LedgerError, LEDGER_ERROR } from "./ledgerErrors.js";
-import { CUSTODY_ACTIONS } from "./ethersLedger.js";
+import { fixtureCustodyLog, fixtureEvidence } from "./fixtures/ledgerFixtures.js";
+import { FIXTURE_CASE_DIGESTS } from "./fixtures/caseFixtures.js";
+import { caseGenesis, computeLink, isValidCid } from "../web3/caseChain.js";
+import { bytes32ToHex, deriveCaseRef, hexToBytes32, sameAddress } from "../web3/format.js";
+import { LedgerError, LEDGER_ERROR } from "../web3/ledgerErrors.js";
+import { CUSTODY_ACTIONS } from "../web3/ethersLedger.js";
 
 /**
- * In-memory stand-in for the EvidenceLocker contract, for development and tests only (see isDemoAllowed()).
+ * In-memory stand-in for the EvidenceLocker contract, for tests only (the application never imports it).
  * It enforces the same rules, throws the same LedgerError codes, and computes the case chain (caseChain.js) and the
  * custody hash chain with the same algorithms as the contract; ledgerScenarios.js runs against both to keep them in
  * step.
  * Nothing here is persisted or recorded anywhere.
  */
 
-export const DEMO_ADMIN = "0x00000000000000000000000000000000000d3a01";
-export const DEMO_AUDITOR = "0x00000000000000000000000000000000000a0d17";
+export const TEST_ADMIN = "0x00000000000000000000000000000000000d3a01";
+export const TEST_AUDITOR = "0x00000000000000000000000000000000000a0d17";
 
 const ZERO_HASH = `0x${"0".repeat(64)}`;
 const abi = AbiCoder.defaultAbiCoder();
 const ACTION_INDEX = Object.fromEntries(CUSTODY_ACTIONS.map((name, i) => [name, i]));
 
 const lower = (a) => String(a).toLowerCase();
-/** The sample data's addresses have made-up mixed-case spellings; normalise to real EIP-55 checksummed ones. */
+/** The fixtures' addresses have made-up mixed-case spellings; normalise to real EIP-55 checksummed ones. */
 const toAddress = (a) => getAddress(lower(a));
 const flagsFor = (role) => ({
   isAdmin: role === "admin",
@@ -57,23 +57,23 @@ function nextLink(evidence, caseRef, record) {
   return { caseIndex: previous.length, link: computeLink(prior, record) };
 }
 
-function parseSampleTime(text) {
+function parseFixtureTime(text) {
   return Math.floor(Date.parse(`${text.replace(" ", "T")}Z`) / 1000);
 }
 
 function seedEvidence(store) {
-  mockEvidence.forEach((m, i) => {
+  fixtureEvidence.forEach((m, i) => {
     const submitter = toAddress(m.submittedBy);
-    const submittedAt = parseSampleTime(m.timestamp);
+    const submittedAt = parseFixtureTime(m.timestamp);
     const custody = [{ index: 0, action: "Submitted", actor: submitter, counterparty: null, timestamp: submittedAt, noteHash: null }];
 
-    for (const log of mockCustodyLog.filter((l) => l.cidHash === m.cid && l.eventType !== "Submit")) {
+    for (const log of fixtureCustodyLog.filter((l) => l.cidHash === m.cid && l.eventType !== "Submit")) {
       custody.push({
         index: custody.length,
         action: log.eventType === "Verify" ? "VerifiedMatch" : "Accessed",
         actor: toAddress(log.actor),
         counterparty: null,
-        timestamp: parseSampleTime(log.timestamp),
+        timestamp: parseFixtureTime(log.timestamp),
         noteHash: null,
       });
     }
@@ -93,24 +93,24 @@ function seedEvidence(store) {
       custodyCount: custody.length,
       custodyHead: bytes32ToHex(recomputeHead(custody)),
       ...nextLink(store.evidence, caseRef, { sha256: m.hash, cid: m.cid, officer: submitter, timestamp: submittedAt }),
-      caseDigest: SAMPLE_CASE_DIGESTS[caseRef],
+      caseDigest: FIXTURE_CASE_DIGESTS[caseRef],
       custody,
     });
     store.roles.set(lower(submitter), flagsFor("investigator"));
   });
-  // A dedicated sample auditor (a distinct address, so no submitter loses their investigator role).
-  store.roles.set(lower(DEMO_AUDITOR), flagsFor("auditor"));
+  // A dedicated fixture auditor (a distinct address, so no submitter loses their investigator role).
+  store.roles.set(lower(TEST_AUDITOR), flagsFor("auditor"));
 }
 
 /**
- * Shared state for one demo "chain". Several ledgers (one per acting account) can share a store, which is how the
+ * Shared state for one in-memory "chain". Several ledgers (one per acting account) can share a store, which is how the
  * scenario suite plays several actors against the same state.
  */
-export function createDemoStore({ now = () => Math.floor(Date.now() / 1000), seed = true } = {}) {
+export function createMemoryStore({ now = () => Math.floor(Date.now() / 1000), seed = true } = {}) {
   const store = {
     now,
-    admin: DEMO_ADMIN,
-    roles: new Map([[lower(DEMO_ADMIN), flagsFor("admin")]]),
+    admin: TEST_ADMIN,
+    roles: new Map([[lower(TEST_ADMIN), flagsFor("admin")]]),
     evidence: [],
     paused: false,
     block: 1000,
@@ -138,14 +138,12 @@ const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)
 
 /**
  * @param {object} options
- * @param {ReturnType<typeof createDemoStore>} options.store
+ * @param {ReturnType<typeof createMemoryStore>} options.store
  * @param {string | null} options.account  The acting address (the "connected wallet").
  * @param {number} [options.signDelayMs]   Simulated time the wallet takes to sign.
  * @param {number} [options.confirmDelayMs] Simulated time to mine.
- * @param {string} [options.defaultRole]   Role given to an account the store has never seen (dev convenience).
  */
-export function createDemoLedger({ store, account, signDelayMs = 700, confirmDelayMs = 1200, defaultRole }) {
-  if (defaultRole && account && !store.roles.has(lower(account))) store.roles.set(lower(account), flagsFor(defaultRole));
+export function createMemoryLedger({ store, account, signDelayMs = 700, confirmDelayMs = 1200 }) {
 
   const flags = (address) => store.roles.get(lower(address)) ?? flagsFor("none");
   const need = (flag) => {
@@ -174,7 +172,7 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
     const result = apply();
     await sleep(signDelayMs);
     store.txCounter += 1;
-    const hash = keccakId(`demo-tx-${store.txCounter}`);
+    const hash = keccakId(`memory-tx-${store.txCounter}`);
     store.block += 1;
     const blockNumber = store.block;
     return {
@@ -193,7 +191,7 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
   };
 
   return {
-    kind: "demo",
+    kind: "memory",
 
     getRoles: async (address) => ({ ...flags(address) }),
     listEvidence: async () => store.evidence.map(clone),
@@ -207,7 +205,7 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
     },
     getCustodyTxs: async (id) => {
       find(id);
-      return {}; // the demo has no transactions to link to
+      return {}; // the in-memory ledger has no transactions to link to
     },
     listRoleMembers: async () => {
       const members = { admin: getAddress(lower(store.admin)), investigators: [], auditors: [] };
@@ -319,11 +317,6 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
     subscribe(callback) {
       store.listeners.add(callback);
       return () => store.listeners.delete(callback);
-    },
-
-    /** Demo only: pretend the connected wallet holds this role ("none" | "auditor" | "investigator" | "admin"). */
-    setPreviewRole(role) {
-      if (account) store.setRole(account, role);
     },
   };
 }

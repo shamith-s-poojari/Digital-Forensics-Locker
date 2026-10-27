@@ -1,6 +1,9 @@
 // Deploys EvidenceLocker.
 //
-//   Local, in-memory chain (no keys, nothing to configure):
+//   Local node, for development (in a second terminal, after `npm run node`):
+//     npm run deploy:local
+//
+//   Throwaway in-memory chain (checks the script; nothing persists):
 //     npx hardhat run scripts/deploy.ts
 //
 //   Sepolia testnet (development only; see the privacy note in EvidenceLocker.sol):

@@ -1,16 +1,16 @@
 import { sha256, toUtf8Bytes } from "ethers";
-import { mockCases } from "../data/mockData";
-import { deriveCaseRef } from "../web3/format.js";
-import { computeCaseDigest } from "./caseDigest.js";
+import { fixtureCases } from "./ledgerFixtures.js";
+import { deriveCaseRef } from "../../web3/format.js";
+import { computeCaseDigest } from "../../cases/caseDigest.js";
 
 /**
- * The fictional sample cases as case-store entries (version 1 each), for the development demo only. Their salts are
- * derived from the case number so the demo ledger can anchor the same digests at startup; real salts are random.
+ * Test fixtures: the fixture cases as case-store entries (version 1 each). Their salts are
+ * derived from the case number so the in-memory ledger can anchor the same digests when seeded; real salts are random.
  */
-export const SAMPLE_CASES = mockCases.map((c) => {
+export const FIXTURE_CASES = fixtureCases.map((c) => {
   const caseRef = deriveCaseRef(c.id);
-  const salt = sha256(toUtf8Bytes(`dfl-demo-sample-salt:${c.id}`)).slice(2);
-  const description = `Fictional sample case (${c.status}).`;
+  const salt = sha256(toUtf8Bytes(`dfl-test-fixture-salt:${c.id}`)).slice(2);
+  const description = `Fixture case (${c.status}).`;
   const at = `${c.dateOpened}T09:00:00.000Z`;
   return {
     caseRef,
@@ -31,5 +31,5 @@ export const SAMPLE_CASES = mockCases.map((c) => {
   };
 });
 
-/** caseRef -> digest of the sample case's version 1. */
-export const SAMPLE_CASE_DIGESTS = Object.fromEntries(SAMPLE_CASES.map((c) => [c.caseRef, c.versions[0].digest]));
+/** caseRef -> digest of the fixture case's version 1. */
+export const FIXTURE_CASE_DIGESTS = Object.fromEntries(FIXTURE_CASES.map((c) => [c.caseRef, c.versions[0].digest]));

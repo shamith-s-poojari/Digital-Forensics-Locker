@@ -20,11 +20,11 @@ function Probe() {
   );
 }
 
-function renderProvider({ config, account = ACCOUNT, chainId = 11155111, demoAllowed = false }) {
+function renderProvider({ config, account = ACCOUNT, chainId = 11155111, createLedger }) {
   const wallet = { account, chainId, connect: vi.fn(), disconnect: vi.fn(), switchChain: vi.fn(), error: null, isConnecting: false, clearError: vi.fn() };
   render(
     <WalletContext.Provider value={wallet}>
-      <LedgerProvider config={config} demoAllowed={demoAllowed}>
+      <LedgerProvider config={config} createLedger={createLedger}>
         <Probe />
       </LedgerProvider>
     </WalletContext.Provider>
@@ -41,8 +41,8 @@ afterEach(() => {
 });
 
 describe("LedgerProvider", () => {
-  it("rejects a malformed contract address instead of quietly using the demo", () => {
-    expect(renderProvider({ config: { ...base, invalidAddress: true }, demoAllowed: true })).toBe("misconfigured|no-ledger");
+  it("rejects a malformed contract address", () => {
+    expect(renderProvider({ config: { ...base, invalidAddress: true } })).toBe("misconfigured|no-ledger");
   });
 
   describe("with a contract configured", () => {
@@ -67,20 +67,23 @@ describe("LedgerProvider", () => {
       expect(renderProvider({ config: configured })).toBe("chain|chain");
     });
 
-    it("never falls back to the demo ledger, even if the demo is allowed", () => {
-      expect(renderProvider({ config: configured, chainId: 1, demoAllowed: true })).toBe("wrong-network|no-ledger");
+    it("applies the same wallet and network checks to an injected test ledger", () => {
+      const createLedger = () => ({ kind: "memory" });
+      expect(renderProvider({ config: configured, chainId: 1, createLedger })).toBe("wrong-network|no-ledger");
       cleanup();
-      expect(renderProvider({ config: configured, account: null, demoAllowed: true })).toBe("no-wallet|no-ledger");
+      expect(renderProvider({ config: configured, account: null, createLedger })).toBe("no-wallet|no-ledger");
+      cleanup();
+      expect(renderProvider({ config: configured, createLedger })).toBe("chain|memory");
     });
   });
 
   describe("with no contract configured", () => {
-    it("fails closed in a production build: no ledger, nobody authorised", () => {
-      expect(renderProvider({ config: base, demoAllowed: false })).toBe("unconfigured|no-ledger");
+    it("fails closed in every build: no ledger, nobody authorised", () => {
+      expect(renderProvider({ config: base })).toBe("unconfigured|no-ledger");
     });
 
-    it("uses the in-memory demo ledger in development", () => {
-      expect(renderProvider({ config: base, demoAllowed: true })).toBe("demo|demo");
+    it("does not use an injected test ledger either", () => {
+      expect(renderProvider({ config: base, createLedger: () => ({ kind: "memory" }) })).toBe("unconfigured|no-ledger");
     });
   });
 });

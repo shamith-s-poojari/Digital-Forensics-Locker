@@ -16,7 +16,7 @@ export default class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
-    // Console only: this demo has no server or telemetry to report to.
+    // Console only: there is no error-reporting service yet.
     console.error("Unhandled error in the UI:", error, info?.componentStack);
   }
 
@@ -36,7 +36,7 @@ export default class ErrorBoundary extends Component {
       >
         <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 12 }}>Something went wrong</h1>
         <p style={{ color: "#cbd5e1", marginBottom: 24 }}>
-          The page hit an unexpected error. Reloading usually fixes it. This is a demo, so no data was lost.
+          The page hit an unexpected error. Reloading usually fixes it. Anything already confirmed on the ledger is kept; a form you had not submitted may need to be filled in again.
         </p>
         <button
           type="button"

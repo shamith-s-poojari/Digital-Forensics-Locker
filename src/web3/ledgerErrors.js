@@ -1,5 +1,5 @@
 /**
- * One error type for everything that can go wrong when talking to the ledger (the real contract or the demo),
+ * One error type for everything that can go wrong when talking to the ledger (the real contract or the in-memory test ledger),
  * so the UI shows the same, human wording whichever implementation is active.
  */
 
