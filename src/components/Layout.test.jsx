@@ -7,6 +7,7 @@ import Layout from "./Layout";
 import { WalletContext } from "../context/walletContext.js";
 import { RoleTestProvider } from "../test/RoleTestProvider.jsx";
 import { AuthProvider } from "../context/AuthContext.jsx";
+import { LedgerContext } from "../web3/ledgerContext.js";
 
 const ACCOUNT = "0x71C7656EC7ab88b098defB751B7401B5f6d8976F";
 const SUFFIX = "Digital Forensics Locker";
@@ -52,11 +53,13 @@ function renderLayout({ account = ACCOUNT, path = "/", wallet = {}, roles, roleS
   const utils = render(
     <MemoryRouter initialEntries={[path]}>
       <WalletContext.Provider value={value}>
-        <RoleTestProvider isDemo roles={roles} status={roleStatus ?? (account ? "ready" : "disconnected")}>
-          <AuthProvider>
-            <Layout>{children}</Layout>
-          </AuthProvider>
-        </RoleTestProvider>
+        <LedgerContext.Provider value={{ mode: "demo", ledger: null, config: {} }}>
+          <RoleTestProvider isDemo roles={roles} status={roleStatus ?? (account ? "ready" : "disconnected")}>
+            <AuthProvider>
+              <Layout>{children}</Layout>
+            </AuthProvider>
+          </RoleTestProvider>
+        </LedgerContext.Provider>
       </WalletContext.Provider>
     </MemoryRouter>
   );

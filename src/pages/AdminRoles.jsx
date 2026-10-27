@@ -1,13 +1,14 @@
 import { useId, useState } from "react";
 import { isAddress } from "ethers";
-import { Crown, PauseCircle, PlayCircle, ShieldPlus, UserMinus } from "lucide-react";
+import { Check, Crown, PauseCircle, PlayCircle, ShieldPlus, UserMinus, X } from "lucide-react";
+import { useAccessRequests } from "../access/accessRequestContext.js";
 import Can from "../components/Can";
 import WriteActivity from "../components/WriteActivity";
 import { Badge, Button, CopyChip, Field, INPUT_CLASS, Panel, Spinner } from "../components/ui";
 import { useWallet } from "../context/walletContext.js";
 import { sameAddress } from "../web3/format.js";
 import { useLedger } from "../web3/ledgerContext.js";
-import { CAPABILITIES } from "../web3/roles.js";
+import { CAPABILITIES, ROLE_LABELS } from "../web3/roles.js";
 import { useLedgerQuery } from "../web3/useLedgerQuery.js";
 import { useWriteFlow } from "../web3/useWriteFlow.js";
 
@@ -20,6 +21,80 @@ const ROLE_OPTIONS = [
   { value: "investigator", label: "Investigator", help: "Can register evidence, log access and verification, and transfer custody." },
   { value: "auditor", label: "Auditor", help: "Read-only: can view the ledger and check files against it. Cannot write." },
 ];
+
+/**
+ * Pending access requests. Approving grants the role on the ledger (a transaction the contract checks) and only then
+ * marks the request approved; rejecting just records the decision.
+ */
+function RequestsPanel({ members, busy, runWrite, ledger }) {
+  const requests = useAccessRequests();
+  const [error, setError] = useState("");
+  if (requests.status === "unavailable") return null;
+
+  const holds = (r) => (r.role === "investigator" ? members.investigators : members.auditors).some((a) => sameAddress(a, r.address));
+
+  async function approve(r) {
+    setError("");
+    try {
+      if (!holds(r)) {
+        const outcome = await runWrite(`Grant ${ROLE_LABELS[r.role]} role`, () => ledger.grantRole(r.role, r.address));
+        if (!outcome.ok) return;
+      }
+      await requests.resolve(r.id, "approved");
+    } catch (err) {
+      setError(err?.message ?? "Could not update the request.");
+    }
+  }
+
+  async function reject(r) {
+    setError("");
+    try {
+      await requests.resolve(r.id, "rejected");
+    } catch (err) {
+      setError(err?.message ?? "Could not update the request.");
+    }
+  }
+
+  return (
+    <Panel title={`Access requests (${requests.pending.length})`} titleId="requests-heading" bodyClassName="p-0">
+      {error ? (
+        <p role="alert" className="border-b border-slate-800 px-4 py-2 text-sm text-rose-200">
+          {error}
+        </p>
+      ) : null}
+      {requests.status === "loading" ? (
+        <div className="p-4">
+          <Spinner label="Reading access requests…" />
+        </div>
+      ) : requests.status === "error" || requests.status === "signed-out" ? (
+        <p className="px-4 py-4 text-sm text-slate-300">{requests.status === "signed-out" ? "Sign in to see access requests." : requests.error}</p>
+      ) : requests.pending.length === 0 ? (
+        <p className="px-4 py-6 text-center text-sm text-slate-400">No pending requests.</p>
+      ) : (
+        <ul>
+          {requests.pending.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-4 py-3 last:border-b-0">
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <CopyChip value={r.address} label="Requesting address" />
+                  <Badge tone="info">{ROLE_LABELS[r.role]}</Badge>
+                </div>
+                {r.reason ? <p className="text-sm text-slate-300">{r.reason}</p> : null}
+                <p className="text-xs text-slate-500">Requested {new Date(r.createdAt).toLocaleString()}</p>
+              </div>
+              <Button size="sm" variant="primary" icon={Check} disabled={busy} onClick={() => void approve(r)} aria-label={`Approve ${ROLE_LABELS[r.role]} for ${r.address}`}>
+                Approve
+              </Button>
+              <Button size="sm" variant="ghost" icon={X} disabled={busy} onClick={() => void reject(r)} aria-label={`Reject request from ${r.address}`}>
+                Reject
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
 
 function MemberRow({ address, role, isYou, disabled, onRevoke }) {
   const [confirming, setConfirming] = useState(false);
@@ -122,6 +197,8 @@ export default function AdminRoles() {
               The Chief role moves only through the contract&apos;s two-step transfer with a waiting period. It cannot be granted from this page.
             </p>
           </Panel>
+
+          <RequestsPanel members={members} busy={busy} runWrite={write.runWrite} ledger={ledger} />
 
           <Panel title="Authorise an address" titleId="grant-heading">
             <form onSubmit={(e) => void onGrant(e)} noValidate className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end">

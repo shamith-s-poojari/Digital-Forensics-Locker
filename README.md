@@ -57,7 +57,11 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-With no contract configured, a development build runs on the **in-memory demo ledger** with sample data. It enforces roles like the contract: a wallet only gets in if it holds a role, and any other wallet sees **Access Denied: Address not registered**. Give your own MetaMask accounts roles in `.env` (use a different account per role to try each one), then restart `npm run dev`:
+With no contract configured, a development build runs on the **in-memory demo ledger** with sample data. It enforces roles like the contract: a wallet only gets in if it holds a role, and any other wallet sees **Access Denied: Address not registered**.
+
+**Getting access.** On the Access Denied screen a wallet can **request a role** (Investigator or Auditor, with an optional reason). The Chief sees pending requests, with a count on the Role Management link, and approves (which grants the role on the ledger) or rejects. A request grants nothing by itself. On the demo ledger, if nobody is the Chief yet, the Access Denied screen also offers **Make this wallet the Chief**. To try it with one browser, use two MetaMask accounts: make the first the Chief, switch to the second and request a role, then switch back to approve. Demo roles and requests are lost when the page reloads.
+
+To keep roles across reloads, give your own MetaMask accounts roles in `.env` (use a different account per role to try each one), then restart `npm run dev`:
 
 ```bash
 VITE_DEMO_ADMIN=0xYourChiefAccount

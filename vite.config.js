@@ -4,6 +4,7 @@ import { handlePinRequest, resolvePinataJwt } from './server/pinataProxy.js'
 import { createSiweAuth } from './server/siweAuth.js'
 import { createKeyStore, parseMasterKey } from './server/keyStore.js'
 import { createCaseStore } from './server/caseStore.js'
+import { createAccessRequestStore } from './server/accessRequests.js'
 import { resolve } from 'node:path'
 
 function sendInternalError(res, label, err) {
@@ -36,6 +37,10 @@ function serverApi(env) {
     filePath: resolve(env.CASE_STORE || '.data/cases.json'),
     getSession: auth.getSession,
   })
+  const accessRequests = createAccessRequestStore({
+    filePath: resolve(env.ACCESS_REQUEST_STORE || '.data/access-requests.json'),
+    getSession: auth.getSession,
+  })
   let warned = false
   const middleware = (req, res, next) => {
     const path = req.url?.split('?')[0]
@@ -45,6 +50,10 @@ function serverApi(env) {
     }
     if (path === '/api/cases' || path?.startsWith('/api/cases/')) {
       caseStore.handle(req, res).catch((err) => sendInternalError(res, 'case-store', err))
+      return
+    }
+    if (path === '/api/access-requests' || path?.startsWith('/api/access-requests/')) {
+      accessRequests.handle(req, res).catch((err) => sendInternalError(res, 'access-requests', err))
       return
     }
     if (path === '/api/keys' || path?.startsWith('/api/keys/')) {

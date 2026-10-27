@@ -7,14 +7,23 @@ import App from "./App";
 const ACCOUNT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
 function installWallet(account = ACCOUNT) {
+  const handlers = {};
+  let selected = account;
   window.ethereum = {
     request: vi.fn(async ({ method }) => {
-      if (method === "eth_requestAccounts") return [account];
+      if (method === "eth_requestAccounts" || method === "eth_accounts") return [selected];
       if (method === "eth_chainId") return "0xaa36a7";
       return null;
     }),
-    on: vi.fn(),
+    on: vi.fn((event, handler) => {
+      handlers[event] = handler;
+    }),
     removeListener: vi.fn(),
+    /** Test helper: the user picks another account in MetaMask. */
+    switchTo(next) {
+      selected = next;
+      act(() => handlers.accountsChanged?.([next]));
+    },
   };
 }
 
@@ -59,7 +68,45 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
     expect(await screen.findByRole("heading", { name: "Access Denied: Address not registered" })).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Case Management" })).toBeNull();
-    expect(screen.getByText(/VITE_DEMO_INVESTIGATORS/)).toBeTruthy();
+    expect(screen.getByRole("form", { name: "Request access" })).toBeTruthy();
+  });
+
+  // Approving (a ledger write, which needs the sign-in server) is covered in AdminRoles.test.jsx.
+  it("lets a denied wallet request a role, and shows the request to the Chief", async () => {
+    installWallet(STRANGER);
+    render(<App />);
+    await userEvent.click(screen.getAllByRole("button", { name: /Connect/ })[0]);
+    await screen.findByRole("heading", { name: "Access Denied: Address not registered" });
+
+    await userEvent.selectOptions(screen.getByLabelText("Role you need"), "auditor");
+    await userEvent.type(screen.getByLabelText("Reason (optional)"), "Internal audit team");
+    await userEvent.click(screen.getByRole("button", { name: "Request access" }));
+    expect(await screen.findByText(/Waiting for the Chief/)).toBeTruthy();
+
+    // The Chief switches MetaMask to their account and finds the request waiting.
+    window.ethereum.switchTo(CHIEF);
+    await screen.findByText("Admin (Chief)", { selector: "[data-role]" });
+    expect(await screen.findByText("pending access requests")).toBeTruthy(); // sidebar count on Role Management
+    goTo("/admin");
+    expect(await screen.findByText("Internal audit team")).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Approve Auditor for ${STRANGER}` })).toBeTruthy();
+  });
+
+  it("lets the first wallet claim the Chief role when none is configured (demo only)", async () => {
+    vi.stubEnv("VITE_DEMO_ADMIN", "");
+    installWallet(STRANGER);
+    render(<App />);
+    await userEvent.click(screen.getAllByRole("button", { name: /Connect/ })[0]);
+    await userEvent.click(await screen.findByRole("button", { name: "Make this wallet the Chief" }));
+    expect(await screen.findByText("Admin (Chief)", { selector: "[data-role]" })).toBeTruthy();
+  });
+
+  it("does not offer to claim the Chief role when one is configured", async () => {
+    installWallet(STRANGER);
+    render(<App />);
+    await userEvent.click(screen.getAllByRole("button", { name: /Connect/ })[0]);
+    await screen.findByRole("heading", { name: "Access Denied: Address not registered" });
+    expect(screen.queryByRole("button", { name: "Make this wallet the Chief" })).toBeNull();
   });
 
   it("never makes a wallet an Investigator just for connecting", async () => {

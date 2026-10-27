@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Menu, X, Wallet, Lock, ShieldX } from "lucide-react";
+import { Menu, X, Wallet, Lock } from "lucide-react";
+import AccessDenied from "./AccessDenied";
 import Sidebar from "./Sidebar";
 import Clock from "./Clock";
 import SessionBanner from "./SessionBanner";
@@ -78,7 +79,7 @@ const GATE_TITLES = {
 };
 
 export default function Layout({ children }) {
-  const { gate, account, role, roleLabel, connect, disconnect, error, isConnecting, notice, isDemo } = useAuth();
+  const { gate, account, role, roleLabel, connect, disconnect, error, isConnecting, notice } = useAuth();
   const isConnected = Boolean(account);
   // The app itself (sidebar, pages) is only rendered once the contract confirms this wallet holds a role.
   const isGranted = gate === "granted";
@@ -592,31 +593,7 @@ export default function Layout({ children }) {
           </main>
         ) : gate === "denied" ? (
           <main id={MAIN_ID} ref={mainRef} tabIndex={-1} style={restrictedStyle}>
-            <div style={restrictedContentStyle}>
-              <ShieldX size={48} color="#f87171" strokeWidth={1.5} aria-hidden="true" />
-              <h1 style={restrictedTitleStyle}>Access Denied: Address not registered</h1>
-              <p style={restrictedMessageStyle}>
-                The wallet{" "}
-                <span style={{ fontFamily: "'JetBrains Mono', monospace", color: "#bae6fd" }}>{truncateAddress(account)}</span>{" "}
-                holds no role on the evidence ledger. Ask the Chief to register your address as an Investigator or
-                Auditor, then connect again.
-              </p>
-              {isDemo && (
-                <p style={{ ...restrictedMessageStyle, fontSize: "14px", color: "#94a3b8" }}>
-                  Development (demo ledger): add this address to <code>VITE_DEMO_ADMIN</code>,{" "}
-                  <code>VITE_DEMO_INVESTIGATORS</code> or <code>VITE_DEMO_AUDITORS</code> in <code>.env</code> and
-                  restart <code>npm run dev</code>.
-                </p>
-              )}
-              <button
-                type="button"
-                className="dfl-focusable"
-                onClick={disconnect}
-                style={{ ...connectWalletButtonStyle, padding: "12px 24px", fontSize: "14px", marginTop: "16px" }}
-              >
-                <Wallet size={18} aria-hidden="true" /> Disconnect
-              </button>
-            </div>
+            <AccessDenied />
           </main>
         ) : gate === "unavailable" ? (
           <main id={MAIN_ID} ref={mainRef} tabIndex={-1} style={restrictedStyle}>

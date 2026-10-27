@@ -5,6 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { ACCOUNT, OTHER_INVESTIGATOR, renderWithDemo } from "../test/demoHarness.jsx";
 import { createDemoStore, DEMO_AUDITOR } from "../web3/demoLedger.js";
 import AdminRoles from "./AdminRoles";
+import { AccessRequestProvider } from "../access/AccessRequestProvider.jsx";
+import { createDemoAccessRequestStore } from "../access/accessRequestStores.js";
 
 const NEW_ADDRESS = "0x90F79bf6EB2c4f870365E785982E1f101E93b906";
 
@@ -109,5 +111,45 @@ describe("AdminRoles", () => {
     const progress = await screen.findByLabelText("Grant Investigator role");
     await waitFor(() => expect(within(progress).getByText(/not authorised for this action/)).toBeTruthy());
     expect(store.roles.has(NEW_ADDRESS.toLowerCase())).toBe(false);
+  });
+});
+
+describe("AdminRoles: access requests", () => {
+  const REQUESTER = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc";
+
+  async function withRequest(role = "auditor") {
+    const store = createDemoStore();
+    const requests = createDemoAccessRequestStore();
+    await requests.submit({ role, reason: "Internal audit team" }, REQUESTER);
+    renderWithDemo(
+      <AccessRequestProvider store={requests}>
+        <AdminRoles />
+      </AccessRequestProvider>,
+      { store, role: "admin" }
+    );
+    await loaded();
+    await screen.findByText("Internal audit team");
+    return { store, requests };
+  }
+
+  it("approving grants the requested role on the ledger, then clears the request", async () => {
+    const { requests } = await withRequest("auditor");
+    expect(screen.getByRole("heading", { name: "Access requests (1)" })).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: `Approve Auditor for ${REQUESTER}` }));
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Access requests (0)" })).toBeTruthy());
+    expect(within(section("Auditors (2)")).getByText(REQUESTER, { exact: false })).toBeTruthy();
+    expect((await requests.mine(REQUESTER)).status).toBe("approved");
+  });
+
+  it("rejecting records the decision and grants nothing", async () => {
+    const { requests } = await withRequest("investigator");
+
+    await userEvent.click(screen.getByRole("button", { name: `Reject request from ${REQUESTER}` }));
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Access requests (0)" })).toBeTruthy());
+    expect(screen.queryByText(REQUESTER, { exact: false })).toBeNull();
+    expect((await requests.mine(REQUESTER)).status).toBe("rejected");
   });
 });

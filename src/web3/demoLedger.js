@@ -332,5 +332,15 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
       store.listeners.add(callback);
       return () => store.listeners.delete(callback);
     },
+
+    /**
+     * Demo only. True while no real wallet is the Chief (VITE_DEMO_ADMIN unset and nobody has claimed it), so a
+     * developer is never stuck with nobody able to approve access. A real contract gets its Chief at deployment.
+     */
+    isChiefUnclaimed: () => lower(store.admin) === lower(DEMO_ADMIN),
+    claimChief: async () => {
+      if (!account || lower(store.admin) !== lower(DEMO_ADMIN)) throw new LedgerError(LEDGER_ERROR.NOT_AUTHORIZED);
+      store.setRole(account, "admin");
+    },
   };
 }
