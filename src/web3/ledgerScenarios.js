@@ -19,6 +19,8 @@ const HASH_2 = "22".repeat(32);
 const CID = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
 const CASE_A = deriveCaseRef("CASE-TEST-A");
 const CASE_B = deriveCaseRef("CASE-TEST-B");
+const DIGEST = "d1".repeat(32);
+const DIGEST_2 = "d2".repeat(32);
 
 /** Sends a write and waits for it to be mined. */
 const mine = async (handlePromise) => (await handlePromise).wait();
@@ -32,7 +34,7 @@ export async function rejectsWith(promise, code) {
 }
 
 async function registerAs(ctx, who, overrides = {}) {
-  const result = await mine(ctx.as(who).registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: CID, ...overrides }));
+  const result = await mine(ctx.as(who).registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: CID, caseDigest: DIGEST, ...overrides }));
   return result.evidenceId;
 }
 
@@ -50,6 +52,7 @@ export const scenarios = [
       assert.equal(ev.caseRef, CASE_A);
       assert.equal(ev.sha256, HASH_1);
       assert.equal(ev.cid, CID);
+      assert.equal(ev.caseDigest, DIGEST);
       assert.equal(ev.submitter, ctx.address("alice"));
       assert.equal(ev.custodian, ctx.address("alice"));
       assert.equal(ev.custody.length, 1);
@@ -64,7 +67,7 @@ export const scenarios = [
     name: "only investigators can register evidence (not the admin, auditors or outsiders)",
     async run(ctx) {
       for (const who of ["chief", "carol", "dave"]) {
-        await rejectsWith(ctx.as(who).registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: CID }), LEDGER_ERROR.NOT_AUTHORIZED);
+        await rejectsWith(ctx.as(who).registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: CID, caseDigest: DIGEST }), LEDGER_ERROR.NOT_AUTHORIZED);
       }
       assert.equal((await ctx.as("alice").listEvidence()).length, 0);
     },
@@ -85,10 +88,12 @@ export const scenarios = [
     name: "rejects empty and invalid values",
     async run(ctx) {
       const alice = ctx.as("alice");
-      await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: "" }), LEDGER_ERROR.INVALID_INPUT);
-      await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: "x".repeat(32) }), LEDGER_ERROR.INVALID_INPUT);
-      await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: "x".repeat(65) }), LEDGER_ERROR.INVALID_INPUT);
-      await rejectsWith(alice.registerEvidence({ caseRef: `0x${"0".repeat(64)}`, sha256: HASH_1, cid: CID }), LEDGER_ERROR.INVALID_INPUT);
+      await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: "", caseDigest: DIGEST }), LEDGER_ERROR.INVALID_INPUT);
+      await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: "x".repeat(32), caseDigest: DIGEST }), LEDGER_ERROR.INVALID_INPUT);
+      await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: "x".repeat(65), caseDigest: DIGEST }), LEDGER_ERROR.INVALID_INPUT);
+      await rejectsWith(alice.registerEvidence({ caseRef: `0x${"0".repeat(64)}`, sha256: HASH_1, cid: CID, caseDigest: DIGEST }), LEDGER_ERROR.INVALID_INPUT);
+      await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: CID, caseDigest: "0".repeat(64) }), LEDGER_ERROR.INVALID_INPUT);
+      await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: CID }), LEDGER_ERROR.INVALID_INPUT);
       assert.equal((await alice.listEvidence()).length, 0);
     },
   },
@@ -176,7 +181,7 @@ export const scenarios = [
       assert.equal(await ctx.as("carol").isPaused(), true);
 
       await rejectsWith(ctx.as("alice").logAccess(1), LEDGER_ERROR.PAUSED);
-      await rejectsWith(ctx.as("alice").registerEvidence({ caseRef: CASE_B, sha256: HASH_2, cid: CID }), LEDGER_ERROR.PAUSED);
+      await rejectsWith(ctx.as("alice").registerEvidence({ caseRef: CASE_B, sha256: HASH_2, cid: CID, caseDigest: DIGEST }), LEDGER_ERROR.PAUSED);
       await rejectsWith(ctx.as("alice").pause(), LEDGER_ERROR.NOT_AUTHORIZED);
 
       await mine(ctx.as("chief").reassignCustody(1, ctx.address("bob")));
@@ -196,7 +201,7 @@ export const scenarios = [
     async run(ctx) {
       await registerAs(ctx, "alice"); // id 1: case A #0
       await registerAs(ctx, "bob", { caseRef: CASE_B }); // id 2: case B #0
-      await registerAs(ctx, "bob", { sha256: HASH_2 }); // id 3: case A #1
+      await registerAs(ctx, "bob", { sha256: HASH_2, caseDigest: DIGEST_2 }); // id 3: case A #1, after an edit of the case details
 
       const [first, other, second] = await ctx.as("carol").listEvidence();
       const fields = (ev) => ({ sha256: ev.sha256, cid: ev.cid, officer: ev.submitter, timestamp: ev.submittedAt });
@@ -206,6 +211,8 @@ export const scenarios = [
       assert.equal(second.link, computeLink(first.link, fields(second)));
       assert.equal(other.caseIndex, 0);
       assert.equal(other.link, computeLink(caseGenesis(CASE_B), fields(other)));
+      // Each record keeps the case-details digest it anchored; the digest is not part of the link.
+      assert.deepEqual([first.caseDigest, second.caseDigest], [DIGEST, DIGEST_2]);
     },
   },
   {

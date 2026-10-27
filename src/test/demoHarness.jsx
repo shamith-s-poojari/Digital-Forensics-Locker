@@ -1,5 +1,6 @@
 import { render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { CaseDirectoryProvider } from "../cases/CaseDirectoryProvider.jsx";
 import { RoleProvider } from "../context/RoleContext.jsx";
 import { WalletContext } from "../context/walletContext.js";
 import { createDemoStore } from "../web3/demoLedger.js";
@@ -45,14 +46,17 @@ const stableWallet = (account) => {
  * @param {string | null} [options.account]                      The connected wallet.
  * @param {"none"|"auditor"|"investigator"|"admin"} [options.role] Role of that wallet (default investigator).
  * @param {string} [options.path]
+ * @param {object} [options.caseStore]  Case store (default: the in-memory demo store, seeded with the sample cases).
  */
-export function renderWithDemo(ui, { store = createDemoStore(), account = ACCOUNT, role = "investigator", path = "/cases" } = {}) {
+export function renderWithDemo(ui, { store = createDemoStore(), account = ACCOUNT, role = "investigator", path = "/cases", caseStore } = {}) {
   if (account && role) store.setRole(account, role);
   const utils = render(
     <MemoryRouter initialEntries={[path]}>
       <WalletContext.Provider value={stableWallet(account)}>
         <LedgerProvider config={UNCONFIGURED} demoAllowed demoStore={store} demoDelays={NO_DELAY}>
-          <RoleProvider>{ui}</RoleProvider>
+          <CaseDirectoryProvider store={caseStore}>
+            <RoleProvider>{ui}</RoleProvider>
+          </CaseDirectoryProvider>
         </LedgerProvider>
       </WalletContext.Provider>
     </MemoryRouter>

@@ -40,7 +40,7 @@ A chain-of-custody system for digital evidence. A React web app and a Solidity s
 
 ## What is on the chain
 
-Stored: the SHA-256 of the evidence bytes, the CID of the stored copy, an opaque `caseRef` (the contract's `uint256 caseId`), the submitter and custodian addresses, timestamps, and each custody entry (who, what, when) chained by hash so that tampering is detectable. Role grants are on chain too.
+Stored: the SHA-256 of the evidence bytes, the CID of the stored copy, an opaque `caseRef` (the contract's `uint256 caseId`), a salted digest of the case's title and description (`caseDigest`, see [Case details](#case-details)), the submitter and custodian addresses, timestamps, and each custody entry (who, what, when) chained by hash so that tampering is detectable. Role grants are on chain too.
 
 Each registration is an immutable **256-byte record** (8 storage slots: evidence SHA-256, CID, officer address, block timestamp, case id, link; the CID is held to 33..64 bytes so it fills exactly two data slots). The records of a case form a SHA-256 chain: `h_0 = SHA256(caseId)`, `h_i = SHA256(h_{i-1} || e_i || CID_i || W_i || T_i)` (packed), stored as each record's `link`. The timestamp comes from the block, never from the caller. `verifyCaseChain(caseId)` walks a case and returns the first mismatching index; `computeLink` and `caseGenesis` let anyone check their own implementation. `EvidenceRegistered` has the evidence hash as its first indexed topic, so finding every registration of a file is one log query.
 
@@ -92,6 +92,7 @@ To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLO
 | `EVIDENCE_MASTER_KEY` | **secret, server only** | 32 random bytes (base64) that wrap every file's decryption key. Losing it makes every encrypted file unreadable: back it up off this machine. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. |
 | `EVIDENCE_MASTER_KEY_VERSION` | server only | Recorded with each wrapped key, for later rotation (default 1). |
 | `EVIDENCE_KEY_STORE`, `EVIDENCE_KEY_ACCESS_LOG` | server only | Where wrapped keys and the key-release log are written (default `.data/`, git-ignored). |
+| `CASE_STORE` | server only | Where the case store keeps case titles, descriptions and their version history (default `.data/cases.json`, git-ignored). |
 
 After changing the contract, run `npm run abi` in `contracts/` to refresh `src/web3/EvidenceLocker.abi.json`; CI fails if it is stale.
 
@@ -111,9 +112,34 @@ The pinned file starts with a 68-byte header (format version, key id, IV, plaint
 
 Development limits: the master key is an environment variable, not a KMS or HSM; **any signed-in wallet can fetch any key** (the server does not check on-chain roles yet); the key store is a JSON file for one process. The encrypted copy on public IPFS is permanent, so its safety rests on AES-256 and on the key store. Do not register real evidence yet (see the [roadmap](docs/ROADMAP.md), D4 and D7).
 
+## Case details
+
+Case titles and descriptions are sensitive, so they stay off chain in a case store: `server/caseStore.js` (`/api/cases`, needs a wallet sign-in) with a real contract, or an in-memory store seeded with the fictional sample cases with the demo ledger (`src/cases/caseStores.js`). The store keeps an **append-only version history**: an edit adds a version and never changes an earlier one, and no endpoint deletes a version.
+
+Each evidence registration anchors the digest of the case's **current** version on chain:
+
+```
+caseDigest = SHA256( UTF-8( JSON.stringify(["dfl-case-details/v1", caseRef, caseNumber, title, description, salt]) ) )
+```
+
+Strings are trimmed and NFC-normalised; `salt` is 32 random bytes chosen per version and kept off chain, so nobody can guess a likely title and confirm it against the public chain (`src/cases/caseDigest.js`, shared by the browser and the server). The upload page looks up the case by its number; for a new case it asks for a title and creates version 1 first. The contract stores `caseDigest` beside the 256-byte record (the record layout and the link formula are unchanged) and emits it in `EvidenceRegistered`.
+
+The dashboard's **Case details** panel recomputes every version's digest from its fields (the stored digest is not trusted) and matches each record's anchored digest to a version (`src/verify/verifyCaseDetails.js`):
+
+| Result | Meaning |
+| --- | --- |
+| Matches the anchored version | Every anchor matches a version, and the current version is anchored by at least one record. |
+| Edited, not yet anchored | Every anchor matches, but the case was edited after its last record; the next record registered in the case anchors the new version. |
+| **Does not match what was anchored** | A record anchored a digest that no stored version reproduces: the history was edited, or a version removed, after it was anchored. The panel names each such record. |
+| No case details | The case has records but the store has no entry for it. |
+
+Investigators can edit the details there (as a new version); the exported JSON case record includes every version with its salt and the digest rule, so a reviewer can repeat the check without this application. What the check proves: the stored text is the text that was anchored when each record was registered. It does not prove that text was accurate, and an edit made since the last record is only "not yet anchored", not confirmed.
+
+Development limits: any signed-in wallet can read, create and edit case details (no on-chain role check on the server yet); the store is a JSON file for one process.
+
 ## Verification
 
-Two checks run in the browser, on the case dashboard (`src/verify/`):
+Three checks run in the browser, on the case dashboard (`src/verify/`): the two below, and the case-details check described under [Case details](#case-details).
 
 - **One evidence item: Fetch from IPFS and verify.** The app downloads the stored copy by the CID on the ledger (from the gateways in `VITE_IPFS_GATEWAYS`, in order, capped at the 10 MB limit), decrypts it if it is an encrypted copy (this needs a sign-in, and the key release is logged), hashes the **original** bytes locally and asks the contract whether that hash is the registered one. A gateway is not trusted: altered bytes fail decryption, and the hash is compared with the chain, so a gateway can make a check fail but never pass. The same pipeline checks a file you choose from disk.
 - **A whole case: Case chain.** The selected case's records are taken in order and every link is recomputed from the record's own fields and the previous link (`h_0 = SHA256(caseId)`, `h_i = SHA256(h_{i-1} || e_i || CID_i || W_i || T_i)`), stopping at the first mismatch. It reports which record broke and why (link mismatch, missing or out-of-order record, record from another case); later records are marked not checked. This walk re-derives the result from the record data and does not ask the contract; the contract's own `verifyCaseChain` is a second, independent check.
@@ -139,7 +165,7 @@ Privacy: a public gateway learns that someone fetched a given CID, and from whic
 - Prototype: not audited, not deployed, not legally reviewed. An external contract audit and a forensics and legal review are required before any real use (roadmap Phases 5 and 6).
 - Public-chain privacy (see above), and the unsalted `caseRef`.
 - Files are encrypted before they are pinned, but the key server releases a key to **any signed-in wallet** (no role check yet), its master key is an environment variable, and the pin proxy likewise checks only for a sign-in.
-- No backend, database or server-side authentication yet. Case titles and officers come from sample data, matched by `caseRef`, because the chain holds only opaque references.
+- No backend or database yet: sign-in sessions, wrapped keys and case details are kept by the Vite dev server (memory and JSON files under `.data/`), and the server checks only for a sign-in, not for an on-chain role. With the demo ledger, case titles are fictional sample data.
 - In-browser hashing reads the whole file into memory, so it is limited to 10 MB.
 - The PDF custody report still exists only for the development sample pages; the dashboard exports a JSON case record instead.
 - The two sample pages (Evidence Viewer, Chain of Custody) show fictional data and exist in development builds only.
@@ -150,7 +176,9 @@ Privacy: a public gateway learns that someone fetched a given CID, and from whic
 
 ```
 contracts/                 Solidity contract, Hardhat tests, deploy and ABI-export scripts
-server/pinataProxy.js      Server-side Pinata upload proxy (mounted by vite.config.js)
+server/                    Dev-server handlers mounted by vite.config.js: Pinata upload proxy, wallet sign-in,
+                           key store, case store
+src/cases/                 Case details: digest, demo and server stores, the case directory provider
 scripts/check-bundle.mjs   Secret scan for the production bundle
 src/web3/                  Ledger adapter (ethers + demo), roles, errors, hooks, case model
 src/context/               Wallet and role providers

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
+import { createDemoCaseStore } from "../cases/caseStores.js";
 import { WalletContext } from "../context/walletContext.js";
 import { LedgerContext } from "../web3/ledgerContext.js";
 import { RoleTestProvider } from "../test/RoleTestProvider.jsx";
@@ -59,6 +60,66 @@ describe("CaseDashboard: case chain", () => {
     const statuses = within(panel).getAllByRole("listitem").map((li) => li.dataset.status);
     expect(statuses[0]).toBe("link-mismatch");
     expect(statuses.slice(1).every((s) => s === "not-checked")).toBe(true);
+  });
+});
+
+describe("CaseDashboard: case details", () => {
+  const detailsPanel = () => screen.getByRole("heading", { name: "Case details" }).closest("section");
+  const firstCase = (store) => groupByCase(store.evidence)[0];
+
+  it("shows the selected case's title from the store and confirms it matches the anchored version", async () => {
+    const store = seeded();
+    const caseStore = createDemoCaseStore();
+    renderWithDemo(<CaseDashboard />, { store, caseStore });
+    await loaded();
+
+    const entry = caseStore._cases.get(firstCase(store).caseRef);
+    const panel = detailsPanel();
+    expect(await within(panel).findByText(entry.versions[0].title)).toBeTruthy();
+    expect(within(panel).getByRole("status").textContent).toMatch(/match the version anchored on chain \(v1\)/);
+
+    fireEvent.click(within(panel).getByRole("button", { name: /Version history \(1\)/ }));
+    expect(within(within(panel).getByRole("list", { name: "Case details versions" })).getByRole("listitem").textContent).toMatch(/anchored by evidence #/);
+  });
+
+  it("saves an edit as a new version, which stays pending until the next record anchors it", async () => {
+    const store = seeded();
+    const caseStore = createDemoCaseStore();
+    renderWithDemo(<CaseDashboard />, { store, caseStore });
+    await loaded();
+    const panel = detailsPanel();
+    await within(panel).findByRole("status");
+
+    await userEvent.click(within(panel).getByRole("button", { name: "Edit case details" }));
+    const title = within(panel).getByLabelText("Case title");
+    await userEvent.clear(title);
+    await userEvent.type(title, "Renamed after review");
+    await userEvent.click(within(panel).getByRole("button", { name: "Save as a new version" }));
+
+    expect(await within(panel).findByText("Renamed after review")).toBeTruthy();
+    expect(within(panel).getByRole("status").textContent).toMatch(/v2 is not anchored yet/);
+    const entry = caseStore._cases.get(firstCase(store).caseRef);
+    expect(entry.versions.map((v) => v.title)).toEqual([expect.any(String), "Renamed after review"]);
+    expect(entry.versions[0].title).not.toBe("Renamed after review"); // the anchored version is untouched
+  });
+
+  it("flags case details that were edited in the store behind its back", async () => {
+    const store = seeded();
+    const caseStore = createDemoCaseStore();
+    caseStore._cases.get(firstCase(store).caseRef).versions[0].title = "Quietly rewritten";
+    renderWithDemo(<CaseDashboard />, { store, caseStore });
+    await loaded();
+
+    const panel = detailsPanel();
+    expect((await within(panel).findByRole("status")).textContent).toMatch(/CASE DETAILS DO NOT MATCH WHAT WAS ANCHORED/);
+    for (const ev of firstCase(store).evidence) expect(within(panel).getByText(new RegExp(`Evidence #${ev.id} anchored case details`))).toBeTruthy();
+  });
+
+  it("hides editing from an Auditor", async () => {
+    renderWithDemo(<CaseDashboard />, { store: seeded(), caseStore: createDemoCaseStore(), role: "auditor" });
+    await loaded();
+    await within(detailsPanel()).findByRole("status");
+    expect(within(detailsPanel()).queryByRole("button", { name: "Edit case details" })).toBeNull();
   });
 });
 
@@ -294,7 +355,7 @@ describe("CaseDashboard: writing to the ledger", () => {
     const store = seeded();
     const ledger = createDemoLedger({ store, account: ACCOUNT, signDelayMs: 0, confirmDelayMs: 0 });
     store.setRole(ACCOUNT, "investigator");
-    await (await ledger.registerEvidence({ caseRef: deriveCaseRef("CASE-NEW-1"), sha256: SHA256_ABC, cid: "bafybeinewcidnewcidnewcidnewcidnewcidnewcidnewcidnewcid" })).wait();
+    await (await ledger.registerEvidence({ caseRef: deriveCaseRef("CASE-NEW-1"), sha256: SHA256_ABC, cid: "bafybeinewcidnewcidnewcidnewcidnewcidnewcidnewcidnewcid", caseDigest: "d1".repeat(32) })).wait();
     renderWithDemo(<CaseDashboard />, { store });
     await loaded();
 
@@ -323,7 +384,7 @@ describe("CaseDashboard: writing to the ledger", () => {
     store.setRole(OTHER_INVESTIGATOR, "investigator");
     const ledger = createDemoLedger({ store, account: ACCOUNT, signDelayMs: 0, confirmDelayMs: 0 });
     store.setRole(ACCOUNT, "investigator");
-    await (await ledger.registerEvidence({ caseRef: deriveCaseRef("CASE-MINE-1"), sha256: SHA256_ABC, cid: "bafybeiminecidminecidminecidminecidminecidminecidmine" })).wait();
+    await (await ledger.registerEvidence({ caseRef: deriveCaseRef("CASE-MINE-1"), sha256: SHA256_ABC, cid: "bafybeiminecidminecidminecidminecidminecidminecidmine", caseDigest: "d1".repeat(32) })).wait();
 
     renderWithDemo(<CaseDashboard />, { store });
     await loaded();

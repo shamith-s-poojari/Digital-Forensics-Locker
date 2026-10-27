@@ -10,7 +10,8 @@ import { LedgerError, LEDGER_ERROR, normalizeError } from "./ledgerErrors.js";
  * Shapes
  *   RoleFlags   { isAdmin, isInvestigator, isAuditor }
  *   Evidence    { id, caseRef, sha256, cid, submitter, custodian, submittedAt, custodyCount, custodyHead, link, caseIndex,
- *                 custody[] }   (link: this record's case-chain value h_i; caseIndex: its position in the case)
+ *                 caseDigest, custody[] }   (link: this record's case-chain value h_i; caseIndex: its position in the
+ *                 case; caseDigest: the case-details digest it anchored)
  *   Custody     { index, action, actor, counterparty|null, timestamp, noteHash|null }
  *   TxHandle    { hash, wait(confirmations?) -> { hash, blockNumber, evidenceId|null } }  (hash is known once the
  *               wallet has signed; wait() resolves when the transaction is mined)
@@ -53,6 +54,7 @@ function toEvidence(id, ev, custody) {
     custodyHead: bytes32ToHex(ev.custodyHead),
     link: bytes32ToHex(ev.link),
     caseIndex: Number(ev.caseIndex),
+    caseDigest: bytes32ToHex(ev.caseDigest),
     custody,
   };
 }
@@ -185,7 +187,11 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
     isPaused: () => guard(() => reader.paused()),
 
     // ---- writes (each returns a TxHandle once the wallet has signed) --------------------------------------
-    registerEvidence: ({ caseRef, sha256, cid }) => send("registerEvidence", [caseRef, hexToBytes32(sha256), cid]),
+    registerEvidence: async ({ caseRef, sha256, cid, caseDigest }) => {
+      // Same refusal as the contract (and the demo) for a missing digest, without asking the wallet to sign first.
+      if (!/^(0x)?[0-9a-fA-F]{64}$/.test(String(caseDigest ?? ""))) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT, "A case-details digest is required");
+      return send("registerEvidence", [caseRef, hexToBytes32(sha256), cid, hexToBytes32(caseDigest)]);
+    },
     logAccess: (id, noteHash) => send("logAccess", [id, note(noteHash)]),
     logVerification: (id, sha256, noteHash) => send("logVerification", [id, hexToBytes32(sha256), note(noteHash)]),
     transferCustody: (id, to, noteHash) => send("transferCustody", [id, requireAddress(to), note(noteHash)]),

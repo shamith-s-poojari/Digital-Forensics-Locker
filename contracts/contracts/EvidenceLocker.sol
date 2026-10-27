@@ -36,6 +36,13 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
  *  in the record as `link`. Anyone can walk a case's records in order, recompute every link and stop at the first
  *  mismatch (`verifyCaseChain` does it on chain; the web app does it independently).
  *
+ * Case-details anchoring
+ *  Titles and descriptions live off chain (they are sensitive). Each registration also stores `caseDigest`: the
+ *  digest of the case's descriptive fields at that moment, salted off chain (see src/cases/caseDigest.js). It is
+ *  kept beside the Record, not in it, so the Record stays at 256 bytes and the link formula is unchanged. Anyone
+ *  holding the off-chain case history can show which version each record anchored; an off-chain edit that no
+ *  record anchored, or a rewritten history, is detectable.
+ *
  * Custody trail
  *  Each evidence item also carries a hash chain over its custody actions (access, transfer, verification):
  *     entryHash = keccak256(abi.encode(previousHead, action, actor, counterparty, timestamp, noteHash))
@@ -104,6 +111,7 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
         bytes32 custodyHead;
         bytes32 link;
         uint64 caseIndex;
+        bytes32 caseDigest;
     }
 
     struct CustodyEntry {
@@ -126,6 +134,8 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     mapping(uint256 id => Record) private _records;
     mapping(uint256 id => EvidenceState) private _state;
     mapping(uint256 id => CustodyEntry[]) private _custody;
+    /// @dev Digest of the case's descriptive fields anchored by each registration (see the contract notes).
+    mapping(uint256 id => bytes32) private _caseDigest;
     /// @dev The evidence ids of each case, in registration order: the case chain.
     mapping(uint256 caseId => uint256[] ids) private _caseRecords;
     /// @dev keccak256(caseId, sha256Hash) => id, to reject registering the same bytes twice under one case.
@@ -147,7 +157,8 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
         uint256 caseIndex,
         string cid,
         uint256 timestamp,
-        bytes32 link
+        bytes32 link,
+        bytes32 caseDigest
     );
 
     event CustodyRecorded(
@@ -195,15 +206,16 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
      * @param caseId Opaque case id (salted hash of the case number, computed off-chain).
      * @param sha256Hash SHA-256 of the original evidence bytes.
      * @param cid Content identifier of the stored copy, 33 to 64 bytes.
+     * @param caseDigest Digest of the case's descriptive fields (title, description) as they stand now.
      * @return id The new evidence id (starts at 1).
      */
-    function registerEvidence(uint256 caseId, bytes32 sha256Hash, string calldata cid)
+    function registerEvidence(uint256 caseId, bytes32 sha256Hash, string calldata cid, bytes32 caseDigest)
         external
         onlyRole(INVESTIGATOR_ROLE)
         whenNotPaused
         returns (uint256 id)
     {
-        if (caseId == 0 || sha256Hash == bytes32(0)) revert ZeroValue();
+        if (caseId == 0 || sha256Hash == bytes32(0) || caseDigest == bytes32(0)) revert ZeroValue();
         uint256 cidLength = bytes(cid).length;
         if (cidLength < MIN_CID_LENGTH || cidLength > MAX_CID_LENGTH) revert InvalidCid();
 
@@ -214,10 +226,10 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
         id = ++_lastId;
         _idByKey[key] = id;
 
-        Record storage r = _writeRecord(id, caseId, sha256Hash, cid);
-        EvidenceState storage st = _state[id];
-        emit EvidenceRegistered(sha256Hash, caseId, msg.sender, id, st.caseIndex, cid, r.timestamp, r.link);
-        _appendCustody(id, st, CustodyAction.Submitted, msg.sender, address(0), bytes32(0));
+        _writeRecord(id, caseId, sha256Hash, cid);
+        _caseDigest[id] = caseDigest;
+        _emitRegistered(id, cid);
+        _appendCustody(id, _state[id], CustodyAction.Submitted, msg.sender, address(0), bytes32(0));
     }
 
     /// @notice Records that the caller accessed the evidence (the access is itself part of the custody trail).
@@ -327,7 +339,8 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
             custodyCount: st.custodyCount,
             custodyHead: st.custodyHead,
             link: r.link,
-            caseIndex: st.caseIndex
+            caseIndex: st.caseIndex,
+            caseDigest: _caseDigest[id]
         });
     }
 
@@ -440,6 +453,14 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
         EvidenceState storage st = _state[id];
         st.custodian = msg.sender;
         st.caseIndex = uint64(caseIndex);
+    }
+
+    /// @dev Separate from registerEvidence only to keep that function's stack shallow.
+    function _emitRegistered(uint256 id, string calldata cid) private {
+        Record storage r = _records[id];
+        emit EvidenceRegistered(
+            r.evidenceHash, r.caseId, r.officer, id, _state[id].caseIndex, cid, r.timestamp, r.link, _caseDigest[id]
+        );
     }
 
     function _existing(uint256 id) private view returns (EvidenceState storage st) {

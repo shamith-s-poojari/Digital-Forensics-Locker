@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { handlePinRequest, resolvePinataJwt } from './server/pinataProxy.js'
 import { createSiweAuth } from './server/siweAuth.js'
 import { createKeyStore, parseMasterKey } from './server/keyStore.js'
+import { createCaseStore } from './server/caseStore.js'
 import { resolve } from 'node:path'
 
 function sendInternalError(res, label, err) {
@@ -31,11 +32,19 @@ function serverApi(env) {
     accessLogPath: resolve(env.EVIDENCE_KEY_ACCESS_LOG || '.data/key-access.log'),
     getSession: auth.getSession,
   })
+  const caseStore = createCaseStore({
+    filePath: resolve(env.CASE_STORE || '.data/cases.json'),
+    getSession: auth.getSession,
+  })
   let warned = false
   const middleware = (req, res, next) => {
     const path = req.url?.split('?')[0]
     if (path?.startsWith('/api/auth/')) {
       auth.handle(req, res).catch((err) => sendInternalError(res, 'siwe-auth', err))
+      return
+    }
+    if (path === '/api/cases' || path?.startsWith('/api/cases/')) {
+      caseStore.handle(req, res).catch((err) => sendInternalError(res, 'case-store', err))
       return
     }
     if (path === '/api/keys' || path?.startsWith('/api/keys/')) {

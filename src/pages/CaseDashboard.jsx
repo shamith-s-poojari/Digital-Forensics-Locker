@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, Download, FilePlus2, Inbox } from "lucide-react";
 import Can from "../components/Can";
 import CaseChainCheck from "../components/cases/CaseChainCheck";
+import CaseDetailsPanel from "../components/cases/CaseDetailsPanel";
 import CaseList from "../components/cases/CaseList";
 import CustodyTimeline from "../components/cases/CustodyTimeline";
 import DashboardHeader from "../components/cases/DashboardHeader";
@@ -10,9 +11,10 @@ import EvidenceActions from "../components/cases/EvidenceActions";
 import EvidenceTable from "../components/cases/EvidenceTable";
 import WriteActivity from "../components/WriteActivity";
 import { Button, Panel, Spinner } from "../components/ui";
+import { useCaseDirectory } from "../cases/caseDirectoryContext.js";
 import { useWallet } from "../context/walletContext.js";
 import { downloadJson, safeFileName } from "../utils/download";
-import { buildCaseExport, groupByCase, matchesQuery, summarize } from "../web3/caseModel.js";
+import { buildCaseExport, directoryFromCases, groupByCase, matchesQuery, summarize } from "../web3/caseModel.js";
 import { useLedger } from "../web3/ledgerContext.js";
 import { CAPABILITIES } from "../web3/roles.js";
 import { useEvidence } from "../web3/useEvidence.js";
@@ -40,7 +42,8 @@ export default function CaseDashboard() {
   const write = useWriteFlow({ config, onConfirmed: reload });
   const { runWrite } = write;
 
-  const groups = useMemo(() => groupByCase(records), [records]);
+  const directory = useCaseDirectory();
+  const groups = useMemo(() => groupByCase(records, directoryFromCases(directory.cases)), [records, directory.cases]);
   const visible = useMemo(() => groups.filter((g) => matchesQuery(g, query)), [groups, query]);
   const summary = useMemo(() => summarize(records), [records]);
 
@@ -81,7 +84,7 @@ export default function CaseDashboard() {
 
   function onExport() {
     if (!group) return;
-    const data = buildCaseExport({ group, config, mode });
+    const data = buildCaseExport({ group, config, mode, caseEntry: directory.byRef.get(group.caseRef) ?? null });
     downloadJson(`case-record-${safeFileName(group.caseNumber ?? group.caseRef.slice(0, 18))}.json`, data);
   }
 
@@ -146,6 +149,7 @@ export default function CaseDashboard() {
           </div>
 
           <div className="min-w-0 space-y-4">
+            <CaseDetailsPanel group={group} directory={directory} />
             <CaseChainCheck group={group} />
             <EvidenceTable group={group} selectedId={record?.id ?? null} onSelect={(id) => setSelection({ caseRef: group.caseRef, id })} account={account} />
             <EvidenceActions record={record} ledger={ledger} account={account} paused={paused} runWrite={runWrite} />

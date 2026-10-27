@@ -11,6 +11,8 @@ const HASH_1 = ethers.sha256(ethers.toUtf8Bytes("evidence file one"));
 const HASH_2 = ethers.sha256(ethers.toUtf8Bytes("evidence file two"));
 const CID_1 = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
 const NOTE = ethers.id("note: chain sealed bag 7");
+const DIGEST = ethers.sha256(ethers.toUtf8Bytes("case details v1"));
+const DIGEST_2 = ethers.sha256(ethers.toUtf8Bytes("case details v2"));
 
 // CustodyAction enum, same order as the contract.
 const Action = { Submitted: 0, Accessed: 1, Transferred: 2, VerifiedMatch: 3, VerifiedMismatch: 4, Reassigned: 5 } as const;
@@ -29,7 +31,7 @@ async function deploy() {
 
 async function withEvidence() {
   const ctx = await deploy();
-  await ctx.locker.connect(ctx.alice).registerEvidence(CASE_A, HASH_1, CID_1);
+  await ctx.locker.connect(ctx.alice).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST);
   return ctx;
 }
 
@@ -112,12 +114,13 @@ describe("EvidenceLocker", () => {
     it("registers evidence, makes the caller submitter and custodian, and opens the custody trail", async () => {
       const { locker, alice } = await deploy();
 
-      const tx = await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1);
-      await expect(tx).to.emit(locker, "EvidenceRegistered").withArgs(HASH_1, BigInt(CASE_A), alice.address, 1n, 0n, CID_1, anyUint, anyBytes32);
+      const tx = await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST);
+      await expect(tx).to.emit(locker, "EvidenceRegistered").withArgs(HASH_1, BigInt(CASE_A), alice.address, 1n, 0n, CID_1, anyUint, anyBytes32, DIGEST);
       await expect(tx).to.emit(locker, "CustodyRecorded");
 
       const ev = await locker.getEvidence(1);
       expect(ev.caseId).to.equal(BigInt(CASE_A));
+      expect(ev.caseDigest).to.equal(DIGEST);
       expect(ev.sha256Hash).to.equal(HASH_1);
       expect(ev.cid).to.equal(CID_1);
       expect(ev.submitter).to.equal(alice.address);
@@ -132,8 +135,8 @@ describe("EvidenceLocker", () => {
 
     it("assigns increasing ids", async () => {
       const { locker, alice } = await deploy();
-      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1);
-      await locker.connect(alice).registerEvidence(CASE_A, HASH_2, CID_1);
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST);
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_2, CID_1, DIGEST);
       expect(await locker.totalEvidence()).to.equal(2n);
       expect((await locker.getEvidence(2)).sha256Hash).to.equal(HASH_2);
     });
@@ -141,7 +144,7 @@ describe("EvidenceLocker", () => {
     it("rejects every caller who is not an investigator, including the admin and auditors", async () => {
       const { locker, chief, carol, dave } = await deploy();
       for (const who of [chief, carol, dave]) {
-        await expect(locker.connect(who).registerEvidence(CASE_A, HASH_1, CID_1)).to.be.revertedWithCustomError(
+        await expect(locker.connect(who).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST)).to.be.revertedWithCustomError(
           locker,
           "AccessControlUnauthorizedAccount"
         );
@@ -152,24 +155,39 @@ describe("EvidenceLocker", () => {
     it("lets the admin register evidence only after also being made an investigator", async () => {
       const { locker, chief, INVESTIGATOR } = await deploy();
       await locker.connect(chief).grantRole(INVESTIGATOR, chief.address);
-      await expect(locker.connect(chief).registerEvidence(CASE_A, HASH_1, CID_1)).to.emit(locker, "EvidenceRegistered");
+      await expect(locker.connect(chief).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST)).to.emit(locker, "EvidenceRegistered");
+    });
+
+    it("anchors the case-details digest given with each record, which can differ from record to record", async () => {
+      const { locker, alice } = await deploy();
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST);
+      await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_2, CID_1, DIGEST_2))
+        .to.emit(locker, "EvidenceRegistered")
+        .withArgs(HASH_2, BigInt(CASE_A), alice.address, 2n, 1n, CID_1, anyUint, anyBytes32, DIGEST_2);
+      expect((await locker.getEvidence(1)).caseDigest).to.equal(DIGEST);
+      expect((await locker.getEvidence(2)).caseDigest).to.equal(DIGEST_2);
+    });
+
+    it("rejects a missing case-details digest", async () => {
+      const { locker, alice } = await deploy();
+      await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1, ZERO32)).to.be.revertedWithCustomError(locker, "ZeroValue");
     });
 
     it("rejects zero case references and zero hashes", async () => {
       const { locker, alice } = await deploy();
-      await expect(locker.connect(alice).registerEvidence(ZERO32, HASH_1, CID_1)).to.be.revertedWithCustomError(locker, "ZeroValue");
-      await expect(locker.connect(alice).registerEvidence(CASE_A, ZERO32, CID_1)).to.be.revertedWithCustomError(locker, "ZeroValue");
+      await expect(locker.connect(alice).registerEvidence(ZERO32, HASH_1, CID_1, DIGEST)).to.be.revertedWithCustomError(locker, "ZeroValue");
+      await expect(locker.connect(alice).registerEvidence(CASE_A, ZERO32, CID_1, DIGEST)).to.be.revertedWithCustomError(locker, "ZeroValue");
     });
 
     it("holds CIDs to 33..64 bytes (the bounds that keep a record at 256 bytes), inclusive", async () => {
       const { locker, alice } = await deploy();
       for (const bad of ["", "x".repeat(32), "x".repeat(65)]) {
-        await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_1, bad)).to.be.revertedWithCustomError(locker, "InvalidCid");
+        await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_1, bad, DIGEST)).to.be.revertedWithCustomError(locker, "InvalidCid");
       }
-      await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_1, "x".repeat(33))).to.emit(locker, "EvidenceRegistered");
-      await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_2, "x".repeat(64))).to.emit(locker, "EvidenceRegistered");
+      await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_1, "x".repeat(33), DIGEST)).to.emit(locker, "EvidenceRegistered");
+      await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_2, "x".repeat(64), DIGEST)).to.emit(locker, "EvidenceRegistered");
       // Real CIDs: v0 (46 characters) and v1 base32 (59).
-      await expect(locker.connect(alice).registerEvidence(CASE_B, HASH_1, "QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco")).to.emit(
+      await expect(locker.connect(alice).registerEvidence(CASE_B, HASH_1, "QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco", DIGEST)).to.emit(
         locker,
         "EvidenceRegistered"
       );
@@ -177,11 +195,11 @@ describe("EvidenceLocker", () => {
 
     it("rejects the same bytes twice under one case, but allows them under another case", async () => {
       const { locker, alice, bob } = await deploy();
-      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1);
-      await expect(locker.connect(bob).registerEvidence(CASE_A, HASH_1, CID_1))
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST);
+      await expect(locker.connect(bob).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST))
         .to.be.revertedWithCustomError(locker, "DuplicateEvidence")
         .withArgs(1n);
-      await expect(locker.connect(bob).registerEvidence(CASE_B, HASH_1, CID_1)).to.emit(locker, "EvidenceRegistered");
+      await expect(locker.connect(bob).registerEvidence(CASE_B, HASH_1, CID_1, DIGEST)).to.emit(locker, "EvidenceRegistered");
     });
 
     it("finds evidence by (case, hash)", async () => {
@@ -313,7 +331,7 @@ describe("EvidenceLocker", () => {
       const { locker, chief, alice, bob } = await withEvidence();
       await locker.connect(chief).pause();
 
-      await expect(locker.connect(alice).registerEvidence(CASE_B, HASH_2, CID_1)).to.be.revertedWithCustomError(locker, "EnforcedPause");
+      await expect(locker.connect(alice).registerEvidence(CASE_B, HASH_2, CID_1, DIGEST)).to.be.revertedWithCustomError(locker, "EnforcedPause");
       await expect(locker.connect(alice).logAccess(1, NOTE)).to.be.revertedWithCustomError(locker, "EnforcedPause");
       await expect(locker.connect(alice).logVerification(1, HASH_1, NOTE)).to.be.revertedWithCustomError(locker, "EnforcedPause");
       await expect(locker.connect(alice).transferCustody(1, bob.address, NOTE)).to.be.revertedWithCustomError(locker, "EnforcedPause");
@@ -371,7 +389,7 @@ describe("EvidenceLocker", () => {
 
     it("keeps separate chains for separate evidence", async () => {
       const { locker, alice } = await withEvidence();
-      await locker.connect(alice).registerEvidence(CASE_A, HASH_2, CID_1);
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_2, CID_1, DIGEST);
       await locker.connect(alice).logAccess(1, NOTE);
       expect(await locker.custodyLength(1)).to.equal(2n);
       expect(await locker.custodyLength(2)).to.equal(1n);
@@ -391,10 +409,10 @@ describe("EvidenceLocker", () => {
 
     it("links each record of a case to the previous one exactly as specified, and keeps cases apart", async () => {
       const { locker, alice, bob } = await deploy();
-      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1); // id 1, case A #0
-      await locker.connect(bob).registerEvidence(CASE_B, HASH_1, CID_2); // id 2, case B #0
-      await locker.connect(bob).registerEvidence(CASE_A, HASH_2, CID_2); // id 3, case A #1
-      await locker.connect(alice).registerEvidence(CASE_A, HASH_3, CID_1); // id 4, case A #2
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST); // id 1, case A #0
+      await locker.connect(bob).registerEvidence(CASE_B, HASH_1, CID_2, DIGEST); // id 2, case B #0
+      await locker.connect(bob).registerEvidence(CASE_A, HASH_2, CID_2, DIGEST); // id 3, case A #1
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_3, CID_1, DIGEST); // id 4, case A #2
 
       let previous = genesis(CASE_A);
       const events = await locker.queryFilter(locker.filters.EvidenceRegistered(undefined, BigInt(CASE_A)));
@@ -434,21 +452,21 @@ describe("EvidenceLocker", () => {
       const { locker, alice } = await deploy();
       const when = BigInt((await networkHelpers.time.latest()) + 1000);
       await networkHelpers.time.setNextBlockTimestamp(when);
-      const tx = await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1);
+      const tx = await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST);
       const block = await ethers.provider.getBlock((await tx.wait())!.blockNumber);
 
       expect(BigInt(block!.timestamp)).to.equal(when);
       expect((await locker.getRecord(1)).timestamp).to.equal(when);
       expect((await locker.getEvidence(1)).submittedAt).to.equal(when);
       // There is no timestamp parameter to backdate with.
-      expect(locker.interface.getFunction("registerEvidence")!.inputs.map((i) => i.name)).to.deep.equal(["caseId", "sha256Hash", "cid"]);
+      expect(locker.interface.getFunction("registerEvidence")!.inputs.map((i) => i.name)).to.deep.equal(["caseId", "sha256Hash", "cid", "caseDigest"]);
     });
 
     it("indexes the event by evidence hash, so one log query finds every registration of a file", async () => {
       const { locker, alice, bob } = await deploy();
-      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1);
-      await locker.connect(alice).registerEvidence(CASE_A, HASH_2, CID_1);
-      await locker.connect(bob).registerEvidence(CASE_B, HASH_1, CID_2);
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1, DIGEST);
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_2, CID_1, DIGEST);
+      await locker.connect(bob).registerEvidence(CASE_B, HASH_1, CID_2, DIGEST);
 
       const hits = await locker.queryFilter(locker.filters.EvidenceRegistered(HASH_1));
       expect(hits.map((h) => h.args.id)).to.deep.equal([1n, 3n]);

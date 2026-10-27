@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, ExternalLink, FileUp, FolderOpen, Info, PauseCircle, RotateCcw, ShieldCheck, X } from "lucide-react";
 import TxProgress from "../components/TxProgress";
 import { Badge, Button, CopyChip, Field, INPUT_CLASS, Panel } from "../components/ui";
+import { computeCaseDigest } from "../cases/caseDigest.js";
+import { useCaseDirectory } from "../cases/caseDirectoryContext.js";
 import { useWallet } from "../context/walletContext.js";
 import { encryptEvidence } from "../crypto/evidenceCrypto.js";
 import { keyClient as defaultKeyClient } from "../crypto/keyClient.js";
@@ -17,6 +19,7 @@ import { useWriteFlow } from "../web3/useWriteFlow.js";
 // Module-level so the list is stable across renders.
 const UPLOAD_STEPS = [
   { key: "hash", label: "Compute SHA-256 in your browser" },
+  { key: "case", label: "Prepare the case-details digest" },
   { key: "encrypt", label: "Encrypt in your browser and store the key" },
   { key: "pin", label: "Pin the encrypted copy to IPFS" },
   { key: "sign", label: "Approve in your wallet" },
@@ -26,12 +29,14 @@ const UPLOAD_STEPS = [
 /**
  * Evidence Upload Interface (Investigators only; the route is guarded and the contract enforces it).
  *
- * One action, five visible stages, each reporting what it is waiting on:
+ * One action, six visible stages, each reporting what it is waiting on:
  *   1. hash      SHA-256 of the ORIGINAL file, computed locally (this is what the ledger records and verifies)
- *   2. encrypt   AES-256-GCM with a fresh random key, in the browser; the key goes to the key store (server/keyStore.js)
- *   3. pin       upload of the ENCRYPTED copy to IPFS through the server-side proxy, with real byte progress
- *   4. sign      the wallet's signature prompt
- *   5. confirm   the transaction waiting for a block, with an explorer link
+ *   2. case      the case's off-chain details (created as version 1 for a new case) and the digest of their current
+ *                version, which the record anchors on chain (src/cases/caseDigest.js)
+ *   3. encrypt   AES-256-GCM with a fresh random key, in the browser; the key goes to the key store (server/keyStore.js)
+ *   4. pin       upload of the ENCRYPTED copy to IPFS through the server-side proxy, with real byte progress
+ *   5. sign      the wallet's signature prompt
+ *   6. confirm   the transaction waiting for a block, with an explorer link
  * Plaintext never leaves the browser, and nothing is pinned unless its key was stored first. If a later stage fails,
  * earlier results are kept: the same encrypted copy (and key) is reused, and a pinned copy is not pinned again.
  *
@@ -41,7 +46,12 @@ const UPLOAD_STEPS = [
 export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
   const { ledger, config } = useLedger();
   const { ensureSession } = useWallet();
+  const directory = useCaseDirectory();
   const caseId = useId();
+  const caseTitleId = useId();
+  const caseDescriptionId = useId();
+  const [caseTitle, setCaseTitle] = useState("");
+  const [caseDescription, setCaseDescription] = useState("");
   const fileId = useId();
 
   const [caseNumber, setCaseNumber] = useState("");
@@ -115,6 +125,8 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
   function startOver() {
     clearFile();
     setCaseNumber("");
+    setCaseTitle("");
+    setCaseDescription("");
     setResult(null);
   }
 
@@ -126,12 +138,20 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
       setCaseError("Enter the case number this evidence belongs to.");
       return;
     }
+    if (directory.status !== "ready") {
+      setCaseError(directory.error ?? "The case store is not available, so the case details cannot be anchored. Try again in a moment.");
+      return;
+    }
+    if (isNewCase && !caseTitle.trim()) {
+      setCaseError("This is a new case: give it a title. It is kept off chain; only a salted digest is anchored.");
+      return;
+    }
     if (hashState.status !== "ready" || !file) return;
 
     const { hash } = hashState;
     const caseRef = deriveCaseRef(caseNumber);
     setSubmitting(true);
-    let stage = "encrypt";
+    let stage = "case";
     try {
       // Cheap read first: do not upload a file that the ledger will refuse as a duplicate.
       const existing = await ledger.findEvidence(caseRef, hash);
@@ -140,6 +160,14 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
         return;
       }
 
+      // The record anchors the digest of the case's CURRENT details, recomputed here from the fields.
+      flow.start("case", knownCase ? "Reading the case details…" : "Creating the case details (version 1)…");
+      const entry = knownCase ?? (await directory.create({ caseNumber, title: caseTitle, description: caseDescription }));
+      const current = entry.versions.at(-1);
+      const caseDigest = computeCaseDigest({ caseRef: entry.caseRef, caseNumber: entry.caseNumber, title: current.title, description: current.description, salt: current.salt });
+      flow.done("case", `Case details v${current.version} · digest ${shorten(caseDigest, 8, 6)}`);
+
+      stage = "encrypt";
       let cid = pinned?.hash === hash ? pinned.cid : null;
       let keyId = pinned?.hash === hash ? pinned.keyId : null;
       if (cid) {
@@ -181,12 +209,12 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
       }
 
       stage = "write";
-      const outcome = await runWrite("Register evidence", () => ledger.registerEvidence({ caseRef, sha256: hash, cid }), { keepSteps: true });
+      const outcome = await runWrite("Register evidence", () => ledger.registerEvidence({ caseRef, sha256: hash, cid, caseDigest }), { keepSteps: true });
       if (outcome.ok) setResult({ evidenceId: outcome.mined.evidenceId, txHash: outcome.mined.hash, blockNumber: outcome.mined.blockNumber, cid, hash, keyId });
     } catch (err) {
       // Only the duplicate check, the encryption, the key store and the pin can throw here; wallet and chain errors are
       // handled inside runWrite.
-      if (stage === "encrypt" || stage === "pin") flow.fail(stage, err?.message ?? friendlyMessage(err));
+      if (stage === "case" || stage === "encrypt" || stage === "pin") flow.fail(stage, err?.message ?? friendlyMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -198,6 +226,15 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
     const dropped = event.dataTransfer.files?.[0];
     if (dropped) void chooseFile(dropped);
   }
+
+  let typedCaseRef = null;
+  try {
+    typedCaseRef = caseNumber.trim() ? deriveCaseRef(caseNumber) : null;
+  } catch {
+    /* not a usable case number yet */
+  }
+  const knownCase = typedCaseRef ? directory.byRef.get(typedCaseRef) ?? null : null;
+  const isNewCase = Boolean(typedCaseRef) && directory.status === "ready" && !knownCase;
 
   const canSubmit = hashState.status === "ready" && !paused && !submitting && !result;
   const explorerHref = result ? txUrl(config, result.txHash) : null;
@@ -244,6 +281,26 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
                 className={INPUT_CLASS}
               />
             </Field>
+
+            {knownCase ? (
+              <p className="text-xs text-slate-300">
+                Case found: <span className="font-semibold text-slate-100">{knownCase.versions.at(-1).title}</span> (details v{knownCase.versions.at(-1).version}, anchored with this record).
+              </p>
+            ) : null}
+            {isNewCase ? (
+              <div className="space-y-3 rounded-md border border-sky-500/30 bg-sky-500/5 p-3">
+                <p className="text-xs text-sky-100">New case. Its title and description stay off chain; a salted digest of them is anchored with this record.</p>
+                <Field label="Case title" htmlFor={caseTitleId}>
+                  <input id={caseTitleId} value={caseTitle} onChange={(e) => setCaseTitle(e.target.value)} maxLength={200} autoComplete="off" disabled={submitting || Boolean(result)} className={INPUT_CLASS} />
+                </Field>
+                <Field label="Case description" htmlFor={caseDescriptionId}>
+                  <textarea id={caseDescriptionId} value={caseDescription} onChange={(e) => setCaseDescription(e.target.value)} maxLength={4000} disabled={submitting || Boolean(result)} className={`${INPUT_CLASS} min-h-16`} />
+                </Field>
+              </div>
+            ) : null}
+            {directory.status === "signed-out" || directory.status === "error" ? (
+              <p className="text-xs text-amber-200">{directory.status === "signed-out" ? "Sign in with your wallet to look up the case details." : directory.error}</p>
+            ) : null}
 
             <div>
               <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-300">Evidence file</span>

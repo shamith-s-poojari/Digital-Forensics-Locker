@@ -298,6 +298,12 @@
         "internalType": "bytes32",
         "name": "link",
         "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "caseDigest",
+        "type": "bytes32"
       }
     ],
     "name": "EvidenceRegistered",
@@ -823,6 +829,11 @@
             "internalType": "uint64",
             "name": "caseIndex",
             "type": "uint64"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "caseDigest",
+            "type": "bytes32"
           }
         ],
         "internalType": "struct EvidenceLocker.EvidenceView",
@@ -1113,6 +1124,11 @@
         "internalType": "string",
         "name": "cid",
         "type": "string"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "caseDigest",
+        "type": "bytes32"
       }
     ],
     "name": "registerEvidence",

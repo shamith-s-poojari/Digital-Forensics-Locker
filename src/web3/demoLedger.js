@@ -1,5 +1,6 @@
 import { AbiCoder, getAddress, id as keccakId, isAddress, keccak256 } from "ethers";
 import { mockCustodyLog, mockEvidence } from "../data/mockData";
+import { SAMPLE_CASE_DIGESTS } from "../cases/sampleCases.js";
 import { caseGenesis, computeLink, isValidCid } from "./caseChain.js";
 import { bytes32ToHex, deriveCaseRef, hexToBytes32, sameAddress } from "./format.js";
 import { LedgerError, LEDGER_ERROR } from "./ledgerErrors.js";
@@ -92,6 +93,7 @@ function seedEvidence(store) {
       custodyCount: custody.length,
       custodyHead: bytes32ToHex(recomputeHead(custody)),
       ...nextLink(store.evidence, caseRef, { sha256: m.hash, cid: m.cid, officer: submitter, timestamp: submittedAt }),
+      caseDigest: SAMPLE_CASE_DIGESTS[caseRef],
       custody,
     });
     store.roles.set(lower(submitter), flagsFor("investigator"));
@@ -217,12 +219,14 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
     },
     isPaused: async () => store.paused,
 
-    registerEvidence: ({ caseRef, sha256, cid }) =>
+    registerEvidence: ({ caseRef, sha256, cid, caseDigest }) =>
       transact(() => {
         need("isInvestigator");
         live();
         const hash = bytes32ToHex(hexToBytes32(sha256));
         if (caseRef === ZERO_HASH || /^0+$/.test(hash)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
+        const digest = caseDigest ? bytes32ToHex(hexToBytes32(caseDigest)) : "";
+        if (!digest || /^0+$/.test(digest)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
         if (!isValidCid(cid)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
         const existing = store.evidence.find((e) => e.caseRef === caseRef && e.sha256 === hash);
         if (existing) throw new LedgerError(LEDGER_ERROR.DUPLICATE, undefined, { existingId: existing.id });
@@ -239,6 +243,7 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
           custodyCount: 0,
           custodyHead: bytes32ToHex(ZERO_HASH),
           ...nextLink(store.evidence, caseRef, { sha256: hash, cid, officer: account, timestamp: submittedAt }),
+          caseDigest: digest,
           custody: [],
         };
         append(ev, "Submitted", null, null);

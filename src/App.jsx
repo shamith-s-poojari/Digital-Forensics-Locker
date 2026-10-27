@@ -5,6 +5,7 @@ import { WalletProvider } from "./context/WalletContext.jsx";
 import { RoleProvider } from "./context/RoleContext.jsx";
 import { useRole } from "./context/roleContext.js";
 import { LedgerProvider } from "./web3/LedgerProvider.jsx";
+import { CaseDirectoryProvider } from "./cases/CaseDirectoryProvider.jsx";
 import { ROUTE_CAPABILITY } from "./web3/roles.js";
 import Layout from "./components/Layout";
 import RequireCapability from "./components/RequireCapability";
@@ -51,13 +52,15 @@ export default function App() {
   return (
     <WalletProvider>
       <LedgerProvider>
-        <RoleProvider>
-          <BrowserRouter>
-            <Layout>
-              <AppRoutes />
-            </Layout>
-          </BrowserRouter>
-        </RoleProvider>
+        <CaseDirectoryProvider>
+          <RoleProvider>
+            <BrowserRouter>
+              <Layout>
+                <AppRoutes />
+              </Layout>
+            </BrowserRouter>
+          </RoleProvider>
+        </CaseDirectoryProvider>
       </LedgerProvider>
     </WalletProvider>
   );

@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
+import { CaseDirectoryProvider } from "../cases/CaseDirectoryProvider.jsx";
+import { createDemoCaseStore } from "../cases/caseStores.js";
 import { WalletContext } from "../context/walletContext.js";
 import { makeFile, SHA256_ABC } from "../test/demoHarness.jsx";
 import { deriveCaseRef } from "../web3/format.js";
@@ -50,12 +52,24 @@ function makeLedger(overrides = {}) {
   };
 }
 
-function renderUpload(ledger = makeLedger()) {
+/** An in-memory case store that already knows these cases (version 1 each). */
+async function makeCaseStore(caseNumbers = ["CASE-1", "CASE-2025-0042"]) {
+  const store = createDemoCaseStore({ seed: false });
+  for (const caseNumber of caseNumbers) await store.create({ caseNumber, title: `Title of ${caseNumber}`, description: "" });
+  return store;
+}
+let caseStore;
+/** The digest of the case's current version, as the store holds it. */
+const currentDigest = (store, caseNumber) => store._cases.get(deriveCaseRef(caseNumber)).versions.at(-1).digest;
+
+function renderUpload(ledger = makeLedger(), { store = caseStore } = {}) {
   render(
     <MemoryRouter>
       <WalletContext.Provider value={wallet}>
         <LedgerContext.Provider value={{ mode: "chain", ledger, config }}>
-          <EvidenceUpload keyClient={keyClient} />
+          <CaseDirectoryProvider store={store}>
+            <EvidenceUpload keyClient={keyClient} />
+          </CaseDirectoryProvider>
         </LedgerContext.Provider>
       </WalletContext.Provider>
     </MemoryRouter>
@@ -69,12 +83,16 @@ const submit = () => screen.getByRole("button", { name: /Encrypt, pin and regist
 const step = (label) => screen.getByText(label).closest("li");
 
 async function fillAndChoose(caseNumber = "CASE-1", file = makeFile("abc", "evidence.txt")) {
-  if (caseNumber) await userEvent.type(screen.getByLabelText("Case number"), caseNumber);
+  if (caseNumber) {
+    await userEvent.type(screen.getByLabelText("Case number"), caseNumber);
+    await screen.findByText(/^Case found:|^New case\./); // the case store has been read
+  }
   chooseFile(file);
   await waitFor(() => expect(step("Compute SHA-256 in your browser").dataset.status).toBe("done"));
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  caseStore = await makeCaseStore();
   if (!globalThis.crypto?.subtle) vi.stubGlobal("crypto", webcrypto);
   uploadToIPFSWithProgress.mockReset();
   uploadToIPFSWithProgress.mockResolvedValue("QmPinnedCid");
@@ -95,12 +113,12 @@ describe("EvidenceUpload: before submitting", () => {
     expect(screen.getByRole("note").textContent).toMatch(/public/i);
   });
 
-  it("labels its controls and lists the five stages", () => {
+  it("labels its controls and lists the six stages", () => {
     renderUpload();
     expect(screen.getByLabelText("Case number")).toBeTruthy();
     expect(fileInput().type).toBe("file");
     const labels = within(screen.getByLabelText("Progress")).getAllByRole("listitem").map((li) => li.textContent.replace(/: Not started$/, ""));
-    expect(labels).toEqual(["Compute SHA-256 in your browser", "Encrypt in your browser and store the key", "Pin the encrypted copy to IPFS", "Approve in your wallet", "Confirm on the ledger"]);
+    expect(labels).toEqual(["Compute SHA-256 in your browser", "Prepare the case-details digest", "Encrypt in your browser and store the key", "Pin the encrypted copy to IPFS", "Approve in your wallet", "Confirm on the ledger"]);
   });
 
   it("keeps the submit button disabled until a file has been hashed", async () => {
@@ -162,7 +180,7 @@ describe("EvidenceUpload: registering", () => {
     await userEvent.click(submit());
 
     await screen.findByText("Evidence #7 recorded");
-    for (const label of ["Compute SHA-256 in your browser", "Encrypt in your browser and store the key", "Pin the encrypted copy to IPFS", "Approve in your wallet", "Confirm on the ledger"]) {
+    for (const label of ["Compute SHA-256 in your browser", "Prepare the case-details digest", "Encrypt in your browser and store the key", "Pin the encrypted copy to IPFS", "Approve in your wallet", "Confirm on the ledger"]) {
       expect(step(label).dataset.status).toBe("done");
     }
     expect(screen.getByText("Included in block 42.")).toBeTruthy();
@@ -179,8 +197,9 @@ describe("EvidenceUpload: registering", () => {
     expect(readEnvelopeHeader(envelope)).toMatchObject({ keyId, sha256: SHA256_ABC });
     const opened = await decryptEvidence(envelope, key);
     expect(new TextDecoder().decode(opened.plaintext)).toBe("abc");
-    // The ledger gets the PLAINTEXT hash, the CID of the encrypted copy, and an opaque (normalised) case reference.
-    expect(ledger.registerEvidence).toHaveBeenCalledWith({ caseRef: deriveCaseRef("CASE-2025-0042"), sha256: SHA256_ABC, cid: "QmPinnedCid" });
+    // The ledger gets the PLAINTEXT hash, the CID of the encrypted copy, an opaque (normalised) case reference, and the
+    // digest of the case's current details.
+    expect(ledger.registerEvidence).toHaveBeenCalledWith({ caseRef: deriveCaseRef("CASE-2025-0042"), sha256: SHA256_ABC, cid: "QmPinnedCid", caseDigest: currentDigest(caseStore, "CASE-2025-0042") });
     expect(screen.getByRole("button", { name: "Copy decryption key id" }).closest("span").textContent).toContain(keyId.slice(0, 8));
     // The transaction is linked from the progress panel and from the result card; both go to the same place.
     const links = screen.getAllByRole("link", { name: /View the transaction/ });
@@ -349,5 +368,72 @@ describe("EvidenceUpload: registering", () => {
     expect(screen.queryByText("Evidence #7 recorded")).toBeNull();
     expect(screen.getByLabelText("Case number").value).toBe("");
     expect(submit().disabled).toBe(true);
+  });
+});
+
+describe("EvidenceUpload: case details", () => {
+  it("names a known case and anchors the digest of its CURRENT version", async () => {
+    await caseStore.addVersion(deriveCaseRef("CASE-1"), { title: "Renamed case", description: "Edited once" });
+    const ledger = renderUpload();
+    await fillAndChoose("CASE-1");
+    expect(screen.getByText(/^Case found:/).closest("p").textContent).toMatch(/Renamed case.*details v2/);
+    expect(screen.queryByLabelText("Case title")).toBeNull(); // nothing to create
+
+    await userEvent.click(submit());
+    await screen.findByText("Evidence #7 recorded");
+    expect(ledger.registerEvidence.mock.calls[0][0].caseDigest).toBe(currentDigest(caseStore, "CASE-1"));
+    expect(within(step("Prepare the case-details digest")).getByText(/^Case details v2/)).toBeTruthy();
+    expect(caseStore._cases.get(deriveCaseRef("CASE-1")).versions).toHaveLength(2); // registering adds no version
+  });
+
+  it("asks for a title for a new case, then creates version 1 and anchors its digest", async () => {
+    const ledger = renderUpload();
+    await fillAndChoose("CASE-NEW-9");
+    expect(screen.getByText(/^New case\./).textContent).toMatch(/salted digest/);
+
+    await userEvent.click(submit());
+    expect((await screen.findByText(/This is a new case: give it a title/)).getAttribute("role")).toBe("alert");
+    expect(ledger.findEvidence).not.toHaveBeenCalled();
+    expect(caseStore._cases.has(deriveCaseRef("CASE-NEW-9"))).toBe(false);
+
+    await userEvent.type(screen.getByLabelText("Case title"), "Phishing report");
+    await userEvent.type(screen.getByLabelText("Case description"), "Reported by the finance team");
+    await userEvent.click(submit());
+    await screen.findByText("Evidence #7 recorded");
+
+    const created = caseStore._cases.get(deriveCaseRef("CASE-NEW-9"));
+    expect(created.versions).toHaveLength(1);
+    expect(created.versions[0]).toMatchObject({ version: 1, title: "Phishing report", description: "Reported by the finance team" });
+    expect(ledger.registerEvidence.mock.calls[0][0].caseDigest).toBe(created.versions[0].digest);
+    // The title and description never reach the ledger in clear.
+    expect(JSON.stringify(ledger.registerEvidence.mock.calls[0][0])).not.toMatch(/Phishing|finance/);
+  });
+
+  it("reports a case-store failure against the case step and uploads nothing", async () => {
+    const store = await makeCaseStore([]);
+    store.create = vi.fn().mockRejectedValue(new Error("Case store error (HTTP 500)."));
+    const ledger = renderUpload(makeLedger(), { store });
+    await fillAndChoose("CASE-NEW-9");
+    await userEvent.type(screen.getByLabelText("Case title"), "Anything");
+
+    await userEvent.click(submit());
+    await waitFor(() => expect(step("Prepare the case-details digest").dataset.status).toBe("error"));
+    expect(within(step("Prepare the case-details digest")).getByText("Case store error (HTTP 500).")).toBeTruthy();
+    expect(keyClient.storeKey).not.toHaveBeenCalled();
+    expect(uploadToIPFSWithProgress).not.toHaveBeenCalled();
+    expect(ledger.registerEvidence).not.toHaveBeenCalled();
+  });
+
+  it("does not register while the case store cannot be read (signed out)", async () => {
+    const store = { kind: "demo", list: vi.fn().mockRejectedValue(Object.assign(new Error("Sign in first."), { status: 401 })), create: vi.fn(), addVersion: vi.fn() };
+    const ledger = renderUpload(makeLedger(), { store });
+    await userEvent.type(screen.getByLabelText("Case number"), "CASE-1");
+    expect(await screen.findByText("Sign in with your wallet to look up the case details.")).toBeTruthy();
+    await fillAndChoose("");
+
+    await userEvent.click(submit());
+    expect((await screen.findByText("Sign in first.")).getAttribute("role")).toBe("alert");
+    expect(ledger.findEvidence).not.toHaveBeenCalled();
+    expect(store.create).not.toHaveBeenCalled();
   });
 });

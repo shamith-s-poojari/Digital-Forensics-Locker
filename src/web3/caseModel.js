@@ -45,6 +45,11 @@ export function lastActivity(record) {
   return record.custody.length ? record.custody[record.custody.length - 1].timestamp : record.submittedAt;
 }
 
+/** Case-store entries -> the { caseRef: { caseNumber, title } } directory groupByCase reads (current versions). */
+export function directoryFromCases(cases) {
+  return Object.fromEntries(cases.map((c) => [c.caseRef, { caseNumber: c.caseNumber, title: c.versions.at(-1)?.title ?? null }]));
+}
+
 /**
  * Groups evidence by case reference, newest activity first.
  * @param {object[]} records
@@ -97,7 +102,7 @@ export function matchesQuery(group, query) {
  * A self-contained record of one case that a reviewer can check without this application: for each evidence item
  * the hash, CID and full custody trail, plus how to recompute the chain.
  */
-export function buildCaseExport({ group, config, mode, generatedAt = new Date() }) {
+export function buildCaseExport({ group, config, mode, caseEntry = null, generatedAt = new Date() }) {
   return {
     format: "forensics-locker/case-record/v1",
     generatedAt: generatedAt.toISOString(),
@@ -113,6 +118,13 @@ export function buildCaseExport({ group, config, mode, generatedAt = new Date() 
     case: { reference: group.caseRef, caseNumber: group.caseNumber, title: group.title },
     caseChainRule:
       "h_0 = SHA256(caseId as 32 bytes); h_i = SHA256(h_{i-1} || sha256 || cid || submitter || registeredAt unix seconds as uint256), packed without padding, over the case's evidence in caseIndex order. Each h_i is that evidence item's link.",
+    caseDetails: caseEntry
+      ? {
+          digestRule:
+            'caseDigest = SHA256(UTF-8(JSON.stringify(["dfl-case-details/v1", caseRef (lowercase), caseNumber (uppercase), title, description, salt]))), strings NFC-normalised and trimmed. Each evidence item records the caseDigest it anchored.',
+          versions: caseEntry.versions.map((v) => ({ version: v.version, title: v.title, description: v.description, salt: v.salt, editedBy: v.editedBy, editedAt: v.editedAt })),
+        }
+      : null,
     custodyHashRule:
       "entryHash = keccak256(abi.encode(previousHead, uint8 action, actor, counterparty, uint64 timestamp, bytes32 noteHash)); the first previousHead is 32 zero bytes; the last entryHash is custodyHead.",
     evidence: group.evidence.map((e) => ({
@@ -125,6 +137,7 @@ export function buildCaseExport({ group, config, mode, generatedAt = new Date() 
       registeredAtUnix: e.submittedAt,
       caseIndex: e.caseIndex,
       link: e.link,
+      caseDigest: e.caseDigest,
       custodyHead: e.custodyHead,
       integrity: integrityState(e),
       custody: e.custody.map((c) => ({
