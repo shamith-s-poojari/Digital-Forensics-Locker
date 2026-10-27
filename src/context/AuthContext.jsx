@@ -14,7 +14,7 @@ import { useWallet } from "./walletContext.js";
  */
 export function AuthProvider({ children }) {
   const { account, connect, disconnect, isConnecting, error, notice } = useWallet();
-  const { status, role } = useRole();
+  const { status, role, isDemo } = useRole();
 
   const gate = !account
     ? "signed-out"
@@ -38,8 +38,9 @@ export function AuthProvider({ children }) {
       isConnecting,
       error,
       notice,
+      isDemo,
     }),
-    [gate, account, grantedRole, connect, disconnect, isConnecting, error, notice]
+    [gate, account, grantedRole, connect, disconnect, isConnecting, error, notice, isDemo]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

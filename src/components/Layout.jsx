@@ -78,7 +78,7 @@ const GATE_TITLES = {
 };
 
 export default function Layout({ children }) {
-  const { gate, account, role, roleLabel, connect, disconnect, error, isConnecting, notice } = useAuth();
+  const { gate, account, role, roleLabel, connect, disconnect, error, isConnecting, notice, isDemo } = useAuth();
   const isConnected = Boolean(account);
   // The app itself (sidebar, pages) is only rendered once the contract confirms this wallet holds a role.
   const isGranted = gate === "granted";
@@ -601,6 +601,13 @@ export default function Layout({ children }) {
                 holds no role on the evidence ledger. Ask the Chief to register your address as an Investigator or
                 Auditor, then connect again.
               </p>
+              {isDemo && (
+                <p style={{ ...restrictedMessageStyle, fontSize: "14px", color: "#94a3b8" }}>
+                  Development (demo ledger): add this address to <code>VITE_DEMO_ADMIN</code>,{" "}
+                  <code>VITE_DEMO_INVESTIGATORS</code> or <code>VITE_DEMO_AUDITORS</code> in <code>.env</code> and
+                  restart <code>npm run dev</code>.
+                </p>
+              )}
               <button
                 type="button"
                 className="dfl-focusable"

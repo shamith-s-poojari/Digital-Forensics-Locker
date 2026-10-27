@@ -29,7 +29,11 @@ npm run compile
 npm test                     # contract tests plus the web app's ledger scenarios run on the real contract
 npm run abi                  # copies the ABI into ../src/web3/EvidenceLocker.abi.json
 npx hardhat run scripts/deploy.ts          # deploy to an in-memory chain
+npx hardhat node                           # persistent local chain for MetaMask (chain id 31337), then:
+INVESTIGATORS=0x... AUDITORS=0x... npx hardhat run scripts/deploy.ts --network localhost
 ```
+
+`getUserRole(address)` returns the highest role an address holds as a string (`"Admin"`, `"Investigator"`, `"Auditor"` or `"None"`), for display. Use `rolesOf` or `hasRole` for decisions, since an address can hold several roles.
 
 Deploying to Sepolia: store `SEPOLIA_RPC_URL` and a throwaway `DEPLOYER_PRIVATE_KEY` in Hardhat's encrypted keystore (`npx hardhat keystore set ...`), then `npx hardhat run scripts/deploy.ts --network sepolia`. The script prints the `VITE_LOCKER_*` values for the web app. Never commit keys.
 

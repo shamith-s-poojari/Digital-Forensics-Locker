@@ -105,8 +105,13 @@ function seedEvidence(store) {
 /**
  * Shared state for one demo "chain". Several ledgers (one per acting account) can share a store, which is how the
  * scenario suite plays several actors against the same state.
+ *
+ * @param {object} [options]
+ * @param {{ admin?: string | null, investigators?: string[], auditors?: string[] }} [options.roles] Real wallets to
+ *        authorise from the start (see readDemoRoles in config.js). `admin` replaces the sample Chief. Any other
+ *        address holds no role until the Chief grants one.
  */
-export function createDemoStore({ now = () => Math.floor(Date.now() / 1000), seed = true } = {}) {
+export function createDemoStore({ now = () => Math.floor(Date.now() / 1000), seed = true, roles } = {}) {
   const store = {
     now,
     admin: DEMO_ADMIN,
@@ -131,6 +136,16 @@ export function createDemoStore({ now = () => Math.floor(Date.now() / 1000), see
     },
   };
   if (seed) seedEvidence(store);
+
+  if (roles?.admin) {
+    store.roles.delete(lower(DEMO_ADMIN));
+    store.admin = roles.admin;
+    store.roles.set(lower(roles.admin), flagsFor("admin"));
+  }
+  // Additive, like grantRole: one address may hold several roles (for example the Chief who is also an investigator).
+  const grant = (address, flag) => store.roles.set(lower(address), { ...(store.roles.get(lower(address)) ?? flagsFor("none")), [flag]: true });
+  for (const address of roles?.investigators ?? []) grant(address, "isInvestigator");
+  for (const address of roles?.auditors ?? []) grant(address, "isAuditor");
   return store;
 }
 
@@ -142,11 +157,8 @@ const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)
  * @param {string | null} options.account  The acting address (the "connected wallet").
  * @param {number} [options.signDelayMs]   Simulated time the wallet takes to sign.
  * @param {number} [options.confirmDelayMs] Simulated time to mine.
- * @param {string} [options.defaultRole]   Role given to an account the store has never seen (dev convenience).
  */
-export function createDemoLedger({ store, account, signDelayMs = 700, confirmDelayMs = 1200, defaultRole }) {
-  if (defaultRole && account && !store.roles.has(lower(account))) store.roles.set(lower(account), flagsFor(defaultRole));
-
+export function createDemoLedger({ store, account, signDelayMs = 700, confirmDelayMs = 1200 }) {
   const flags = (address) => store.roles.get(lower(address)) ?? flagsFor("none");
   const need = (flag) => {
     if (!account || !flags(account)[flag]) throw new LedgerError(LEDGER_ERROR.NOT_AUTHORIZED);

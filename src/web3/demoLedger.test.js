@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { getAddress } from "ethers";
-import { createDemoLedger, createDemoStore } from "./demoLedger.js";
+import { createDemoLedger, createDemoStore, DEMO_ADMIN } from "./demoLedger.js";
+import { readDemoRoles } from "./config.js";
 import { scenarios } from "./ledgerScenarios.js";
 
 const ACTORS = {
@@ -49,6 +50,30 @@ describe("demo ledger: demo-specific behaviour", () => {
     }
     // The sample data includes one flagged item, which shows up as a recorded mismatch.
     expect(list.some((ev) => ev.custody.some((c) => c.action === "VerifiedMismatch"))).toBe(true);
+  });
+
+  it("authorises the wallets named in .env, and nobody else", async () => {
+    const chief = getAddress("0x00000000000000000000000000000000000e0001");
+    const both = getAddress("0x00000000000000000000000000000000000e0002");
+    const auditor = getAddress("0x00000000000000000000000000000000000e0003");
+    const roles = readDemoRoles({
+      VITE_DEMO_ADMIN: chief.toLowerCase(),
+      VITE_DEMO_INVESTIGATORS: ` ${both}, not-an-address `,
+      VITE_DEMO_AUDITORS: `${auditor},${both}`,
+    });
+    expect(roles).toEqual({ admin: chief, investigators: [both], auditors: [auditor, both] });
+
+    const store = createDemoStore({ seed: false, roles });
+    const ledger = createDemoLedger({ store, account: chief, signDelayMs: 0, confirmDelayMs: 0 });
+    expect(await ledger.getRoles(chief)).toEqual({ isAdmin: true, isInvestigator: false, isAuditor: false });
+    expect(await ledger.getRoles(both)).toEqual({ isAdmin: false, isInvestigator: true, isAuditor: true });
+    expect(await ledger.getRoles(auditor)).toEqual({ isAdmin: false, isInvestigator: false, isAuditor: true });
+    expect(await ledger.getRoles(DEMO_ADMIN)).toEqual({ isAdmin: false, isInvestigator: false, isAuditor: false });
+    expect(store.admin).toBe(chief);
+  });
+
+  it("leaves every role empty when .env names nobody", () => {
+    expect(readDemoRoles({})).toEqual({ admin: null, investigators: [], auditors: [] });
   });
 
   it("gives an account no powers until a role is set", async () => {

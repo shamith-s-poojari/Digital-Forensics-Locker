@@ -57,7 +57,15 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-With no contract configured, a development build runs on the **in-memory demo ledger** with sample data. After connecting a wallet, the bar under the banner lets you preview the interface as each role. Nothing is recorded anywhere, and a **production build with no contract configured grants access to nobody**.
+With no contract configured, a development build runs on the **in-memory demo ledger** with sample data. It enforces roles like the contract: a wallet only gets in if it holds a role, and any other wallet sees **Access Denied: Address not registered**. Give your own MetaMask accounts roles in `.env` (use a different account per role to try each one), then restart `npm run dev`:
+
+```bash
+VITE_DEMO_ADMIN=0xYourChiefAccount
+VITE_DEMO_INVESTIGATORS=0xYourInvestigatorAccount
+VITE_DEMO_AUDITORS=0xYourAuditorAccount
+```
+
+The Chief can also grant and revoke roles on the Role Management page, but those changes are lost when the page reloads. Every page load starts signed out: you connect, sign in and have your role read again. Nothing is recorded anywhere, and a **production build with no contract configured grants access to nobody**.
 
 | Script | What it does |
 | --- | --- |
@@ -78,6 +86,20 @@ npm install
 npm test                                # compile and run the contract tests, including the ledger scenarios
 npx hardhat run scripts/deploy.ts       # deploy to an in-memory chain and print the settings (nothing persists)
 ```
+
+To test real on-chain roles with MetaMask, run a local chain and deploy to it with roles granted:
+
+```bash
+cd contracts
+npx hardhat node        # terminal 1, leave running; prints test accounts and their private keys
+```
+
+```bash
+cd contracts
+INVESTIGATORS=0xYourInvestigatorAccount AUDITORS=0xYourAuditorAccount npx hardhat run scripts/deploy.ts --network localhost
+```
+
+The Chief is the first test account printed by `hardhat node`; import its private key into MetaMask (it is a public, test-only key) to manage roles. Add the network to MetaMask (RPC `http://127.0.0.1:8545`, chain id 31337), copy the printed `VITE_*` values into `.env` and restart `npm run dev`. The accounts you name are sent 10 test ETH for gas. Restarting `hardhat node` wipes the chain, so deploy again after a restart.
 
 To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLOYER_PRIVATE_KEY` in Hardhat's encrypted keystore (`npx hardhat keystore set ...`) and run the deploy script with `--network sepolia`; see [`contracts/README.md`](contracts/README.md). That path has not yet been exercised end to end in this repository. The script prints the values to put in `.env`:
 

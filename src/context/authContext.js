@@ -14,6 +14,7 @@ import { createContext, useContext } from "react";
  *   role        "none" | "auditor" | "investigator" | "admin" (see roles.js); "none" unless the gate is "granted"
  *   roleLabel   human label for `role`, for the header badge
  *   connect / disconnect / isConnecting / error / notice   passed through from the wallet
+ *   isDemo      true on the in-memory demo ledger, where roles come from VITE_DEMO_* in .env
  *
  * Like everything in the UI this decides what is SHOWN. The contract rejects every unauthorised write.
  */

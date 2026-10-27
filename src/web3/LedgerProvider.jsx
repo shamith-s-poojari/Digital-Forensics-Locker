@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { BrowserProvider } from "ethers";
 import { useWallet } from "../context/walletContext.js";
 import abi from "./EvidenceLocker.abi.json";
-import { isDemoAllowed, lockerConfig } from "./config.js";
+import { isDemoAllowed, lockerConfig, readDemoRoles } from "./config.js";
 import { createDemoLedger, createDemoStore } from "./demoLedger.js";
 import { createEthersLedger } from "./ethersLedger.js";
 import { LedgerContext } from "./ledgerContext.js";
@@ -19,13 +19,16 @@ import { LedgerContext } from "./ledgerContext.js";
  * @param {object} [props.config]       Override for tests.
  * @param {boolean} [props.demoAllowed] Override for tests.
  * @param {object} [props.demoStore]    Shared demo store (tests).
+ * @param {ReturnType<typeof readDemoRoles>} [props.demoRoles] Wallets authorised on a new demo store (default: .env).
  * @param {{ signDelayMs?: number, confirmDelayMs?: number }} [props.demoDelays] Must be a stable object (a new one each
  *        render would create a new ledger each render).
  */
-export function LedgerProvider({ children, config = lockerConfig, demoAllowed = isDemoAllowed(), demoStore, demoDelays }) {
+export function LedgerProvider({ children, config = lockerConfig, demoAllowed = isDemoAllowed(), demoStore, demoRoles, demoDelays }) {
   const { account, chainId } = useWallet();
   // One demo chain for the lifetime of the provider (created lazily, and only when the demo ledger will be used).
-  const [store] = useState(() => (demoAllowed && !config.configured && !config.invalidAddress ? (demoStore ?? createDemoStore()) : null));
+  const [store] = useState(() =>
+    demoAllowed && !config.configured && !config.invalidAddress ? (demoStore ?? createDemoStore({ roles: demoRoles ?? readDemoRoles() })) : null
+  );
 
   const value = useMemo(() => {
     if (config.invalidAddress) return { mode: "misconfigured", ledger: null, config };
@@ -47,8 +50,9 @@ export function LedgerProvider({ children, config = lockerConfig, demoAllowed = 
     }
 
     if (demoAllowed) {
-      // A connected dev wallet starts as an Investigator so the full UI can be explored; the role previewer changes it.
-      const ledger = createDemoLedger({ store, account, defaultRole: "investigator", ...demoDelays });
+      // Like the real contract, a wallet has only the roles it was given (in .env, or by the Chief on the Role
+      // Management page). An unregistered wallet is denied.
+      const ledger = createDemoLedger({ store, account, ...demoDelays });
       return { mode: "demo", ledger, config };
     }
 
