@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { caseGenesis, computeLink } from "./caseChain.js";
 import { deriveCaseRef } from "./format.js";
 import { LEDGER_ERROR } from "./ledgerErrors.js";
 
@@ -85,7 +86,8 @@ export const scenarios = [
     async run(ctx) {
       const alice = ctx.as("alice");
       await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: "" }), LEDGER_ERROR.INVALID_INPUT);
-      await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: "x".repeat(129) }), LEDGER_ERROR.INVALID_INPUT);
+      await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: "x".repeat(32) }), LEDGER_ERROR.INVALID_INPUT);
+      await rejectsWith(alice.registerEvidence({ caseRef: CASE_A, sha256: HASH_1, cid: "x".repeat(65) }), LEDGER_ERROR.INVALID_INPUT);
       await rejectsWith(alice.registerEvidence({ caseRef: `0x${"0".repeat(64)}`, sha256: HASH_1, cid: CID }), LEDGER_ERROR.INVALID_INPUT);
       assert.equal((await alice.listEvidence()).length, 0);
     },
@@ -187,6 +189,23 @@ export const scenarios = [
       assert.equal(await ctx.as("carol").isPaused(), false);
       await mine(ctx.as("bob").logAccess(1));
       assert.equal(await ctx.as("carol").verifyChain(1), true);
+    },
+  },
+  {
+    name: "links the records of each case into a SHA-256 chain, starting from the case's genesis value",
+    async run(ctx) {
+      await registerAs(ctx, "alice"); // id 1: case A #0
+      await registerAs(ctx, "bob", { caseRef: CASE_B }); // id 2: case B #0
+      await registerAs(ctx, "bob", { sha256: HASH_2 }); // id 3: case A #1
+
+      const [first, other, second] = await ctx.as("carol").listEvidence();
+      const fields = (ev) => ({ sha256: ev.sha256, cid: ev.cid, officer: ev.submitter, timestamp: ev.submittedAt });
+      assert.equal(first.caseIndex, 0);
+      assert.equal(first.link, computeLink(caseGenesis(CASE_A), fields(first)));
+      assert.equal(second.caseIndex, 1);
+      assert.equal(second.link, computeLink(first.link, fields(second)));
+      assert.equal(other.caseIndex, 0);
+      assert.equal(other.link, computeLink(caseGenesis(CASE_B), fields(other)));
     },
   },
   {

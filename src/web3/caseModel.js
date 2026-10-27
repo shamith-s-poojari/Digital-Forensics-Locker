@@ -108,9 +108,11 @@ export function buildCaseExport({ group, config, mode, generatedAt = new Date() 
       note:
         mode === "demo"
           ? "DEMO DATA: produced by the in-memory development ledger; nothing here is recorded on a blockchain."
-          : "Read from the EvidenceLocker contract. Verify independently by calling verify() and verifyCustodyChain() on the contract.",
+          : "Read from the EvidenceLocker contract. Verify independently by calling verify(), verifyCaseChain() and verifyCustodyChain() on the contract.",
     },
     case: { reference: group.caseRef, caseNumber: group.caseNumber, title: group.title },
+    caseChainRule:
+      "h_0 = SHA256(caseId as 32 bytes); h_i = SHA256(h_{i-1} || sha256 || cid || submitter || registeredAt unix seconds as uint256), packed without padding, over the case's evidence in caseIndex order. Each h_i is that evidence item's link.",
     custodyHashRule:
       "entryHash = keccak256(abi.encode(previousHead, uint8 action, actor, counterparty, uint64 timestamp, bytes32 noteHash)); the first previousHead is 32 zero bytes; the last entryHash is custodyHead.",
     evidence: group.evidence.map((e) => ({
@@ -120,6 +122,9 @@ export function buildCaseExport({ group, config, mode, generatedAt = new Date() 
       submitter: e.submitter,
       custodian: e.custodian,
       registeredAt: formatUtc(e.submittedAt),
+      registeredAtUnix: e.submittedAt,
+      caseIndex: e.caseIndex,
+      link: e.link,
       custodyHead: e.custodyHead,
       integrity: integrityState(e),
       custody: e.custody.map((c) => ({

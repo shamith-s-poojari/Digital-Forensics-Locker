@@ -265,7 +265,7 @@ describe("CaseDashboard: writing to the ledger", () => {
     const store = seeded();
     const ledger = createDemoLedger({ store, account: ACCOUNT, signDelayMs: 0, confirmDelayMs: 0 });
     store.setRole(ACCOUNT, "investigator");
-    await (await ledger.registerEvidence({ caseRef: deriveCaseRef("CASE-NEW-1"), sha256: SHA256_ABC, cid: "bafynewcid" })).wait();
+    await (await ledger.registerEvidence({ caseRef: deriveCaseRef("CASE-NEW-1"), sha256: SHA256_ABC, cid: "bafybeinewcidnewcidnewcidnewcidnewcidnewcidnewcidnewcid" })).wait();
     renderWithDemo(<CaseDashboard />, { store });
     await loaded();
 
@@ -294,7 +294,7 @@ describe("CaseDashboard: writing to the ledger", () => {
     store.setRole(OTHER_INVESTIGATOR, "investigator");
     const ledger = createDemoLedger({ store, account: ACCOUNT, signDelayMs: 0, confirmDelayMs: 0 });
     store.setRole(ACCOUNT, "investigator");
-    await (await ledger.registerEvidence({ caseRef: deriveCaseRef("CASE-MINE-1"), sha256: SHA256_ABC, cid: "bafymine" })).wait();
+    await (await ledger.registerEvidence({ caseRef: deriveCaseRef("CASE-MINE-1"), sha256: SHA256_ABC, cid: "bafybeiminecidminecidminecidminecidminecidminecidmine" })).wait();
 
     renderWithDemo(<CaseDashboard />, { store });
     await loaded();

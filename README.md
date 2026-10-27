@@ -40,7 +40,9 @@ A chain-of-custody system for digital evidence. A React web app and a Solidity s
 
 ## What is on the chain
 
-Stored: the SHA-256 of the evidence bytes, the CID of the stored copy, an opaque `caseRef`, the submitter and custodian addresses, timestamps, and each custody entry (who, what, when) chained by hash so that tampering is detectable. Role grants are on chain too.
+Stored: the SHA-256 of the evidence bytes, the CID of the stored copy, an opaque `caseRef` (the contract's `uint256 caseId`), the submitter and custodian addresses, timestamps, and each custody entry (who, what, when) chained by hash so that tampering is detectable. Role grants are on chain too.
+
+Each registration is an immutable **256-byte record** (8 storage slots: evidence SHA-256, CID, officer address, block timestamp, case id, link; the CID is held to 33..64 bytes so it fills exactly two data slots). The records of a case form a SHA-256 chain: `h_0 = SHA256(caseId)`, `h_i = SHA256(h_{i-1} || e_i || CID_i || W_i || T_i)` (packed), stored as each record's `link`. The timestamp comes from the block, never from the caller. `verifyCaseChain(caseId)` walks a case and returns the first mismatching index; `computeLink` and `caseGenesis` let anyone check their own implementation. `EvidenceRegistered` has the evidence hash as its first indexed topic, so finding every registration of a file is one log query.
 
 Not stored: file bytes, file names, case numbers or titles, personal data.
 

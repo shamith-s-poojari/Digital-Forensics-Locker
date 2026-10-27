@@ -22,15 +22,24 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
  * Privacy (read this before deploying anywhere public)
  *  Blockchain state is public. Restricting a view function would only create a false sense of privacy, so views
  *  are open. The contract therefore stores ONLY: a SHA-256 of the evidence bytes, the content identifier (CID) of
- *  the stored (encrypted) copy, an opaque case reference (hash a case number with a secret salt off-chain; never
- *  put a plaintext case number, name or file name on chain) and addresses. Addresses are pseudonymous but linkable
- *  to people over time: for real law-enforcement use deploy on a permissioned or private network, not a public one.
+ *  the stored (encrypted) copy, an opaque case id (a salted hash of the case number, computed off-chain; never a
+ *  plaintext case number, name or file name) and addresses. Addresses are pseudonymous but linkable to people over
+ *  time: for real law-enforcement use deploy on a permissioned or private network, not a public one.
  *
- * Integrity
- *  Each evidence record carries a hash chain over its custody entries:
+ * Records and the case chain
+ *  Each registration writes one immutable Record of exactly 256 bytes (8 storage slots, see `Record`). The records
+ *  of one case form a hash chain:
+ *     h_0 = SHA256(caseId)
+ *     h_i = SHA256(h_{i-1} || e_i || CID_i || W_i || T_i)
+ *  where e_i is the evidence SHA-256, CID_i the content identifier, W_i the registering officer's address and T_i
+ *  the block timestamp (never a client-supplied time), packed without padding (`abi.encodePacked`). h_i is stored
+ *  in the record as `link`. Anyone can walk a case's records in order, recompute every link and stop at the first
+ *  mismatch (`verifyCaseChain` does it on chain; the web app does it independently).
+ *
+ * Custody trail
+ *  Each evidence item also carries a hash chain over its custody actions (access, transfer, verification):
  *     entryHash = keccak256(abi.encode(previousHead, action, actor, counterparty, timestamp, noteHash))
- *  so a reader can recompute the chain from the entries and compare it with the stored head. Evidence and custody
- *  entries are append-only: there is no function that edits or deletes them.
+ *  Records and custody entries are append-only: no function edits or deletes them.
  */
 contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -55,15 +64,46 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
         Reassigned // admin moved custody because the custodian could not (role revoked, key lost)
     }
 
-    struct Evidence {
-        bytes32 caseRef; // opaque, salted hash of the case identifier (never a plaintext case number)
-        bytes32 sha256Hash; // SHA-256 of the original evidence bytes
-        string cid; // content identifier of the stored copy (should point to ENCRYPTED content)
+    /**
+     * @dev The immutable registration record. Strict 256-byte layout, 8 storage slots of 32 bytes:
+     *        slot 0     evidenceHash
+     *        slot 1     cid (string header: length)
+     *        slot 2     officer (address, left-padded; never packed with a neighbour)
+     *        slot 3     timestamp
+     *        slot 4     caseId
+     *        slot 5     link
+     *        slot 6, 7  cid bytes, at keccak256(slot 1). The CID length is held to 33..64 bytes, so it always fills
+     *                   exactly two data slots (CIDv0 is 46 characters, CIDv1 base32 sha2-256 is 59).
+     */
+    struct Record {
+        bytes32 evidenceHash; // e_i: SHA-256 of the ORIGINAL evidence bytes
+        string cid; // CID_i: content identifier of the stored (encrypted) copy
+        address officer; // W_i: the investigator who registered it
+        uint256 timestamp; // T_i: block.timestamp of the registering transaction
+        uint256 caseId; // opaque, salted hash of the case identifier
+        bytes32 link; // h_i, see the contract notes
+    }
+
+    /// @dev Mutable per-evidence state, kept apart from the immutable Record. One slot plus the custody head.
+    struct EvidenceState {
+        address custodian;
+        uint32 custodyCount;
+        uint64 caseIndex; // position of this record in its case chain (0-based)
+        bytes32 custodyHead; // head of the custody hash chain
+    }
+
+    /// @notice Everything about one evidence item, as returned by getEvidence.
+    struct EvidenceView {
+        uint256 caseId;
+        bytes32 sha256Hash;
+        string cid;
         address submitter;
         address custodian;
-        uint64 submittedAt;
+        uint256 submittedAt;
         uint32 custodyCount;
-        bytes32 custodyHead; // head of the custody hash chain
+        bytes32 custodyHead;
+        bytes32 link;
+        uint64 caseIndex;
     }
 
     struct CustodyEntry {
@@ -78,13 +118,17 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     // Storage
     // ---------------------------------------------------------------------------------------------------------
 
-    /// @dev Upper bound for a CID string (CIDv0 is 46 chars, typical CIDv1 59-63); keeps storage costs bounded.
-    uint256 public constant MAX_CID_LENGTH = 128;
+    /// @dev CID length bounds that keep every Record at exactly 256 bytes (see `Record`).
+    uint256 public constant MIN_CID_LENGTH = 33;
+    uint256 public constant MAX_CID_LENGTH = 64;
 
     uint256 private _lastId;
-    mapping(uint256 id => Evidence) private _evidence;
+    mapping(uint256 id => Record) private _records;
+    mapping(uint256 id => EvidenceState) private _state;
     mapping(uint256 id => CustodyEntry[]) private _custody;
-    /// @dev keccak256(caseRef, sha256Hash) => id, to reject registering the same bytes twice under one case.
+    /// @dev The evidence ids of each case, in registration order: the case chain.
+    mapping(uint256 caseId => uint256[] ids) private _caseRecords;
+    /// @dev keccak256(caseId, sha256Hash) => id, to reject registering the same bytes twice under one case.
     mapping(bytes32 key => uint256 id) private _idByKey;
     /// @dev Members of the two working roles, so the admin UI can list authorised addresses without scanning logs.
     mapping(bytes32 role => EnumerableSet.AddressSet) private _members;
@@ -93,13 +137,17 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     // Events
     // ---------------------------------------------------------------------------------------------------------
 
+    /// @notice One per registration. The evidence hash is the first indexed topic, so "where was this file
+    ///         registered?" is a single log query (eth_getLogs with topic1 = hash) rather than a full scan.
     event EvidenceRegistered(
-        uint256 indexed id,
-        bytes32 indexed caseRef,
-        address indexed submitter,
-        bytes32 sha256Hash,
+        bytes32 indexed sha256Hash,
+        uint256 indexed caseId,
+        address indexed officer,
+        uint256 id,
+        uint256 caseIndex,
         string cid,
-        uint64 timestamp
+        uint256 timestamp,
+        bytes32 link
     );
 
     event CustodyRecorded(
@@ -142,46 +190,40 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     // ---------------------------------------------------------------------------------------------------------
 
     /**
-     * @notice Registers a piece of evidence and opens its chain of custody. The caller becomes submitter and
-     *         first custodian.
-     * @param caseRef Opaque case reference (salted hash of the case number, computed off-chain).
+     * @notice Registers a piece of evidence: writes its Record, extends the case chain and opens the chain of
+     *         custody. The caller becomes the officer of record and the first custodian.
+     * @param caseId Opaque case id (salted hash of the case number, computed off-chain).
      * @param sha256Hash SHA-256 of the original evidence bytes.
-     * @param cid Content identifier of the stored copy.
+     * @param cid Content identifier of the stored copy, 33 to 64 bytes.
      * @return id The new evidence id (starts at 1).
      */
-    function registerEvidence(bytes32 caseRef, bytes32 sha256Hash, string calldata cid)
+    function registerEvidence(uint256 caseId, bytes32 sha256Hash, string calldata cid)
         external
         onlyRole(INVESTIGATOR_ROLE)
         whenNotPaused
         returns (uint256 id)
     {
-        if (caseRef == bytes32(0) || sha256Hash == bytes32(0)) revert ZeroValue();
+        if (caseId == 0 || sha256Hash == bytes32(0)) revert ZeroValue();
         uint256 cidLength = bytes(cid).length;
-        if (cidLength == 0 || cidLength > MAX_CID_LENGTH) revert InvalidCid();
+        if (cidLength < MIN_CID_LENGTH || cidLength > MAX_CID_LENGTH) revert InvalidCid();
 
-        bytes32 key = keccak256(abi.encode(caseRef, sha256Hash));
+        bytes32 key = keccak256(abi.encode(caseId, sha256Hash));
         uint256 existing = _idByKey[key];
         if (existing != 0) revert DuplicateEvidence(existing);
 
         id = ++_lastId;
         _idByKey[key] = id;
 
-        Evidence storage ev = _evidence[id];
-        ev.caseRef = caseRef;
-        ev.sha256Hash = sha256Hash;
-        ev.cid = cid;
-        ev.submitter = msg.sender;
-        ev.custodian = msg.sender;
-        ev.submittedAt = uint64(block.timestamp);
-
-        emit EvidenceRegistered(id, caseRef, msg.sender, sha256Hash, cid, uint64(block.timestamp));
-        _appendCustody(id, ev, CustodyAction.Submitted, msg.sender, address(0), bytes32(0));
+        Record storage r = _writeRecord(id, caseId, sha256Hash, cid);
+        EvidenceState storage st = _state[id];
+        emit EvidenceRegistered(sha256Hash, caseId, msg.sender, id, st.caseIndex, cid, r.timestamp, r.link);
+        _appendCustody(id, st, CustodyAction.Submitted, msg.sender, address(0), bytes32(0));
     }
 
     /// @notice Records that the caller accessed the evidence (the access is itself part of the custody trail).
     function logAccess(uint256 id, bytes32 noteHash) external onlyRole(INVESTIGATOR_ROLE) whenNotPaused {
-        Evidence storage ev = _existing(id);
-        _appendCustody(id, ev, CustodyAction.Accessed, msg.sender, address(0), noteHash);
+        EvidenceState storage st = _existing(id);
+        _appendCustody(id, st, CustodyAction.Accessed, msg.sender, address(0), noteHash);
     }
 
     /**
@@ -194,10 +236,10 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
         onlyRole(INVESTIGATOR_ROLE)
         whenNotPaused
     {
-        Evidence storage ev = _existing(id);
+        EvidenceState storage st = _existing(id);
         CustodyAction action =
-            candidateHash == ev.sha256Hash ? CustodyAction.VerifiedMatch : CustodyAction.VerifiedMismatch;
-        _appendCustody(id, ev, action, msg.sender, address(0), noteHash);
+            candidateHash == _records[id].evidenceHash ? CustodyAction.VerifiedMatch : CustodyAction.VerifiedMismatch;
+        _appendCustody(id, st, action, msg.sender, address(0), noteHash);
     }
 
     /**
@@ -209,12 +251,12 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
         onlyRole(INVESTIGATOR_ROLE)
         whenNotPaused
     {
-        Evidence storage ev = _existing(id);
-        if (ev.custodian != msg.sender) revert NotCustodian(ev.custodian);
+        EvidenceState storage st = _existing(id);
+        if (st.custodian != msg.sender) revert NotCustodian(st.custodian);
         if (to == address(0) || to == msg.sender || !hasRole(INVESTIGATOR_ROLE, to)) revert InvalidRecipient(to);
 
-        ev.custodian = to;
-        _appendCustody(id, ev, CustodyAction.Transferred, msg.sender, to, noteHash);
+        st.custodian = to;
+        _appendCustody(id, st, CustodyAction.Transferred, msg.sender, to, noteHash);
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -227,11 +269,11 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
      *         Works while paused so an incident can be cleaned up.
      */
     function reassignCustody(uint256 id, address to, bytes32 noteHash) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        Evidence storage ev = _existing(id);
+        EvidenceState storage st = _existing(id);
         if (to == address(0) || !hasRole(INVESTIGATOR_ROLE, to)) revert InvalidRecipient(to);
 
-        ev.custodian = to;
-        _appendCustody(id, ev, CustodyAction.Reassigned, msg.sender, to, noteHash);
+        st.custodian = to;
+        _appendCustody(id, st, CustodyAction.Reassigned, msg.sender, to, noteHash);
     }
 
     /// @notice Stops all investigator writes (for example after a suspected key compromise).
@@ -244,6 +286,26 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     }
 
     // ---------------------------------------------------------------------------------------------------------
+    // The case chain (pure helpers, so off-chain verifiers can check their own implementation against these)
+    // ---------------------------------------------------------------------------------------------------------
+
+    /// @notice h_0 for a case: SHA256 of the case id as 32 big-endian bytes. Binds the chain to its case, so the
+    ///         records of one case cannot be presented as another case's chain.
+    function caseGenesis(uint256 caseId) public pure returns (bytes32) {
+        return sha256(abi.encodePacked(caseId));
+    }
+
+    /// @notice h_i = SHA256(h_{i-1} || e_i || CID_i || W_i || T_i). The CID is the only variable-length field and
+    ///         sits between fixed-length ones, so the packed encoding is unambiguous.
+    function computeLink(bytes32 previousLink, bytes32 evidenceHash, string memory cid, address officer, uint256 timestamp)
+        public
+        pure
+        returns (bytes32)
+    {
+        return sha256(abi.encodePacked(previousLink, evidenceHash, cid, officer, timestamp));
+    }
+
+    // ---------------------------------------------------------------------------------------------------------
     // Reads (open to everyone: see the privacy note above)
     // ---------------------------------------------------------------------------------------------------------
 
@@ -252,9 +314,61 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
         return _lastId;
     }
 
-    function getEvidence(uint256 id) external view returns (Evidence memory) {
+    function getEvidence(uint256 id) external view returns (EvidenceView memory) {
+        EvidenceState storage st = _existing(id);
+        Record storage r = _records[id];
+        return EvidenceView({
+            caseId: r.caseId,
+            sha256Hash: r.evidenceHash,
+            cid: r.cid,
+            submitter: r.officer,
+            custodian: st.custodian,
+            submittedAt: r.timestamp,
+            custodyCount: st.custodyCount,
+            custodyHead: st.custodyHead,
+            link: r.link,
+            caseIndex: st.caseIndex
+        });
+    }
+
+    /// @notice The immutable 256-byte registration record.
+    function getRecord(uint256 id) external view returns (Record memory) {
         _existing(id);
-        return _evidence[id];
+        return _records[id];
+    }
+
+    /// @notice Number of records in a case chain.
+    function caseRecordCount(uint256 caseId) external view returns (uint256) {
+        return _caseRecords[caseId].length;
+    }
+
+    /// @notice Evidence id at `index` (0-based, registration order) in a case chain.
+    function caseRecordId(uint256 caseId, uint256 index) external view returns (uint256) {
+        return _caseRecords[caseId][index];
+    }
+
+    /// @notice The latest link of a case chain (its genesis value if the case has no records yet).
+    function caseHead(uint256 caseId) external view returns (bytes32) {
+        uint256[] storage chain = _caseRecords[caseId];
+        return chain.length == 0 ? caseGenesis(caseId) : _records[chain[chain.length - 1]].link;
+    }
+
+    /**
+     * @notice Walks a case chain in order, recomputing every link from the record's fields and the previous link.
+     * @return ok True when every link matches.
+     * @return firstBadIndex Index of the first mismatching record, or type(uint256).max when `ok`.
+     * @dev A view over every record of the case: call it off chain (eth_call), not from another contract.
+     */
+    function verifyCaseChain(uint256 caseId) external view returns (bool ok, uint256 firstBadIndex) {
+        uint256[] storage chain = _caseRecords[caseId];
+        bytes32 previous = caseGenesis(caseId);
+        for (uint256 i = 0; i < chain.length; i++) {
+            Record storage r = _records[chain[i]];
+            bytes32 expected = computeLink(previous, r.evidenceHash, r.cid, r.officer, r.timestamp);
+            if (r.caseId != caseId || expected != r.link) return (false, i);
+            previous = expected;
+        }
+        return (true, type(uint256).max);
     }
 
     function custodyLength(uint256 id) external view returns (uint256) {
@@ -267,27 +381,27 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
         return _custody[id][index];
     }
 
-    /// @notice Looks up the id registered for (caseRef, sha256Hash); 0 if none.
-    function findEvidence(bytes32 caseRef, bytes32 sha256Hash) external view returns (uint256) {
-        return _idByKey[keccak256(abi.encode(caseRef, sha256Hash))];
+    /// @notice Looks up the id registered for (caseId, sha256Hash); 0 if none.
+    function findEvidence(uint256 caseId, bytes32 sha256Hash) external view returns (uint256) {
+        return _idByKey[keccak256(abi.encode(caseId, sha256Hash))];
     }
 
     /// @notice Read-only integrity check an auditor can run without a transaction.
     function verify(uint256 id, bytes32 candidateHash) external view returns (bool) {
         _existing(id);
-        return _evidence[id].sha256Hash == candidateHash;
+        return _records[id].evidenceHash == candidateHash;
     }
 
     /// @notice Recomputes the custody hash chain from the stored entries and compares it with the stored head.
     function verifyCustodyChain(uint256 id) external view returns (bool) {
-        _existing(id);
+        EvidenceState storage st = _existing(id);
         CustodyEntry[] storage entries = _custody[id];
         bytes32 head = bytes32(0);
         for (uint256 i = 0; i < entries.length; i++) {
             CustodyEntry storage e = entries[i];
             head = _entryHash(head, e.action, e.actor, e.counterparty, e.timestamp, e.noteHash);
         }
-        return head == _evidence[id].custodyHead;
+        return head == st.custodyHead;
     }
 
     /// @notice Addresses currently holding INVESTIGATOR_ROLE or AUDITOR_ROLE. Any other role returns an empty list.
@@ -304,25 +418,49 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
     // Internals
     // ---------------------------------------------------------------------------------------------------------
 
-    function _existing(uint256 id) private view returns (Evidence storage ev) {
-        ev = _evidence[id];
-        if (ev.submitter == address(0)) revert UnknownEvidence(id);
+    /// @dev Writes the Record for a new id, links it to the end of its case chain, and opens its mutable state.
+    function _writeRecord(uint256 id, uint256 caseId, bytes32 sha256Hash, string calldata cid)
+        private
+        returns (Record storage r)
+    {
+        uint256[] storage chain = _caseRecords[caseId];
+        uint256 caseIndex = chain.length;
+        bytes32 previous = caseIndex == 0 ? caseGenesis(caseId) : _records[chain[caseIndex - 1]].link;
+
+        r = _records[id];
+        r.evidenceHash = sha256Hash;
+        r.cid = cid;
+        r.officer = msg.sender;
+        // The time comes from the block, never from the caller, so a record cannot be backdated.
+        r.timestamp = block.timestamp;
+        r.caseId = caseId;
+        r.link = computeLink(previous, sha256Hash, cid, msg.sender, block.timestamp);
+        chain.push(id);
+
+        EvidenceState storage st = _state[id];
+        st.custodian = msg.sender;
+        st.caseIndex = uint64(caseIndex);
+    }
+
+    function _existing(uint256 id) private view returns (EvidenceState storage st) {
+        if (_records[id].officer == address(0)) revert UnknownEvidence(id);
+        st = _state[id];
     }
 
     function _appendCustody(
         uint256 id,
-        Evidence storage ev,
+        EvidenceState storage st,
         CustodyAction action,
         address actor,
         address counterparty,
         bytes32 noteHash
     ) private {
         uint64 ts = uint64(block.timestamp);
-        bytes32 entryHash = _entryHash(ev.custodyHead, action, actor, counterparty, ts, noteHash);
-        ev.custodyHead = entryHash;
+        bytes32 entryHash = _entryHash(st.custodyHead, action, actor, counterparty, ts, noteHash);
+        st.custodyHead = entryHash;
 
-        uint32 index = ev.custodyCount;
-        ev.custodyCount = index + 1;
+        uint32 index = st.custodyCount;
+        st.custodyCount = index + 1;
         _custody[id].push(
             CustodyEntry({action: action, actor: actor, counterparty: counterparty, timestamp: ts, noteHash: noteHash})
         );

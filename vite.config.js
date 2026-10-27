@@ -70,6 +70,7 @@ export default defineConfig(({ mode }) => {
     // contracts/ is its own package with its own test runner (Hardhat); the web app's run must not pick it up.
     test: {
       exclude: ['**/node_modules/**', '**/dist/**', 'contracts/**'],
+      setupFiles: ['./src/test/setupEthers.js'],
     },
   }
 })

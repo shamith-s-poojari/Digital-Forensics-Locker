@@ -253,27 +253,33 @@
     "inputs": [
       {
         "indexed": true,
+        "internalType": "bytes32",
+        "name": "sha256Hash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "caseId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "officer",
+        "type": "address"
+      },
+      {
+        "indexed": false,
         "internalType": "uint256",
         "name": "id",
         "type": "uint256"
       },
       {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "caseRef",
-        "type": "bytes32"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "submitter",
-        "type": "address"
-      },
-      {
         "indexed": false,
-        "internalType": "bytes32",
-        "name": "sha256Hash",
-        "type": "bytes32"
+        "internalType": "uint256",
+        "name": "caseIndex",
+        "type": "uint256"
       },
       {
         "indexed": false,
@@ -283,9 +289,15 @@
       },
       {
         "indexed": false,
-        "internalType": "uint64",
+        "internalType": "uint256",
         "name": "timestamp",
-        "type": "uint64"
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "link",
+        "type": "bytes32"
       }
     ],
     "name": "EvidenceRegistered",
@@ -446,6 +458,19 @@
   },
   {
     "inputs": [],
+    "name": "MIN_CID_LENGTH",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "acceptDefaultAdminTransfer",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -474,6 +499,87 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "caseId",
+        "type": "uint256"
+      }
+    ],
+    "name": "caseGenesis",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "caseId",
+        "type": "uint256"
+      }
+    ],
+    "name": "caseHead",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "caseId",
+        "type": "uint256"
+      }
+    ],
+    "name": "caseRecordCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "caseId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "index",
+        "type": "uint256"
+      }
+    ],
+    "name": "caseRecordId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint48",
         "name": "newDelay",
         "type": "uint48"
@@ -482,6 +588,45 @@
     "name": "changeDefaultAdminDelay",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "previousLink",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "evidenceHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "string",
+        "name": "cid",
+        "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "officer",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "timestamp",
+        "type": "uint256"
+      }
+    ],
+    "name": "computeLink",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "pure",
     "type": "function"
   },
   {
@@ -545,9 +690,9 @@
   {
     "inputs": [
       {
-        "internalType": "bytes32",
-        "name": "caseRef",
-        "type": "bytes32"
+        "internalType": "uint256",
+        "name": "caseId",
+        "type": "uint256"
       },
       {
         "internalType": "bytes32",
@@ -630,9 +775,9 @@
       {
         "components": [
           {
-            "internalType": "bytes32",
-            "name": "caseRef",
-            "type": "bytes32"
+            "internalType": "uint256",
+            "name": "caseId",
+            "type": "uint256"
           },
           {
             "internalType": "bytes32",
@@ -655,9 +800,9 @@
             "type": "address"
           },
           {
-            "internalType": "uint64",
+            "internalType": "uint256",
             "name": "submittedAt",
-            "type": "uint64"
+            "type": "uint256"
           },
           {
             "internalType": "uint32",
@@ -668,9 +813,70 @@
             "internalType": "bytes32",
             "name": "custodyHead",
             "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "link",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint64",
+            "name": "caseIndex",
+            "type": "uint64"
           }
         ],
-        "internalType": "struct EvidenceLocker.Evidence",
+        "internalType": "struct EvidenceLocker.EvidenceView",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "id",
+        "type": "uint256"
+      }
+    ],
+    "name": "getRecord",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "evidenceHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "string",
+            "name": "cid",
+            "type": "string"
+          },
+          {
+            "internalType": "address",
+            "name": "officer",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "caseId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "link",
+            "type": "bytes32"
+          }
+        ],
+        "internalType": "struct EvidenceLocker.Record",
         "name": "",
         "type": "tuple"
       }
@@ -894,9 +1100,9 @@
   {
     "inputs": [
       {
-        "internalType": "bytes32",
-        "name": "caseRef",
-        "type": "bytes32"
+        "internalType": "uint256",
+        "name": "caseId",
+        "type": "uint256"
       },
       {
         "internalType": "bytes32",
@@ -1073,6 +1279,30 @@
         "internalType": "bool",
         "name": "",
         "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "caseId",
+        "type": "uint256"
+      }
+    ],
+    "name": "verifyCaseChain",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "ok",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "firstBadIndex",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",

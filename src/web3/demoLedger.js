@@ -1,19 +1,20 @@
 import { AbiCoder, getAddress, id as keccakId, isAddress, keccak256 } from "ethers";
 import { mockCustodyLog, mockEvidence } from "../data/mockData";
+import { caseGenesis, computeLink, isValidCid } from "./caseChain.js";
 import { bytes32ToHex, deriveCaseRef, hexToBytes32, sameAddress } from "./format.js";
 import { LedgerError, LEDGER_ERROR } from "./ledgerErrors.js";
 import { CUSTODY_ACTIONS } from "./ethersLedger.js";
 
 /**
  * In-memory stand-in for the EvidenceLocker contract, for development and tests only (see isDemoAllowed()).
- * It enforces the same rules, throws the same LedgerError codes, and computes the custody hash chain with the
- * same algorithm as the contract; ledgerScenarios.js runs against both to keep them in step.
+ * It enforces the same rules, throws the same LedgerError codes, and computes the case chain (caseChain.js) and the
+ * custody hash chain with the same algorithms as the contract; ledgerScenarios.js runs against both to keep them in
+ * step.
  * Nothing here is persisted or recorded anywhere.
  */
 
 export const DEMO_ADMIN = "0x00000000000000000000000000000000000d3a01";
 export const DEMO_AUDITOR = "0x00000000000000000000000000000000000a0d17";
-export const MAX_CID_LENGTH = 128;
 
 const ZERO_HASH = `0x${"0".repeat(64)}`;
 const abi = AbiCoder.defaultAbiCoder();
@@ -48,6 +49,13 @@ function recomputeHead(entries) {
   return entries.reduce((head, e) => entryHash(head, e.action, e.actor, e.counterparty, e.timestamp, e.noteHash), ZERO_HASH);
 }
 
+/** The case-chain fields of a new record: its position in the case and its link to the previous record. */
+function nextLink(evidence, caseRef, record) {
+  const previous = evidence.filter((e) => e.caseRef === caseRef);
+  const prior = previous.length ? previous[previous.length - 1].link : caseGenesis(caseRef);
+  return { caseIndex: previous.length, link: computeLink(prior, record) };
+}
+
 function parseSampleTime(text) {
   return Math.floor(Date.parse(`${text.replace(" ", "T")}Z`) / 1000);
 }
@@ -72,9 +80,10 @@ function seedEvidence(store) {
       custody.push({ index: custody.length, action: "VerifiedMismatch", actor: submitter, counterparty: null, timestamp: submittedAt + 3600, noteHash: null });
     }
 
+    const caseRef = deriveCaseRef(m.caseId);
     store.evidence.push({
       id: i + 1,
-      caseRef: deriveCaseRef(m.caseId),
+      caseRef,
       sha256: m.hash,
       cid: m.cid,
       submitter,
@@ -82,6 +91,7 @@ function seedEvidence(store) {
       submittedAt,
       custodyCount: custody.length,
       custodyHead: bytes32ToHex(recomputeHead(custody)),
+      ...nextLink(store.evidence, caseRef, { sha256: m.hash, cid: m.cid, officer: submitter, timestamp: submittedAt }),
       custody,
     });
     store.roles.set(lower(submitter), flagsFor("investigator"));
@@ -213,10 +223,11 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
         live();
         const hash = bytes32ToHex(hexToBytes32(sha256));
         if (caseRef === ZERO_HASH || /^0+$/.test(hash)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
-        if (!cid || cid.length > MAX_CID_LENGTH) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
+        if (!isValidCid(cid)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
         const existing = store.evidence.find((e) => e.caseRef === caseRef && e.sha256 === hash);
         if (existing) throw new LedgerError(LEDGER_ERROR.DUPLICATE, undefined, { existingId: existing.id });
 
+        const submittedAt = store.now();
         const ev = {
           id: store.evidence.length + 1,
           caseRef,
@@ -224,9 +235,10 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
           cid,
           submitter: account,
           custodian: account,
-          submittedAt: store.now(),
+          submittedAt,
           custodyCount: 0,
           custodyHead: bytes32ToHex(ZERO_HASH),
+          ...nextLink(store.evidence, caseRef, { sha256: hash, cid, officer: account, timestamp: submittedAt }),
           custody: [],
         };
         append(ev, "Submitted", null, null);

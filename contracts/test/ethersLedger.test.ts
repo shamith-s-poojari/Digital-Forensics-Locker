@@ -63,7 +63,7 @@ describe("EthersLedger against the real contract", () => {
         getCustodyTxs: (id: number) => Promise<Record<number, { txHash: string; blockNumber: number }>>;
       };
 
-      const registered = await ledger.registerEvidence({ caseRef: ethers.id("c"), sha256: "ab".repeat(32), cid: "bafytest" });
+      const registered = await ledger.registerEvidence({ caseRef: ethers.id("c"), sha256: "ab".repeat(32), cid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi" });
       const first = await registered.wait();
       const accessed = await (await ledger.logAccess(first.evidenceId)).wait();
 
@@ -78,7 +78,7 @@ describe("EthersLedger against the real contract", () => {
       const ledger = base.as("alice") as {
         registerEvidence: (a: object) => Promise<{ hash: string; wait: () => Promise<unknown> }>;
       };
-      const handle = await ledger.registerEvidence({ caseRef: ethers.id("c2"), sha256: "cd".repeat(32), cid: "bafytest" });
+      const handle = await ledger.registerEvidence({ caseRef: ethers.id("c2"), sha256: "cd".repeat(32), cid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi" });
       expect(handle.hash).to.match(/^0x[0-9a-f]{64}$/);
       await handle.wait();
     });
@@ -103,12 +103,16 @@ describe("EthersLedger against the real contract", () => {
       };
       let calls = 0;
       const unsubscribe = alice.subscribe(() => calls++);
-      await (await alice.registerEvidence({ caseRef: ethers.id("c3"), sha256: "ef".repeat(32), cid: "bafytest" })).wait();
-      for (let i = 0; i < 40 && calls === 0; i++) {
-        await ethers.provider.send("evm_mine", []); // nudge the provider's event polling
-        await new Promise((resolve) => setTimeout(resolve, 100));
+      // Always unsubscribe: a listener left polling keeps the test process alive after a failure.
+      try {
+        await (await alice.registerEvidence({ caseRef: ethers.id("c3"), sha256: "ef".repeat(32), cid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi" })).wait();
+        for (let i = 0; i < 40 && calls === 0; i++) {
+          await ethers.provider.send("evm_mine", []); // nudge the provider's event polling
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      } finally {
+        unsubscribe();
       }
-      unsubscribe();
       expect(calls).to.be.greaterThan(0);
     });
   });

@@ -71,7 +71,7 @@ describe("demo ledger: demo-specific behaviour", () => {
 
     const onChange = vi.fn();
     const unsubscribe = ledger.subscribe(onChange);
-    const handle = await ledger.registerEvidence({ caseRef: `0x${"ab".repeat(32)}`, sha256: "cd".repeat(32), cid: "bafy" });
+    const handle = await ledger.registerEvidence({ caseRef: `0x${"ab".repeat(32)}`, sha256: "cd".repeat(32), cid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi" });
     await handle.wait();
     expect(onChange).toHaveBeenCalled();
 
@@ -86,7 +86,7 @@ describe("demo ledger: demo-specific behaviour", () => {
     const me = getAddress("0x00000000000000000000000000000000000e0006");
     store.setRole(me, "investigator");
     const ledger = createDemoLedger({ store, account: me, signDelayMs: 0, confirmDelayMs: 0 });
-    const handle = await ledger.registerEvidence({ caseRef: `0x${"ab".repeat(32)}`, sha256: "cd".repeat(32), cid: "bafy" });
+    const handle = await ledger.registerEvidence({ caseRef: `0x${"ab".repeat(32)}`, sha256: "cd".repeat(32), cid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi" });
     expect(handle.hash).toMatch(/^0x[0-9a-f]{64}$/);
     const mined = await handle.wait();
     expect(mined.evidenceId).toBe(1);

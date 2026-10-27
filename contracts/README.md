@@ -12,7 +12,11 @@
 
 ## What is on chain, and what is not
 
-On chain: a SHA-256 of the evidence bytes, the CID of the stored (encrypted) copy, an opaque `caseRef`, addresses, timestamps, and a hash chain over each evidence record's custody entries. Never put a plaintext case number, person name or file name on chain: blockchain data is public and permanent. `caseRef` should be a salted hash computed off-chain.
+On chain: a SHA-256 of the evidence bytes, the CID of the stored (encrypted) copy, an opaque case id (`caseId`, a `uint256`; the web app calls the same 32 bytes `caseRef`), addresses, timestamps, a SHA-256 chain over the records of each case, and a hash chain over each evidence record's custody entries.
+
+Each registration is an immutable **256-byte record** (8 storage slots: evidence SHA-256, CID, officer address, block timestamp, case id, link; the CID is held to 33..64 bytes so it fills exactly two data slots). The records of a case form a SHA-256 chain: `h_0 = SHA256(caseId)`, `h_i = SHA256(h_{i-1} || e_i || CID_i || W_i || T_i)` (packed), stored as each record's `link`. The timestamp comes from the block, never from the caller. `verifyCaseChain(caseId)` walks a case and returns the first mismatching index; `computeLink` and `caseGenesis` let anyone check their own implementation. `EvidenceRegistered` has the evidence hash as its first indexed topic, so finding every registration of a file is one log query.
+
+ Never put a plaintext case number, person name or file name on chain: blockchain data is public and permanent. `caseRef` should be a salted hash computed off-chain.
 
 **Reads cannot be restricted on a public chain.** The view functions are therefore open, and "read-only Auditor" means "no write permission", not secrecy. Addresses are pseudonymous but become linkable to people over time. For real law-enforcement use, deploy on a permissioned or private network. Sepolia is for development only.
 

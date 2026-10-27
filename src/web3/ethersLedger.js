@@ -1,4 +1,4 @@
-import { Contract, getAddress, id as keccakId, isAddress } from "ethers";
+import { Contract, getAddress, id as keccakId, isAddress, toBeHex } from "ethers";
 import { bytes32ToHex, hexToBytes32 } from "./format.js";
 import { LedgerError, LEDGER_ERROR, normalizeError } from "./ledgerErrors.js";
 
@@ -9,7 +9,8 @@ import { LedgerError, LEDGER_ERROR, normalizeError } from "./ledgerErrors.js";
  *
  * Shapes
  *   RoleFlags   { isAdmin, isInvestigator, isAuditor }
- *   Evidence    { id, caseRef, sha256, cid, submitter, custodian, submittedAt, custodyCount, custodyHead, custody[] }
+ *   Evidence    { id, caseRef, sha256, cid, submitter, custodian, submittedAt, custodyCount, custodyHead, link, caseIndex,
+ *                 custody[] }   (link: this record's case-chain value h_i; caseIndex: its position in the case)
  *   Custody     { index, action, actor, counterparty|null, timestamp, noteHash|null }
  *   TxHandle    { hash, wait(confirmations?) -> { hash, blockNumber, evidenceId|null } }  (hash is known once the
  *               wallet has signed; wait() resolves when the transaction is mined)
@@ -41,7 +42,8 @@ function toCustody(index, entry) {
 function toEvidence(id, ev, custody) {
   return {
     id,
-    caseRef: ev.caseRef,
+    // The contract's caseId is a uint256; the app keeps the same 32 bytes as a 0x-prefixed hex string.
+    caseRef: toBeHex(ev.caseId, 32),
     sha256: bytes32ToHex(ev.sha256Hash),
     cid: ev.cid,
     submitter: ev.submitter,
@@ -49,6 +51,8 @@ function toEvidence(id, ev, custody) {
     submittedAt: Number(ev.submittedAt),
     custodyCount: Number(ev.custodyCount),
     custodyHead: bytes32ToHex(ev.custodyHead),
+    link: bytes32ToHex(ev.link),
+    caseIndex: Number(ev.caseIndex),
     custody,
   };
 }

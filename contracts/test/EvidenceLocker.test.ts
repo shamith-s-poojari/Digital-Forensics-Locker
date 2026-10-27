@@ -113,11 +113,11 @@ describe("EvidenceLocker", () => {
       const { locker, alice } = await deploy();
 
       const tx = await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1);
-      await expect(tx).to.emit(locker, "EvidenceRegistered").withArgs(1n, CASE_A, alice.address, HASH_1, CID_1, anyUint);
+      await expect(tx).to.emit(locker, "EvidenceRegistered").withArgs(HASH_1, BigInt(CASE_A), alice.address, 1n, 0n, CID_1, anyUint, anyBytes32);
       await expect(tx).to.emit(locker, "CustodyRecorded");
 
       const ev = await locker.getEvidence(1);
-      expect(ev.caseRef).to.equal(CASE_A);
+      expect(ev.caseId).to.equal(BigInt(CASE_A));
       expect(ev.sha256Hash).to.equal(HASH_1);
       expect(ev.cid).to.equal(CID_1);
       expect(ev.submitter).to.equal(alice.address);
@@ -161,14 +161,18 @@ describe("EvidenceLocker", () => {
       await expect(locker.connect(alice).registerEvidence(CASE_A, ZERO32, CID_1)).to.be.revertedWithCustomError(locker, "ZeroValue");
     });
 
-    it("rejects empty and over-long CIDs, and accepts exactly the maximum length", async () => {
+    it("holds CIDs to 33..64 bytes (the bounds that keep a record at 256 bytes), inclusive", async () => {
       const { locker, alice } = await deploy();
-      await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_1, "")).to.be.revertedWithCustomError(locker, "InvalidCid");
-      await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_1, "x".repeat(129))).to.be.revertedWithCustomError(
+      for (const bad of ["", "x".repeat(32), "x".repeat(65)]) {
+        await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_1, bad)).to.be.revertedWithCustomError(locker, "InvalidCid");
+      }
+      await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_1, "x".repeat(33))).to.emit(locker, "EvidenceRegistered");
+      await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_2, "x".repeat(64))).to.emit(locker, "EvidenceRegistered");
+      // Real CIDs: v0 (46 characters) and v1 base32 (59).
+      await expect(locker.connect(alice).registerEvidence(CASE_B, HASH_1, "QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco")).to.emit(
         locker,
-        "InvalidCid"
+        "EvidenceRegistered"
       );
-      await expect(locker.connect(alice).registerEvidence(CASE_A, HASH_1, "x".repeat(128))).to.emit(locker, "EvidenceRegistered");
     });
 
     it("rejects the same bytes twice under one case, but allows them under another case", async () => {
@@ -375,6 +379,114 @@ describe("EvidenceLocker", () => {
     });
   });
 
+  describe("records and the case chain", () => {
+    const packed = (types: string[], values: unknown[]) => ethers.solidityPacked(types, values);
+    /** Independent implementation of h_0 = SHA256(caseId). */
+    const genesis = (caseId: string) => ethers.sha256(packed(["uint256"], [caseId]));
+    /** Independent implementation of h_i = SHA256(h_{i-1} || e_i || CID_i || W_i || T_i). */
+    const link = (prev: string, e: string, cid: string, officer: string, t: bigint) =>
+      ethers.sha256(packed(["bytes32", "bytes32", "string", "address", "uint256"], [prev, e, cid, officer, t]));
+    const CID_2 = "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG";
+    const HASH_3 = ethers.sha256(ethers.toUtf8Bytes("evidence file three"));
+
+    it("links each record of a case to the previous one exactly as specified, and keeps cases apart", async () => {
+      const { locker, alice, bob } = await deploy();
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1); // id 1, case A #0
+      await locker.connect(bob).registerEvidence(CASE_B, HASH_1, CID_2); // id 2, case B #0
+      await locker.connect(bob).registerEvidence(CASE_A, HASH_2, CID_2); // id 3, case A #1
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_3, CID_1); // id 4, case A #2
+
+      let previous = genesis(CASE_A);
+      const events = await locker.queryFilter(locker.filters.EvidenceRegistered(undefined, BigInt(CASE_A)));
+      expect(events.map((e) => e.args.id)).to.deep.equal([1n, 3n, 4n]);
+      for (const [index, id] of [1, 3, 4].entries()) {
+        const r = await locker.getRecord(id);
+        const expected = link(previous, r.evidenceHash, r.cid, r.officer, r.timestamp);
+        expect(r.link).to.equal(expected);
+        expect(r.caseId).to.equal(BigInt(CASE_A));
+        expect(await locker.caseRecordId(BigInt(CASE_A), index)).to.equal(BigInt(id));
+        expect((await locker.getEvidence(id)).caseIndex).to.equal(BigInt(index));
+        expect(events[index].args.link).to.equal(expected);
+        expect(events[index].args.caseIndex).to.equal(BigInt(index));
+        previous = expected;
+      }
+      expect(await locker.caseRecordCount(BigInt(CASE_A))).to.equal(3n);
+      expect(await locker.caseHead(BigInt(CASE_A))).to.equal(previous);
+
+      // Case B has its own chain starting from its own genesis value.
+      const b = await locker.getRecord(2);
+      expect(b.link).to.equal(link(genesis(CASE_B), HASH_1, CID_2, bob.address, b.timestamp));
+      expect(await locker.caseRecordCount(BigInt(CASE_B))).to.equal(1n);
+
+      expect(await locker.verifyCaseChain(BigInt(CASE_A))).to.deep.equal([true, ethers.MaxUint256]);
+      expect(await locker.verifyCaseChain(BigInt(CASE_B))).to.deep.equal([true, ethers.MaxUint256]);
+    });
+
+    it("exposes the link and genesis functions, which agree with an independent implementation", async () => {
+      const { locker, alice } = await deploy();
+      expect(await locker.caseGenesis(BigInt(CASE_A))).to.equal(genesis(CASE_A));
+      expect(await locker.computeLink(ZERO32, HASH_1, CID_1, alice.address, 1234n)).to.equal(link(ZERO32, HASH_1, CID_1, alice.address, 1234n));
+      expect(await locker.caseHead(BigInt(CASE_A))).to.equal(genesis(CASE_A)); // an empty case is at its genesis
+      expect(await locker.verifyCaseChain(BigInt(CASE_A))).to.deep.equal([true, ethers.MaxUint256]);
+    });
+
+    it("takes the timestamp from the block, not from the caller", async () => {
+      const { locker, alice } = await deploy();
+      const when = BigInt((await networkHelpers.time.latest()) + 1000);
+      await networkHelpers.time.setNextBlockTimestamp(when);
+      const tx = await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1);
+      const block = await ethers.provider.getBlock((await tx.wait())!.blockNumber);
+
+      expect(BigInt(block!.timestamp)).to.equal(when);
+      expect((await locker.getRecord(1)).timestamp).to.equal(when);
+      expect((await locker.getEvidence(1)).submittedAt).to.equal(when);
+      // There is no timestamp parameter to backdate with.
+      expect(locker.interface.getFunction("registerEvidence")!.inputs.map((i) => i.name)).to.deep.equal(["caseId", "sha256Hash", "cid"]);
+    });
+
+    it("indexes the event by evidence hash, so one log query finds every registration of a file", async () => {
+      const { locker, alice, bob } = await deploy();
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_1, CID_1);
+      await locker.connect(alice).registerEvidence(CASE_A, HASH_2, CID_1);
+      await locker.connect(bob).registerEvidence(CASE_B, HASH_1, CID_2);
+
+      const hits = await locker.queryFilter(locker.filters.EvidenceRegistered(HASH_1));
+      expect(hits.map((h) => h.args.id)).to.deep.equal([1n, 3n]);
+      expect(hits[0].topics[1]).to.equal(HASH_1); // topic 0 is the event signature, topic 1 the evidence hash
+      expect(hits[1].args.officer).to.equal(bob.address);
+    });
+
+    it("stores each record in exactly 8 storage slots (256 bytes) with the specified fields", async () => {
+      const { locker, alice } = await withEvidence();
+      const address = await locker.getAddress();
+      const word = async (slot: bigint) => ethers.provider.getStorage(address, slot);
+      const coder = ethers.AbiCoder.defaultAbiCoder();
+
+      // Locate the records mapping: record 1 lives at keccak256(abi.encode(1, mappingSlot)).
+      let base = -1n;
+      for (let slot = 0n; slot < 32n && base < 0n; slot++) {
+        const candidate = BigInt(ethers.keccak256(coder.encode(["uint256", "uint256"], [1n, slot])));
+        if ((await word(candidate)) === HASH_1) base = candidate;
+      }
+      expect(base, "record storage not found").to.not.equal(-1n);
+
+      const record = await locker.getRecord(1);
+      const dataSlot = BigInt(ethers.keccak256(ethers.toBeHex(base + 1n, 32)));
+      const inline = await Promise.all([0n, 1n, 2n, 3n, 4n, 5n].map((i) => word(base + i)));
+      const cidData = await Promise.all([0n, 1n, 2n].map((i) => word(dataSlot + i)));
+
+      expect(inline[0]).to.equal(HASH_1); // evidenceHash
+      expect(BigInt(inline[1])).to.equal(BigInt(CID_1.length * 2 + 1)); // long-string header: length * 2 + 1
+      expect(inline[2]).to.equal(ethers.zeroPadValue(alice.address, 32).toLowerCase()); // officer, alone in its slot
+      expect(BigInt(inline[3])).to.equal(record.timestamp);
+      expect(BigInt(inline[4])).to.equal(BigInt(CASE_A));
+      expect(inline[5]).to.equal(record.link);
+      expect(ethers.toUtf8String(ethers.dataSlice(ethers.concat(cidData.slice(0, 2)), 0, CID_1.length))).to.equal(CID_1);
+      expect(cidData[2]).to.equal(ZERO32); // no third CID slot: 6 inline + 2 data = 8 slots = 256 bytes
+      expect(await word(base + 6n)).to.equal(ZERO32); // nothing after the 6 inline slots
+    });
+  });
+
   describe("state-changing surface (tripwire)", () => {
     it("has exactly the reviewed set of state-changing functions", async () => {
       // If you add a function that changes state, this test fails on purpose: review it for access control and
@@ -415,4 +527,9 @@ describe("EvidenceLocker", () => {
 /** chai matcher helper: accepts any unsigned integer (used for block timestamps we cannot predict). */
 function anyUint(value: unknown): boolean {
   return typeof value === "bigint" && value >= 0n;
+}
+
+/** chai matcher helper: accepts any 32-byte hex value (used for link values checked separately). */
+function anyBytes32(value: unknown): boolean {
+  return typeof value === "string" && /^0x[0-9a-f]{64}$/i.test(value);
 }
