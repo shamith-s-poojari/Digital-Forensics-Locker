@@ -50,7 +50,7 @@ function setup({ account = A, mode = "chain", ledger, switchChain = vi.fn() } = 
   const wallet = { account, chainId: 11155111, connect: vi.fn(), disconnect: vi.fn(), switchChain, error: null, isConnecting: false, clearError: vi.fn() };
   const tree = (acct, mod = mode, led = ledger) => (
     <WalletContext.Provider value={{ ...wallet, account: acct }}>
-      <LedgerContext.Provider value={{ mode: mod, ledger: mod === "chain" ? led : null, config }}>
+      <LedgerContext.Provider value={{ mode: mod, ledger: mod === "chain" || mod === "demo" ? led : null, config }}>
         <RoleProvider>
           <Probe />
         </RoleProvider>

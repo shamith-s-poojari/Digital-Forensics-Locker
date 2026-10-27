@@ -2,7 +2,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { computeSHA256, formatFileSize } from "./hash";
-import { fixtureEvidence } from "../test/fixtures/ledgerFixtures.js";
+import { mockEvidence } from "../data/mockData";
 
 const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const ABC_SHA256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
@@ -96,12 +96,12 @@ describe("formatFileSize", () => {
   });
 });
 
-describe("fixtureEvidence", () => {
+describe("mockEvidence", () => {
   it("has at least one entry", () => {
-    expect(fixtureEvidence.length).toBeGreaterThan(0);
+    expect(mockEvidence.length).toBeGreaterThan(0);
   });
 
-  it.each(fixtureEvidence.map((e) => [e.id, e.hash]))(
+  it.each(mockEvidence.map((e) => [e.id, e.hash]))(
     "%s has a valid 64-character lowercase hex hash",
     (_id, hash) => {
       expect(hash).toMatch(/^[0-9a-f]{64}$/);
@@ -109,7 +109,7 @@ describe("fixtureEvidence", () => {
   );
 
   it("has no duplicate evidence ids or hashes", () => {
-    expect(new Set(fixtureEvidence.map((e) => e.id)).size).toBe(fixtureEvidence.length);
-    expect(new Set(fixtureEvidence.map((e) => e.hash)).size).toBe(fixtureEvidence.length);
+    expect(new Set(mockEvidence.map((e) => e.id)).size).toBe(mockEvidence.length);
+    expect(new Set(mockEvidence.map((e) => e.hash)).size).toBe(mockEvidence.length);
   });
 });

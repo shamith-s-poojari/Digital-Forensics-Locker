@@ -5,9 +5,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { CaseDirectoryProvider } from "../cases/CaseDirectoryProvider.jsx";
-import { createMemoryCaseStore } from "../test/memoryCaseStore.js";
+import { createDemoCaseStore } from "../cases/caseStores.js";
 import { WalletContext } from "../context/walletContext.js";
-import { makeFile, SHA256_ABC } from "../test/ledgerHarness.jsx";
+import { makeFile, SHA256_ABC } from "../test/demoHarness.jsx";
 import { deriveCaseRef } from "../web3/format.js";
 import { LedgerContext } from "../web3/ledgerContext.js";
 import { LedgerError, LEDGER_ERROR } from "../web3/ledgerErrors.js";
@@ -54,7 +54,7 @@ function makeLedger(overrides = {}) {
 
 /** An in-memory case store that already knows these cases (version 1 each). */
 async function makeCaseStore(caseNumbers = ["CASE-1", "CASE-2025-0042"]) {
-  const store = createMemoryCaseStore({ seed: false });
+  const store = createDemoCaseStore({ seed: false });
   for (const caseNumber of caseNumbers) await store.create({ caseNumber, title: `Title of ${caseNumber}`, description: "" });
   return store;
 }
@@ -425,7 +425,7 @@ describe("EvidenceUpload: case details", () => {
   });
 
   it("does not register while the case store cannot be read (signed out)", async () => {
-    const store = { kind: "memory", list: vi.fn().mockRejectedValue(Object.assign(new Error("Sign in first."), { status: 401 })), create: vi.fn(), addVersion: vi.fn() };
+    const store = { kind: "demo", list: vi.fn().mockRejectedValue(Object.assign(new Error("Sign in first."), { status: 401 })), create: vi.fn(), addVersion: vi.fn() };
     const ledger = renderUpload(makeLedger(), { store });
     await userEvent.type(screen.getByLabelText("Case number"), "CASE-1");
     expect(await screen.findByText("Sign in with your wallet to look up the case details.")).toBeTruthy();

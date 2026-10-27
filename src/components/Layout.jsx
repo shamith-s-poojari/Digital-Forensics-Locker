@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Menu, X, Wallet, Lock } from "lucide-react";
 import Sidebar from "./Sidebar";
-import PreReleaseBanner from "./PreReleaseBanner";
+import DemoBanner from "./DemoBanner";
+import RolePreviewer from "./RolePreviewer";
 import Clock from "./Clock";
 import SessionBanner from "./SessionBanner";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
@@ -23,6 +24,8 @@ const PAGE_TITLES = {
   "/cases": "Case Management",
   "/upload": "Evidence Upload",
   "/admin": "Role Management",
+  "/evidence": "Evidence Viewer",
+  "/custody": "Chain of Custody",
 };
 
 /**
@@ -256,7 +259,7 @@ export default function Layout({ children }) {
     flexDirection: "column",
   };
 
-  // The pre-release banner and the top bar stick together as one block, so the top bar never
+  // The demo banner and the top bar stick together as one block, so the top bar never
   // overlaps the banner even if the banner wraps onto several lines on narrow screens.
   const stickyHeaderStyle = {
     position: "sticky",
@@ -442,7 +445,8 @@ export default function Layout({ children }) {
 
       <div style={mainContainerStyle} inert={drawerVisible}>
         <header style={stickyHeaderStyle}>
-          <PreReleaseBanner />
+          <DemoBanner />
+          {isConnected ? <RolePreviewer /> : null}
           <div style={topBarStyle}>
             {isConnected && (
               <button
@@ -519,8 +523,9 @@ export default function Layout({ children }) {
               <Lock size={48} color="#60a5fa" strokeWidth={1.5} aria-hidden="true" />
               <h1 style={restrictedTitleStyle}>Wallet Required</h1>
               <p style={restrictedMessageStyle}>
-                Connect your MetaMask wallet and sign in to continue. Signing in proves which wallet you control;
-                what you may see and do is decided by the roles the EvidenceLocker contract grants that wallet.
+                This is a demo with fictional sample data. Connect a MetaMask wallet to open the demo interface.
+                Connecting a wallet is not authorization: no officer identity, role or permission is checked, and
+                nothing you do here is recorded on a blockchain.
               </p>
               {notice && !error && (
                 <div role="status" style={walletErrorStyle}>

@@ -1,18 +1,19 @@
 // @vitest-environment jsdom
 import { webcrypto } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { createMemoryCaseStore } from "../test/memoryCaseStore.js";
+import { createDemoCaseStore } from "../cases/caseStores.js";
 import { WalletContext } from "../context/walletContext.js";
 import { LedgerContext } from "../web3/ledgerContext.js";
 import { RoleTestProvider } from "../test/RoleTestProvider.jsx";
-import { ACCOUNT, makeFile, OTHER_INVESTIGATOR, renderWithLedger, SHA256_ABC, TEST_CONTRACT } from "../test/ledgerHarness.jsx";
+import { ACCOUNT, makeFile, OTHER_INVESTIGATOR, renderWithDemo, SHA256_ABC } from "../test/demoHarness.jsx";
 import { groupByCase } from "../web3/caseModel.js";
-import { createMemoryLedger, createMemoryStore } from "../test/memoryLedger.js";
+import { createDemoLedger, createDemoStore } from "../web3/demoLedger.js";
 import { deriveCaseRef } from "../web3/format.js";
 import { downloadJson } from "../utils/download";
+import RolePreviewer from "../components/RolePreviewer";
 import CaseDashboard from "./CaseDashboard";
 
 vi.mock("../utils/download", () => ({
@@ -29,13 +30,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const seeded = () => createMemoryStore();
+const seeded = () => createDemoStore();
 const loaded = () => screen.findByRole("heading", { name: /Evidence · / });
 const caseButtons = () => within(screen.getByRole("heading", { name: "Cases" }).closest("section")).getAllByRole("button");
 
 describe("CaseDashboard: case chain", () => {
   it("re-walks the selected case's chain in the browser and reports it intact", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded() });
+    renderWithDemo(<CaseDashboard />, { store: seeded() });
     await loaded();
     const panel = screen.getByRole("heading", { name: "Case chain" }).closest("section");
     expect(within(panel).getByRole("status").textContent).toMatch(/Case chain intact: all \d+ records? re-linked/);
@@ -50,7 +51,7 @@ describe("CaseDashboard: case chain", () => {
     const first = groupByCase(store.evidence)[0];
     const ordered = [...first.evidence].sort((a, b) => a.caseIndex - b.caseIndex);
     store.evidence.find((e) => e.id === ordered[0].id).submittedAt -= 86_400; // backdated by a day
-    renderWithLedger(<CaseDashboard />, { store });
+    renderWithDemo(<CaseDashboard />, { store });
     await loaded();
 
     const panel = screen.getByRole("heading", { name: "Case chain" }).closest("section");
@@ -68,8 +69,8 @@ describe("CaseDashboard: case details", () => {
 
   it("shows the selected case's title from the store and confirms it matches the anchored version", async () => {
     const store = seeded();
-    const caseStore = createMemoryCaseStore();
-    renderWithLedger(<CaseDashboard />, { store, caseStore });
+    const caseStore = createDemoCaseStore();
+    renderWithDemo(<CaseDashboard />, { store, caseStore });
     await loaded();
 
     const entry = caseStore._cases.get(firstCase(store).caseRef);
@@ -83,8 +84,8 @@ describe("CaseDashboard: case details", () => {
 
   it("saves an edit as a new version, which stays pending until the next record anchors it", async () => {
     const store = seeded();
-    const caseStore = createMemoryCaseStore();
-    renderWithLedger(<CaseDashboard />, { store, caseStore });
+    const caseStore = createDemoCaseStore();
+    renderWithDemo(<CaseDashboard />, { store, caseStore });
     await loaded();
     const panel = detailsPanel();
     await within(panel).findByRole("status");
@@ -104,9 +105,9 @@ describe("CaseDashboard: case details", () => {
 
   it("flags case details that were edited in the store behind its back", async () => {
     const store = seeded();
-    const caseStore = createMemoryCaseStore();
+    const caseStore = createDemoCaseStore();
     caseStore._cases.get(firstCase(store).caseRef).versions[0].title = "Quietly rewritten";
-    renderWithLedger(<CaseDashboard />, { store, caseStore });
+    renderWithDemo(<CaseDashboard />, { store, caseStore });
     await loaded();
 
     const panel = detailsPanel();
@@ -115,7 +116,7 @@ describe("CaseDashboard: case details", () => {
   });
 
   it("hides editing from an Auditor", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded(), caseStore: createMemoryCaseStore(), role: "auditor" });
+    renderWithDemo(<CaseDashboard />, { store: seeded(), caseStore: createDemoCaseStore(), role: "auditor" });
     await loaded();
     await within(detailsPanel()).findByRole("status");
     expect(within(detailsPanel()).queryByRole("button", { name: "Edit case details" })).toBeNull();
@@ -125,7 +126,7 @@ describe("CaseDashboard: case details", () => {
 describe("CaseDashboard: reading the ledger", () => {
   it("summarises the ledger and lists the evidence of the selected case with its hash and CID", async () => {
     const store = seeded();
-    renderWithLedger(<CaseDashboard />, { store });
+    renderWithDemo(<CaseDashboard />, { store });
     await loaded();
 
     const kpi = (label) => screen.getByText(label).closest("div");
@@ -143,14 +144,14 @@ describe("CaseDashboard: reading the ledger", () => {
   });
 
   it("groups evidence into cases", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded() });
+    renderWithDemo(<CaseDashboard />, { store: seeded() });
     await loaded();
     expect(caseButtons()).toHaveLength(4);
     expect(screen.getByRole("button", { name: /CASE-2025-0051/ })).toBeTruthy();
   });
 
   it("shows another case's evidence and its custody timeline when selected", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded() });
+    renderWithDemo(<CaseDashboard />, { store: seeded() });
     await loaded();
 
     await userEvent.click(screen.getByRole("button", { name: /CASE-2025-0029/ }));
@@ -160,7 +161,7 @@ describe("CaseDashboard: reading the ledger", () => {
   });
 
   it("flags a hash mismatch in the case list, the table and the KPI", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded() });
+    renderWithDemo(<CaseDashboard />, { store: seeded() });
     await loaded();
 
     expect(within(screen.getByText("Hash mismatches").closest("div")).getByText("1")).toBeTruthy();
@@ -173,7 +174,7 @@ describe("CaseDashboard: reading the ledger", () => {
 
   it("narrows the cases by a pasted CID", async () => {
     const store = seeded();
-    renderWithLedger(<CaseDashboard />, { store });
+    renderWithDemo(<CaseDashboard />, { store });
     await loaded();
 
     const target = store.evidence.find((e) => e.id === 7);
@@ -187,7 +188,7 @@ describe("CaseDashboard: reading the ledger", () => {
   });
 
   it("shows the custody timeline newest first, and the ledger's hash-chain check", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded() });
+    renderWithDemo(<CaseDashboard />, { store: seeded() });
     await loaded();
 
     const timeline = screen.getByRole("list", { name: /Custody events, newest first/ });
@@ -199,23 +200,23 @@ describe("CaseDashboard: reading the ledger", () => {
 
   it("warns when the stored custody trail no longer matches its head", async () => {
     const store = seeded();
-    renderWithLedger(<CaseDashboard />, { store });
+    renderWithDemo(<CaseDashboard />, { store });
     await loaded();
     const shown = Number(screen.getByRole("heading", { name: /Chain of custody · #/ }).textContent.match(/#(\d+)/)[1]);
 
-    // Tamper with the ledger store directly, as an attacker with database access might.
+    // Tamper with the demo store directly, as an attacker with database access might.
     store.evidence.find((e) => e.id === shown).custody[0].actor = "0x0000000000000000000000000000000000000bad";
     fireEvent.click(screen.getByRole("button", { name: "Refresh from the ledger" }));
     expect(await screen.findByText(/HASH CHAIN BROKEN/)).toBeTruthy();
   });
 
   it("explains an empty ledger and offers registration only to investigators", async () => {
-    renderWithLedger(<CaseDashboard />, { store: createMemoryStore({ seed: false }) });
+    renderWithDemo(<CaseDashboard />, { store: createDemoStore({ seed: false }) });
     expect(await screen.findByText("No evidence on the ledger yet")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Register the first evidence item" }).getAttribute("href")).toBe("/upload");
     cleanup();
 
-    renderWithLedger(<CaseDashboard />, { store: createMemoryStore({ seed: false }), role: "auditor" });
+    renderWithDemo(<CaseDashboard />, { store: createDemoStore({ seed: false }), role: "auditor" });
     expect(await screen.findByText("No evidence on the ledger yet")).toBeTruthy();
     expect(screen.queryByRole("link", { name: /Register/ })).toBeNull();
   });
@@ -223,7 +224,7 @@ describe("CaseDashboard: reading the ledger", () => {
   it("shows a paused banner and disables writes while the ledger is paused", async () => {
     const store = seeded();
     store.paused = true;
-    renderWithLedger(<CaseDashboard />, { store });
+    renderWithDemo(<CaseDashboard />, { store });
     await loaded();
 
     expect(screen.getByRole("alert").textContent).toMatch(/paused the ledger/i);
@@ -231,7 +232,7 @@ describe("CaseDashboard: reading the ledger", () => {
   });
 
   it("reports a ledger read failure with a retry", async () => {
-    const ledger = createMemoryLedger({ store: seeded(), account: ACCOUNT, signDelayMs: 0, confirmDelayMs: 0 });
+    const ledger = createDemoLedger({ store: seeded(), account: ACCOUNT, signDelayMs: 0, confirmDelayMs: 0 });
     const broken = { ...ledger, listEvidence: vi.fn().mockRejectedValue(Object.assign(new Error("x"), { code: "NETWORK_ERROR" })) };
     const config = { address: null, chainId: 1, chainName: "Test", explorerUrl: "", configured: false, deployBlock: 0, invalidAddress: false };
     render(
@@ -254,7 +255,7 @@ describe("CaseDashboard: reading the ledger", () => {
 describe("CaseDashboard: what each role can do", () => {
   it("lets an Investigator log access, register and (as custodian) transfer", async () => {
     const store = seeded();
-    renderWithLedger(<CaseDashboard />, { store });
+    renderWithDemo(<CaseDashboard />, { store });
     await loaded();
 
     expect(screen.getByRole("button", { name: "Log that I accessed this" })).toBeTruthy();
@@ -263,7 +264,7 @@ describe("CaseDashboard: what each role can do", () => {
   });
 
   it("gives an Auditor read-only access: they can check a file but see no write controls", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded(), role: "auditor" });
+    renderWithDemo(<CaseDashboard />, { store: seeded(), role: "auditor" });
     await loaded();
 
     expect(screen.getByLabelText("Check a file against the ledger")).toBeTruthy();
@@ -275,7 +276,7 @@ describe("CaseDashboard: what each role can do", () => {
   });
 
   it("gives the Chief recovery powers but no evidence-writing buttons", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded(), role: "admin" });
+    renderWithDemo(<CaseDashboard />, { store: seeded(), role: "admin" });
     await loaded();
 
     expect(screen.getByRole("button", { name: /Reassign custody \(Chief\)/ })).toBeTruthy();
@@ -283,13 +284,18 @@ describe("CaseDashboard: what each role can do", () => {
     expect(screen.queryByRole("link", { name: /Register evidence/ })).toBeNull();
   });
 
-  it("updates the interface live when the wallet's role changes on the ledger", async () => {
-    const store = seeded();
-    renderWithLedger(<CaseDashboard />, { store });
+  it("updates the interface live when the role previewer changes the role (demo only)", async () => {
+    renderWithDemo(
+      <>
+        <RolePreviewer />
+        <CaseDashboard />
+      </>,
+      { store: seeded() }
+    );
     await loaded();
     expect(screen.getByRole("button", { name: "Log that I accessed this" })).toBeTruthy();
 
-    act(() => store.setRole(ACCOUNT, "auditor")); // as a grant change by the Chief would
+    await userEvent.selectOptions(screen.getByLabelText(/view the app as/), "auditor");
     await waitFor(() => expect(screen.queryByRole("button", { name: "Log that I accessed this" })).toBeNull());
     expect(screen.getByLabelText("Check a file against the ledger")).toBeTruthy();
   });
@@ -298,7 +304,7 @@ describe("CaseDashboard: what each role can do", () => {
 describe("CaseDashboard: writing to the ledger", () => {
   it("narrates a logged access from wallet approval to block inclusion, and shows the new timeline entry", async () => {
     const store = seeded();
-    renderWithLedger(<CaseDashboard />, { store });
+    renderWithDemo(<CaseDashboard />, { store });
     await loaded();
     const before = store.evidence.reduce((n, e) => n + e.custody.length, 0);
 
@@ -316,7 +322,7 @@ describe("CaseDashboard: writing to the ledger", () => {
   });
 
   it("can be dismissed once finished", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded() });
+    renderWithDemo(<CaseDashboard />, { store: seeded() });
     await loaded();
     await userEvent.click(screen.getByRole("button", { name: "Log that I accessed this" }));
     await screen.findByText(/Included in block/);
@@ -326,7 +332,7 @@ describe("CaseDashboard: writing to the ledger", () => {
 
   it("explains a refused write in plain words, against the step that failed", async () => {
     const store = seeded();
-    renderWithLedger(<CaseDashboard />, { store });
+    renderWithDemo(<CaseDashboard />, { store });
     await loaded();
     store.paused = true; // the Chief pauses between the page loading and the click
 
@@ -337,7 +343,7 @@ describe("CaseDashboard: writing to the ledger", () => {
   });
 
   it("checks a file against the ledger without a transaction: a different file does not match", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded(), role: "auditor" });
+    renderWithDemo(<CaseDashboard />, { store: seeded(), role: "auditor" });
     await loaded();
 
     fireEvent.change(screen.getByLabelText("Check a file against the ledger"), { target: { files: [makeFile("not the evidence", "other.txt")] } });
@@ -347,10 +353,10 @@ describe("CaseDashboard: writing to the ledger", () => {
 
   it("reports a matching file, with a caveat, and lets an Investigator record the result on the ledger", async () => {
     const store = seeded();
-    const ledger = createMemoryLedger({ store, account: ACCOUNT, signDelayMs: 0, confirmDelayMs: 0 });
+    const ledger = createDemoLedger({ store, account: ACCOUNT, signDelayMs: 0, confirmDelayMs: 0 });
     store.setRole(ACCOUNT, "investigator");
     await (await ledger.registerEvidence({ caseRef: deriveCaseRef("CASE-NEW-1"), sha256: SHA256_ABC, cid: "bafybeinewcidnewcidnewcidnewcidnewcidnewcidnewcidnewcid", caseDigest: "d1".repeat(32) })).wait();
-    renderWithLedger(<CaseDashboard />, { store });
+    renderWithDemo(<CaseDashboard />, { store });
     await loaded();
 
     await userEvent.click(await screen.findByRole("button", { name: /CASE-NEW-1|Case 0x/ }));
@@ -365,7 +371,7 @@ describe("CaseDashboard: writing to the ledger", () => {
   });
 
   it("rejects a file that is too large to hash in the browser", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded(), role: "auditor" });
+    renderWithDemo(<CaseDashboard />, { store: seeded(), role: "auditor" });
     await loaded();
     const big = makeFile("x", "big.bin");
     Object.defineProperty(big, "size", { value: 11 * 1024 * 1024 });
@@ -376,14 +382,14 @@ describe("CaseDashboard: writing to the ledger", () => {
   it("transfers custody only for the current custodian, to another investigator", async () => {
     const store = seeded();
     store.setRole(OTHER_INVESTIGATOR, "investigator");
-    const ledger = createMemoryLedger({ store, account: ACCOUNT, signDelayMs: 0, confirmDelayMs: 0 });
+    const ledger = createDemoLedger({ store, account: ACCOUNT, signDelayMs: 0, confirmDelayMs: 0 });
     store.setRole(ACCOUNT, "investigator");
     await (await ledger.registerEvidence({ caseRef: deriveCaseRef("CASE-MINE-1"), sha256: SHA256_ABC, cid: "bafybeiminecidminecidminecidminecidminecidminecidmine", caseDigest: "d1".repeat(32) })).wait();
 
-    renderWithLedger(<CaseDashboard />, { store });
+    renderWithDemo(<CaseDashboard />, { store });
     await loaded();
 
-    // Someone else's evidence (a fixture case): no transfer, with an explanation.
+    // Someone else's evidence (a sample case): no transfer, with an explanation.
     await userEvent.click(screen.getByRole("button", { name: /CASE-2025-0029/ }));
     expect(screen.getByText("Only the custodian can transfer")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Transfer custody" })).toBeNull();
@@ -404,7 +410,7 @@ describe("CaseDashboard: writing to the ledger", () => {
   });
 
   it("exports the selected case as a JSON record", async () => {
-    renderWithLedger(<CaseDashboard />, { store: seeded() });
+    renderWithDemo(<CaseDashboard />, { store: seeded() });
     await loaded();
 
     await userEvent.click(screen.getByRole("button", { name: "Export case record (JSON)" }));
@@ -413,9 +419,8 @@ describe("CaseDashboard: writing to the ledger", () => {
     const [filename, data] = downloadJson.mock.calls[0];
     expect(filename).toMatch(/^case-record-[A-Za-z0-9_-]+\.json$/);
     expect(data.format).toBe("forensics-locker/case-record/v1");
-    expect(data.source.mode).toBe("chain");
-    expect(data.source.contract).toBe(TEST_CONTRACT);
-    expect(data.source.note).toMatch(/verifyCaseChain/);
+    expect(data.source.mode).toBe("demo");
+    expect(data.source.note).toMatch(/DEMO DATA/);
     expect(data.evidence.length).toBeGreaterThan(0);
     expect(data.evidence[0].custody[0].action).toBe("Submitted");
   });

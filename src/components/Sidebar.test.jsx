@@ -19,7 +19,7 @@ const renderSidebar = (props = {}, path = "/cases", role = {}) =>
   render(
     <MemoryRouter initialEntries={[path]}>
       <WalletContext.Provider value={wallet}>
-        <RoleTestProvider roles={{ isInvestigator: true }} {...role}>
+        <RoleTestProvider roles={{ isInvestigator: true }} isDemo {...role}>
           <Sidebar {...props} />
         </RoleTestProvider>
       </WalletContext.Provider>
@@ -32,59 +32,67 @@ describe("Sidebar by role", () => {
   const names = () => within(screen.getByRole("navigation", { name: "Main" })).queryAllByRole("link").map((a) => a.textContent);
 
   it("shows an Auditor only the read-only destination", () => {
-    renderSidebar({}, "/cases", { roles: { isAuditor: true } });
+    renderSidebar({}, "/cases", { roles: { isAuditor: true }, isDemo: false });
     expect(names()).toEqual(["Case Management"]);
   });
 
   it("shows an Investigator the dashboard and evidence upload", () => {
-    renderSidebar({}, "/cases", { roles: { isInvestigator: true } });
+    renderSidebar({}, "/cases", { roles: { isInvestigator: true }, isDemo: false });
     expect(names()).toEqual(["Case Management", "Evidence Upload"]);
   });
 
   it("shows the Chief the dashboard and role management, but not evidence upload", () => {
-    renderSidebar({}, "/cases", { roles: { isAdmin: true } });
+    renderSidebar({}, "/cases", { roles: { isAdmin: true }, isDemo: false });
     expect(names()).toEqual(["Case Management", "Role Management"]);
   });
 
   it("shows someone holding both roles everything they may use", () => {
-    renderSidebar({}, "/cases", { roles: { isAdmin: true, isInvestigator: true } });
+    renderSidebar({}, "/cases", { roles: { isAdmin: true, isInvestigator: true }, isDemo: false });
     expect(names()).toEqual(["Case Management", "Evidence Upload", "Role Management"]);
   });
 
   it("lists nothing while the role is unknown or the wallet has no role (fails closed)", () => {
-    renderSidebar({}, "/cases", { status: "loading" });
+    renderSidebar({}, "/cases", { status: "loading", isDemo: false });
     expect(names()).toEqual([]);
     cleanup();
-    renderSidebar({}, "/cases", { roles: {} });
+    renderSidebar({}, "/cases", { roles: {}, isDemo: false });
     expect(names()).toEqual([]);
     cleanup();
-    renderSidebar({}, "/cases", { status: "error", roles: { isAdmin: true } });
+    renderSidebar({}, "/cases", { status: "error", roles: { isAdmin: true }, isDemo: false });
     expect(names()).toEqual([]);
+  });
+
+  it("shows the sample-data pages only in demo mode", () => {
+    renderSidebar({}, "/cases", { roles: { isInvestigator: true }, isDemo: true });
+    expect(names()).toContain("Evidence Viewer (sample)");
+    cleanup();
+    renderSidebar({}, "/cases", { roles: { isInvestigator: true }, isDemo: false });
+    expect(names()).not.toContain("Evidence Viewer (sample)");
   });
 });
 
 describe("Sidebar", () => {
-  it("is a labelled navigation landmark listing the destinations an Investigator may use", () => {
+  it("is a labelled navigation landmark listing the destinations an Investigator may use (plus sample pages in development)", () => {
     renderSidebar();
     const nav = screen.getByRole("navigation", { name: "Main" });
     const names = within(nav)
       .getAllByRole("link")
       .map((a) => a.textContent);
-    expect(names).toEqual(["Case Management", "Evidence Upload"]);
+    expect(names).toEqual(["Case Management", "Evidence Upload", "Evidence Viewer (sample)", "Chain of Custody (sample)"]);
   });
 
   it("marks only the current page with aria-current", () => {
-    renderSidebar({}, "/upload");
+    renderSidebar({}, "/custody");
     const current = screen.getAllByRole("link").filter((a) => a.getAttribute("aria-current") === "page");
-    expect(current.map((a) => a.textContent)).toEqual(["Evidence Upload"]);
-    expect(screen.getByRole("link", { name: "Evidence Upload" }).style.fontWeight).toBe("700");
+    expect(current.map((a) => a.textContent)).toEqual(["Chain of Custody (sample)"]);
+    expect(screen.getByRole("link", { name: "Chain of Custody (sample)" }).style.fontWeight).toBe("700");
     expect(screen.getByRole("link", { name: "Case Management" }).style.fontWeight).toBe("500");
   });
 
   it("hides decorative icons from assistive technology", () => {
     const { container } = renderSidebar();
     const icons = container.querySelectorAll("svg");
-    expect(icons.length).toBeGreaterThanOrEqual(2);
+    expect(icons.length).toBeGreaterThanOrEqual(5);
     for (const icon of icons) expect(icon.getAttribute("aria-hidden")).toBe("true");
   });
 
@@ -103,7 +111,7 @@ describe("Sidebar", () => {
   it("highlights a hovered link without losing the active link's styling", () => {
     renderSidebar({}, "/cases");
     const active = screen.getByRole("link", { name: "Case Management" });
-    const other = screen.getByRole("link", { name: "Evidence Upload" });
+    const other = screen.getByRole("link", { name: "Evidence Viewer (sample)" });
     const activeBackground = active.style.background;
 
     fireEvent.mouseEnter(other);
@@ -122,7 +130,7 @@ describe("Sidebar", () => {
     const { container } = renderSidebar();
     expect(container.innerHTML).not.toContain("#484f58");
     expect(container.textContent).not.toMatch(/[ƒö≡]/);
-    expect(screen.getByText("v1.0 · Pre-release")).toBeTruthy();
+    expect(screen.getByText("v1.0 · Demo build")).toBeTruthy();
     expect(container.textContent).not.toMatch(/sepolia/i);
   });
 });

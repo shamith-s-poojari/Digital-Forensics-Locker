@@ -10,9 +10,7 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
-    "abi": "node scripts/export-abi.mjs",
-    "node": "hardhat node",
-    "deploy:local": "hardhat run scripts/deploy.ts --network localhost"
+    "abi": "node scripts/export-abi.mjs"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox-mocha-ethers": "^4.0.0",

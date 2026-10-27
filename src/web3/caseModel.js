@@ -1,8 +1,17 @@
-import { formatUtc, shorten } from "./format.js";
+import { mockCases } from "../data/mockData";
+import { deriveCaseRef, formatUtc, shorten } from "./format.js";
 
 /**
  * Pure helpers that turn ledger records into what the dashboard shows. No React, no network.
  */
+
+/**
+ * TEMPORARY off-chain case directory. The chain only holds an opaque case reference, so titles and officers must
+ * come from somewhere else; until the Phase 1 API exists, the sample cases stand in (matched by their derived reference).
+ */
+export const CASE_DIRECTORY = Object.fromEntries(
+  mockCases.map((c) => [deriveCaseRef(c.id), { caseNumber: c.id, title: c.title, officer: c.officer, dateOpened: c.dateOpened }])
+);
 
 export const ACTION_META = Object.freeze({
   Submitted: { label: "Registered", tone: "info" },
@@ -44,9 +53,9 @@ export function directoryFromCases(cases) {
 /**
  * Groups evidence by case reference, newest activity first.
  * @param {object[]} records
- * @param {Record<string, { caseNumber: string, title: string }>} [directory] Case numbers and titles by caseRef (from the case store).
+ * @param {Record<string, { caseNumber: string, title: string, officer?: string }>} [directory]
  */
-export function groupByCase(records, directory = {}) {
+export function groupByCase(records, directory = CASE_DIRECTORY) {
   const groups = new Map();
   for (const record of records) {
     const info = directory[record.caseRef] ?? null;
@@ -101,7 +110,10 @@ export function buildCaseExport({ group, config, mode, caseEntry = null, generat
       mode,
       chainId: config.chainId,
       contract: config.address,
-      note: "Read from the EvidenceLocker contract. Verify independently by calling verify(), verifyCaseChain() and verifyCustodyChain() on the contract.",
+      note:
+        mode === "demo"
+          ? "DEMO DATA: produced by the in-memory development ledger; nothing here is recorded on a blockchain."
+          : "Read from the EvidenceLocker contract. Verify independently by calling verify(), verifyCaseChain() and verifyCustodyChain() on the contract.",
     },
     case: { reference: group.caseRef, caseNumber: group.caseNumber, title: group.title },
     caseChainRule:

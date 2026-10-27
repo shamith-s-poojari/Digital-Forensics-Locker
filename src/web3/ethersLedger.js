@@ -4,8 +4,8 @@ import { LedgerError, LEDGER_ERROR, normalizeError } from "./ledgerErrors.js";
 
 /**
  * The ledger adapter: everything the UI needs from the chain, behind one interface with two implementations
- * (this one, and the in-memory test ledger src/test/memoryLedger.js). Both throw LedgerError with the same codes, and the same scenario suite
- * (ledgerScenarios.js) runs against both, so the test ledger cannot drift from the real contract.
+ * (this one, and demoLedger.js). Both throw LedgerError with the same codes, and the same scenario suite
+ * (ledgerScenarios.js) runs against both, so the demo cannot drift from the real contract.
  *
  * Shapes
  *   RoleFlags   { isAdmin, isInvestigator, isAuditor }
@@ -188,7 +188,7 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
 
     // ---- writes (each returns a TxHandle once the wallet has signed) --------------------------------------
     registerEvidence: async ({ caseRef, sha256, cid, caseDigest }) => {
-      // Same refusal as the contract (and the test ledger) for a missing digest, without asking the wallet to sign first.
+      // Same refusal as the contract (and the demo) for a missing digest, without asking the wallet to sign first.
       if (!/^(0x)?[0-9a-fA-F]{64}$/.test(String(caseDigest ?? ""))) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT, "A case-details digest is required");
       return send("registerEvidence", [caseRef, hexToBytes32(sha256), cid, hexToBytes32(caseDigest)]);
     },

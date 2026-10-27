@@ -1,4 +1,4 @@
-# Roadmap: to a production evidence system
+# Roadmap: from demo to a real evidence system
 
 Status: **proposal for the owner to approve, amended 2026-10-26 after the on-chain RBAC build (decisions D5, D6 and D7 changed; D11 and D12 added; see section 6).** Companion to [`THREAT_MODEL.md`](THREAT_MODEL.md). Effort figures are rough ranges for one developer working with AI assistance, not commitments. Anything marked `DECISION:` needs an answer from the owner before the work that depends on it starts.
 
@@ -6,15 +6,15 @@ Status: **proposal for the owner to approve, amended 2026-10-26 after the on-cha
 
 | Area | State |
 | --- | --- |
-| UI | Case dashboard (cases, evidence with SHA-256 and CID, custody timeline), evidence upload, role management; responsive and accessible basics; web and contract test suites; CI (lint, tests, build, bundle secret scan, contract job). The development-only sample pages and sample data were removed on 2026-10-27. |
+| UI | Case dashboard (cases, evidence with SHA-256 and CID, custody timeline), evidence upload, role management; responsive and accessible basics; web and contract test suites; CI (lint, tests, build, bundle secret scan, contract job). Two sample-data pages remain in development builds only. |
 | Contract | `EvidenceLocker` (OpenZeppelin `AccessControlDefaultAdminRules`): roles Admin/Investigator/Auditor, append-only evidence and hash-chained custody, pause, admin recovery. Tested (including mutation-checked) on a local Hardhat chain. **Not deployed, not audited.** |
 | Identity and roles | Roles are on chain and read by the UI; the contract enforces them on every write. Signed wallet login (EIP-4361 nonce, httpOnly session cookie, in-memory store on the Vite server) gates `/api/pin` and every evidence action; a lock, disconnect or account switch ends the session. No shared session store and no role check on the server yet (Phase 1). |
 | Hashing | SHA-256 in the browser, whole file in memory, 10 MB cap. |
 | Upload | The browser hashes the original file, encrypts it (AES-256-GCM, per-file random key), escrows the key with the dev key store (`/api/keys`, wrapped by an env-var master key), then pins only the **encrypted copy** to public IPFS through `/api/pin`. Both endpoints need a wallet sign-in and exist only in the Vite dev/preview servers. No role check on key release yet. |
-| Data | The contract is the only ledger the app uses (development runs against a local Hardhat chain); an in-memory ledger exists for tests only. Case titles and descriptions come from the case store (`server/caseStore.js`, a JSON file on the dev server), anchored on chain by a salted digest; there is no database yet. |
-| Honesty labels | Persistent PRE-RELEASE banner ("not audited and not yet evidence-grade"); the UI says what a hash match does and does not prove. |
+| Data | The ledger (contract, or an in-memory demo ledger in development builds). Case titles and officers are still fictional sample data matched by `caseRef`; there is no database. |
+| Honesty labels | Persistent DEMO banner; the UI says what a hash match does and does not prove. |
 
-**Rule for the whole roadmap:** the PRE-RELEASE banner and the "this cannot confirm authenticity" wording stay until the exit criteria of Phase 5 are met. Never reintroduce "verified" as a conclusion before Phase 4 exits. (The UI uses "hash matched" and "hash mismatch", which describe a comparison, not authenticity.)
+**Rule for the whole roadmap:** the DEMO banner and the "this cannot confirm authenticity" wording stay until the exit criteria of Phase 5 are met. Never reintroduce "verified" as a conclusion before Phase 4 exits. (The UI uses "hash matched" and "hash mismatch", which describe a comparison, not authenticity.)
 
 **What changed on 2026-10-26.** The on-chain registry and role-based access control were built ahead of Phases 1 to 3, at the owner's request. The consequences are spelled out in the phases below and in decisions D5, D6, D7, D11 and D12. The most important one: **officer addresses and case activity are public on a public chain**, so production needs a permissioned or private network (D6); Sepolia is for development only.
 
@@ -79,7 +79,7 @@ Goal: evidence is hashed, protected and stored for real. Addresses T3, T4.
 - [ ] **Encryption before storage** (AES-256-GCM, per-file random key, wrapped by a KMS-held master key per D4; store a key-version field). Never pin plaintext evidence. **Partly done (2026-10-26, D4 amended):** encryption happens in the browser; the key is wrapped and stored by `server/keyStore.js` with a key-version field, and only ciphertext is pinned. Still open: move the master key into a KMS/HSM, release keys only to wallets whose on-chain role allows it, and keep the store in the API database.
 - [ ] Chunked/resumable upload to the API; the API encrypts, pins to the chosen store and returns the CID.
 - [ ] **The server checks the hash.** The SHA-256 the browser computes is only as trustworthy as that browser, and it is what the ledger will record. The API hashes the bytes it receives itself and refuses a submission whose claimed hash differs; only then does the browser register (hash, CID) on chain with the wallet.
-- [x] Replace `mockData.js` with real data for cases, evidence and custody events. **Done 2026-10-27:** evidence and custody come from the contract, case details from the case store; the old sample data lives on only as test fixtures (`src/test/fixtures/`).
+- [ ] Replace `mockData.js` with API data for cases, evidence and custody events. Keep the mock file only as test fixtures.
 - [ ] Evidence record stores: file hash (of the original bytes), ciphertext hash, CID, size, MIME type, submitter, server timestamp.
 - [ ] Download/decrypt path for authorized officers, logged in `audit_log`.
 
@@ -91,7 +91,7 @@ Goal: a record that cannot be silently edited. Addresses T3, T6, T7.
 
 **Amended 2026-10-26 (D5, D6, D12).** The per-evidence on-chain registry now exists (`contracts/contracts/EvidenceLocker.sol`), so this phase is no longer "design an anchor contract" but "deploy it, harden it and make it independently checkable". Items already done are ticked.
 
-- [x] **On-chain evidence registry with a hash-chained custody trail** per evidence item, written only by Investigators; the Chief manages roles, pauses, and can reassign stranded custody (logged). 47 contract tests, mutation-checked; the same scenarios also run against the in-memory test ledger.
+- [x] **On-chain evidence registry with a hash-chained custody trail** per evidence item, written only by Investigators; the Chief manages roles, pauses, and can reassign stranded custody (logged). 47 contract tests, mutation-checked; the same scenarios also run against the in-memory demo ledger.
 - [x] **Custody flow in the UI:** register, log access, record a hash re-check (match or mismatch decided on chain), transfer, reassign; each is a ledger event with wallet-approval and confirmation feedback.
 - [ ] **Database mirror and indexer:** read the contract's events into the database for fast queries and case metadata, and reconcile with the chain; alert on any mismatch. (Replaces the earlier "database hash-chained log": the chain is now the primary record.)
 - [ ] **Independent anchoring (D5 retained, re-scoped):** on a permissioned network the operator could in principle rewrite history, so periodically anchor a digest of the registry state (for example a Merkle root over all custody heads) on a public chain AND obtain an RFC 3161 timestamp for the same digest. Only digests leave the agency. `DECISION:` the exact digest and schedule.
@@ -108,7 +108,7 @@ Goal: a check that means something. Addresses T3, T7. Only now may the word "ver
 
 - [ ] Verify flow: recompute the file hash, look up the record, check the hash chain, check the anchor, and show each result separately (integrity, time, continuity, origin).
 - [ ] **Signed verification receipt** (JSON plus PDF) that a reviewer can re-check offline; the receipt hash is itself logged.
-- [ ] Server-generated custody report from real data; include the full chain and anchors. (The old sample-data jsPDF report was removed on 2026-10-27.)
+- [ ] Server-generated custody report from real data (replace the sample-data jsPDF report); include the full chain and anchors.
 - [ ] Independent verification path: a small open-source CLI/page that checks a file and receipt without the operator's UI.
 - [ ] Wording review: every success/failure message states exactly what was and was not proven (the "non-claims" from the threat model).
 
@@ -135,7 +135,7 @@ Exit: no open critical or high findings; restore drill passed; runbooks exist an
 - [ ] Privacy review: retention, deletion and erasure obligations versus an immutable log (store only hashes on chain; keep personal data off chain and deletable).
 - [ ] Pilot on staging with real users and non-sensitive data; collect usability findings.
 - [ ] Production deployment (mainnet or chosen network), fresh keys, production monitoring on.
-- [ ] Remove the PRE-RELEASE banner and pre-release wording only now; publish the "what this system does and does not prove" page.
+- [ ] Remove the DEMO banner and demo wording only now; publish the "what this system does and does not prove" page.
 
 Exit: signed-off review from both external reviewers; pilot complete; go/no-go decision recorded.
 
@@ -158,8 +158,8 @@ Recurring: key rotation, dependency updates, anchor/ledger reconciliation report
 
 ## 4. Reuse from the current code
 
-- Keep: the contract and its tests, the ledger adapter (`src/web3/`: the ethers implementation, the shared scenario suite, role and error handling; the in-memory test ledger in `src/test/`), the role context and route guards, the dashboard, upload and role-management pages, the shared UI primitives, the accessibility work, the test suites and CI (including the bundle secret scan), the honest-labelling approach, `hash.js` (replaced internally by the streaming worker, same API).
-- Replace: `server/pinataProxy.js`, `server/keyStore.js` and `server/caseStore.js` (their guards move into the authenticated API, with a database), the unsalted `caseRef`. (`mockData.js`, the sample-data PDF generator and the two sample pages were removed on 2026-10-27.)
+- Keep: the contract and its tests, the ledger adapter (`src/web3/`: the real and demo implementations, the shared scenario suite, role and error handling), the role context and route guards, the dashboard, upload and role-management pages, the shared UI primitives, the accessibility work, the test suites and CI (including the bundle secret scan), the honest-labelling approach, `hash.js` (replaced internally by the streaming worker, same API).
+- Replace: `mockData.js` as the source of case titles and officers (becomes test fixtures once the API exists), `server/pinataProxy.js` (its guards move into the authenticated API), the sample-data PDF generator and the two sample pages (rebuilt on ledger data), the unsalted `caseRef`.
 - Add: the `api/` service (see the `phase1/01-api-scaffold` branch), `workers/hash.worker.js`, an event indexer, a CLI verifier, Playwright tests, deployment configuration, a multisig Chief.
 
 ## 5. Risks to watch
@@ -203,5 +203,5 @@ Recurring: key rotation, dependency updates, anchor/ledger reconciliation report
 4. Complete the threat model's trust-anchor table from those answers.
 5. Write the "definition of verified" page.
 6. Book the contract auditor and the forensics/legal reviewer.
-7. Deploy `EvidenceLocker` to Sepolia with a **throwaway** key, set `VITE_LOCKER_ADDRESS`, and walk the three roles through the app end to end (this has not been done yet; today it is tested only on a local Hardhat chain and the in-memory test ledger).
+7. Deploy `EvidenceLocker` to Sepolia with a **throwaway** key, set `VITE_LOCKER_ADDRESS`, and walk the three roles through the app end to end (this has not been done yet; today it is tested only on a local Hardhat chain and the in-memory demo).
 8. Open Phase 1 with specs for: API skeleton, database schema, SIWE login. First update spec 1.3 so the API reads roles from the contract (D11) instead of keeping its own allowlist. Build them in the loop above.

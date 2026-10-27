@@ -1,8 +1,10 @@
-// TEST FIXTURES. Every value in this file is made up: the case ids, wallet addresses, file hashes, IPFS CIDs,
-// transaction hashes and block numbers do not refer to real cases, evidence, people or blockchain records. Used only
-// by the in-memory ledger and the tests; nothing here is imported by the application.
+// ALL DATA IN THIS FILE IS FICTIONAL DEMO DATA.
+// The case IDs, wallet addresses, file hashes, IPFS CIDs, transaction hashes and
+// block numbers below are made up for demonstration only. They do not refer to
+// real cases, evidence, people or blockchain records, and none of it is
+// evidence-grade. Evidence hashes are intentionally fake 64-character hex strings.
 
-export const fixtureEvidence = [
+export const mockEvidence = [
   { id: "EVD-2025-001", caseId: "CASE-2025-0042", fileName: "crime_scene_photo_01.jpg", fileType: "Digital Image", hash: "a3f5c2d1e8b7094f6a2c5d8e1f4b7c0a3f5c2d1e8b7094f6a2c5d8e1f4b7c0a0", cid: "QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco", submittedBy: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F", timestamp: "2025-06-01 09:23:11", status: "Verified" },
   { id: "EVD-2025-002", caseId: "CASE-2025-0042", fileName: "suspect_device_log.txt", fileType: "Device Log", hash: "b4e6d3f2a9c8175e7b3d6f9a2c5e8b1d4e6d3f2a9c8175e7b3d6f9a2c5e8b1d0", cid: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG", submittedBy: "0x8ba1f109551bD432803012645Ac136ddd64DBA72", timestamp: "2025-06-01 10:45:33", status: "Verified" },
   { id: "EVD-2025-003", caseId: "CASE-2025-0038", fileName: "financial_records.pdf", fileType: "Document", hash: "c5f7e4a3b0d9286f8c4e7a0b3d6f9c2e5f7e4a3b0d9286f8c4e7a0b3d6f9c2e0", cid: "QmZTR5amvZeo4oEnTiRrbqyYaFgkNpCM5bqAc85zzuNKJi", submittedBy: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F", timestamp: "2025-06-02 14:12:05", status: "Pending" },
@@ -14,14 +16,14 @@ export const fixtureEvidence = [
   { id: "EVD-2025-009", caseId: "CASE-2025-0051", fileName: "witness_statement_video.mp4", fileType: "Video", hash: "3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c00", cid: "bafybeihhbtbvzgddvgkpwvhhctqmaxfq2cjxzegx3rq2fwn32gvkhv4eea", submittedBy: "0x8ba1f109551bD432803012645Ac136ddd64DBA72", timestamp: "2025-06-06 09:30:44", status: "Verified" }
 ];
 
-export const fixtureCases = [
+export const mockCases = [
   { id: "CASE-2025-0042", title: "Cyber Fraud Investigation - Bank Heist", officer: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F", dateOpened: "2025-05-28", evidenceCount: 3, status: "Active" },
   { id: "CASE-2025-0038", title: "Corporate Data Breach - TechCorp Ltd", officer: "0x8ba1f109551bD432803012645Ac136ddd64DBA72", dateOpened: "2025-05-20", evidenceCount: 2, status: "Under Review" },
   { id: "CASE-2025-0051", title: "Organized Crime Network - Operation Ghost", officer: "0x9C7a34f0B6e1dF8a2C4d5E9f0B3a4C5d6E7f8A9b", dateOpened: "2025-06-01", evidenceCount: 3, status: "Active" },
   { id: "CASE-2025-0029", title: "Ransomware Attack - City Hospital", officer: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F", dateOpened: "2025-05-10", evidenceCount: 1, status: "Closed" }
 ];
 
-export const fixtureCustodyLog = [
+export const mockCustodyLog = [
   { id: "LOG-001", eventType: "Submit", cidHash: "QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco", actor: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F", timestamp: "2025-06-01 09:23:11", txHash: "0xabc123def456abc123def456abc123def456abc123def456abc123def456abc1", blockNumber: 7482910 },
   { id: "LOG-002", eventType: "Access", cidHash: "QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco", actor: "0x9C7a34f0B6e1dF8a2C4d5E9f0B3a4C5d6E7f8A9b", timestamp: "2025-06-01 11:10:05", txHash: "0xdef456abc123def456abc123def456abc123def456abc123def456abc123def4", blockNumber: 7483102 },
   { id: "LOG-003", eventType: "Verify", cidHash: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG", actor: "0x8ba1f109551bD432803012645Ac136ddd64DBA72", timestamp: "2025-06-02 14:12:05", txHash: "0x789012abc345def678901abc234def567890abc123def456abc789def012abc3", blockNumber: 7483250 },

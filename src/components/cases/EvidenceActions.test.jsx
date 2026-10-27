@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { WalletContext } from "../../context/walletContext.js";
 import { encryptEvidence, sha256Hex } from "../../crypto/evidenceCrypto.js";
-import { makeFile } from "../../test/ledgerHarness.jsx";
+import { makeFile } from "../../test/demoHarness.jsx";
 import { RoleTestProvider } from "../../test/RoleTestProvider.jsx";
 import EvidenceActions from "./EvidenceActions";
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { caseGenesis, computeLink } from "../web3/caseChain.js";
-import { createMemoryStore } from "../test/memoryLedger.js";
+import { createDemoStore } from "../web3/demoLedger.js";
 import { deriveCaseRef } from "../web3/format.js";
 import { walkCaseChain } from "./verifyCase.js";
 
@@ -80,8 +80,8 @@ describe("walkCaseChain", () => {
     expect(walkCaseChain(OTHER, relabelled).firstBad).toMatchObject({ index: 0, status: "link-mismatch" });
   });
 
-  it("agrees with the in-memory ledger's seeded cases", () => {
-    const store = createMemoryStore();
+  it("agrees with the demo ledger's seeded cases", () => {
+    const store = createDemoStore();
     const caseRefs = [...new Set(store.evidence.map((e) => e.caseRef))];
     for (const caseRef of caseRefs) {
       expect(walkCaseChain(caseRef, store.evidence.filter((e) => e.caseRef === caseRef)).ok).toBe(true);

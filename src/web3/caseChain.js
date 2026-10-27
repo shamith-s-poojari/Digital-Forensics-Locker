@@ -8,7 +8,7 @@ import { bytes32ToHex, hexToBytes32 } from "./format.js";
  *   h_i = SHA256(h_{i-1} || e_i || CID_i || W_i || T_i)   packed, no padding (abi.encodePacked)
  *
  * e_i is the evidence SHA-256, CID_i the content identifier, W_i the registering officer, T_i the block timestamp.
- * The in-memory test ledger (src/test/memoryLedger.js) uses this to stay identical to the contract; the verification engine uses it to recompute a
+ * The demo ledger uses this to stay identical to the contract; the verification engine uses it to recompute a
  * case independently of the contract's own `verifyCaseChain`.
  *
  * Hashes are 64 lowercase hex characters without "0x", like every other hash in the app's data shapes.
