@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { webcrypto } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { createDemoCaseStore } from "../cases/caseStores.js";
@@ -13,7 +13,6 @@ import { groupByCase } from "../web3/caseModel.js";
 import { createDemoLedger, createDemoStore } from "../web3/demoLedger.js";
 import { deriveCaseRef } from "../web3/format.js";
 import { downloadJson } from "../utils/download";
-import RolePreviewer from "../components/RolePreviewer";
 import CaseDashboard from "./CaseDashboard";
 
 vi.mock("../utils/download", () => ({
@@ -284,18 +283,13 @@ describe("CaseDashboard: what each role can do", () => {
     expect(screen.queryByRole("link", { name: /Register evidence/ })).toBeNull();
   });
 
-  it("updates the interface live when the role previewer changes the role (demo only)", async () => {
-    renderWithDemo(
-      <>
-        <RolePreviewer />
-        <CaseDashboard />
-      </>,
-      { store: seeded() }
-    );
+  it("updates the interface live when the wallet's role changes on the ledger", async () => {
+    const store = seeded();
+    renderWithDemo(<CaseDashboard />, { store });
     await loaded();
     expect(screen.getByRole("button", { name: "Log that I accessed this" })).toBeTruthy();
 
-    await userEvent.selectOptions(screen.getByLabelText(/view the app as/), "auditor");
+    act(() => store.setRole(ACCOUNT, "auditor"));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Log that I accessed this" })).toBeNull());
     expect(screen.getByLabelText("Check a file against the ledger")).toBeTruthy();
   });

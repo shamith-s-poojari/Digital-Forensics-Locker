@@ -42,7 +42,7 @@ export default function DashboardHeader({ summary, paused, onRefresh, refreshing
 
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={mode === "chain" ? "success" : "warning"} icon={mode === "chain" ? Activity : FlaskConical}>
-            {mode === "chain" ? config.chainName : "Demo ledger"}
+            {mode === "chain" ? config.chainName : "In-browser ledger"}
           </Badge>
           {config.address ? (
             <span className="inline-flex items-center gap-1">

@@ -229,6 +229,14 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
   }, [endSession, lookUpChain, signInAs, updateAccount]);
 
   const disconnect = useCallback(() => {
+    // Also withdraw this site's account permission (MetaMask supports this; other wallets may not), so the next
+    // connect shows the wallet's account picker again instead of silently reusing the account.
+    const provider = getEthereumProvider();
+    if (provider) {
+      Promise.resolve()
+        .then(() => provider.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }))
+        .catch(() => {});
+    }
     endSession();
     updateAccount(null);
     setChainId(null);
@@ -298,26 +306,33 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
   const clearError = useCallback(() => setError(null), []);
   const clearNotice = useCallback(() => setNotice(null), []);
 
-  // On load, resume a session that is still valid on the server, but only if the wallet (asked silently, without a
-  // prompt) still has that same account selected. A leftover session for any other account is ended.
+  // Every page load starts signed out: a session left on the server by a previous load (a refresh, or a browser that
+  // was closed) is ended, never resumed, so the user connects, signs and has their role read again.
   useEffect(() => {
-    const provider = getEthereumProvider();
-    if (!provider) return undefined;
     let cancelled = false;
-    Promise.all([authClient.getSession().catch(() => null), readSelectedAccount(provider)]).then(([server, selected]) => {
-      if (cancelled || !server || accountRef.current) return;
-      if (selected && sameAddress(selected, server.address) && server.expiresAt > Date.now()) {
-        updateAccount(selected);
-        updateSession(server);
-        lookUpChain(provider);
-      } else {
-        authClient.logout().catch(() => {});
-      }
-    });
+    authClient
+      .getSession()
+      .catch(() => null)
+      .then((server) => {
+        if (!cancelled && server && !sessionRef.current) authClient.logout().catch(() => {});
+      });
     return () => {
       cancelled = true;
     };
-  }, [authClient, lookUpChain, updateAccount, updateSession]);
+  }, [authClient]);
+
+  // Leaving the page (refresh, close, navigating away) ends the session at once. `keepalive` lets the request outlive
+  // the page. Clearing local state as well means a page restored from the back/forward cache is signed out too.
+  useEffect(() => {
+    const onPageHide = () => {
+      if (sessionRef.current) authClient.logout({ keepalive: true }).catch(() => {});
+      updateSession(null);
+      updateAccount(null);
+      setChainId(null);
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, [authClient, updateAccount, updateSession]);
 
   // While connected, follow what the wallet does: account switches, locks (an empty account list) and provider
   // disconnects. Returning to the tab re-reads the accounts, for wallets that do not emit events while hidden.

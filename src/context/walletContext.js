@@ -10,7 +10,8 @@ import { createContext, useContext } from "react";
  *   chainId: number | null      Chain the wallet is on (null until known, or when disconnected).
  *   switchChain: (id) => Promise<boolean>  Asks the wallet to switch network; sets `error` on failure.
  *   connect: () => Promise<void> Requests account access; never throws, sets `error` on failure.
- *   disconnect: () => void      Clears the local session (the wallet itself is not revoked).
+ *   disconnect: () => void      Ends the session here and on the server, and asks the wallet to drop this site's
+ *                               account permission (best effort), so the next connect starts from scratch.
  *   error: string | null        Human-readable message for the last failed connect attempt.
  *   isConnecting: boolean       True while a connection request is pending.
  *   clearError: () => void      Dismisses `error`.

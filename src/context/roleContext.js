@@ -11,7 +11,7 @@ import { createContext, useContext } from "react";
  *   error    message when status is "error"
  *   refresh  re-reads the roles from the ledger
  *   switchNetwork  asks the wallet to move to the contract's network
- *   isDemo / setPreviewRole  demo mode only: pretend the connected wallet holds a role
+ *   isDemo   true when running on the in-memory demo ledger (development and tests only)
  *
  * This is for what the UI SHOWS. The contract and the API enforce access; see roles.js.
  */

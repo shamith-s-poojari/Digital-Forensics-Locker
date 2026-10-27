@@ -64,10 +64,10 @@ describe("Sidebar by role", () => {
 
   it("shows the sample-data pages only in demo mode", () => {
     renderSidebar({}, "/cases", { roles: { isInvestigator: true }, isDemo: true });
-    expect(names()).toContain("Evidence Viewer (sample)");
+    expect(names()).toContain("Evidence Viewer");
     cleanup();
     renderSidebar({}, "/cases", { roles: { isInvestigator: true }, isDemo: false });
-    expect(names()).not.toContain("Evidence Viewer (sample)");
+    expect(names()).not.toContain("Evidence Viewer");
   });
 });
 
@@ -78,14 +78,14 @@ describe("Sidebar", () => {
     const names = within(nav)
       .getAllByRole("link")
       .map((a) => a.textContent);
-    expect(names).toEqual(["Case Management", "Evidence Upload", "Evidence Viewer (sample)", "Chain of Custody (sample)"]);
+    expect(names).toEqual(["Case Management", "Evidence Upload", "Evidence Viewer", "Chain of Custody"]);
   });
 
   it("marks only the current page with aria-current", () => {
     renderSidebar({}, "/custody");
     const current = screen.getAllByRole("link").filter((a) => a.getAttribute("aria-current") === "page");
-    expect(current.map((a) => a.textContent)).toEqual(["Chain of Custody (sample)"]);
-    expect(screen.getByRole("link", { name: "Chain of Custody (sample)" }).style.fontWeight).toBe("700");
+    expect(current.map((a) => a.textContent)).toEqual(["Chain of Custody"]);
+    expect(screen.getByRole("link", { name: "Chain of Custody" }).style.fontWeight).toBe("700");
     expect(screen.getByRole("link", { name: "Case Management" }).style.fontWeight).toBe("500");
   });
 
@@ -111,7 +111,7 @@ describe("Sidebar", () => {
   it("highlights a hovered link without losing the active link's styling", () => {
     renderSidebar({}, "/cases");
     const active = screen.getByRole("link", { name: "Case Management" });
-    const other = screen.getByRole("link", { name: "Evidence Viewer (sample)" });
+    const other = screen.getByRole("link", { name: "Evidence Viewer" });
     const activeBackground = active.style.background;
 
     fireEvent.mouseEnter(other);
@@ -130,7 +130,8 @@ describe("Sidebar", () => {
     const { container } = renderSidebar();
     expect(container.innerHTML).not.toContain("#484f58");
     expect(container.textContent).not.toMatch(/[ƒö≡]/);
-    expect(screen.getByText("v1.0 · Demo build")).toBeTruthy();
+    expect(screen.getByText("v1.0")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/demo/i);
     expect(container.textContent).not.toMatch(/sepolia/i);
   });
 });

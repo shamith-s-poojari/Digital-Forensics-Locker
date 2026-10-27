@@ -282,25 +282,41 @@ describe("WalletProvider", () => {
       expect(auth.logout).toHaveBeenCalledTimes(1);
     });
 
-    it("resumes a still-valid server session on load when the wallet has the same account selected", async () => {
+    it("never resumes a session on load: a leftover server session is ended even for the same account", async () => {
       auth.session = { address: ADDRESS_A, chainId: 11155111, expiresAt: Date.now() + 60_000 };
       window.ethereum = createFakeEthereum();
-      renderProbe();
-
-      await waitFor(() => expect(text("signed-in")).toBe("true"));
-      expect(text("account")).toBe(ADDRESS_A);
-      expect(window.ethereum.signCount()).toBe(0);
-      expect(window.ethereum.request).not.toHaveBeenCalledWith({ method: "eth_requestAccounts" });
-    });
-
-    it("ends a leftover server session on load when the wallet now has another account selected", async () => {
-      auth.session = { address: ADDRESS_A, chainId: 11155111, expiresAt: Date.now() + 60_000 };
-      window.ethereum = createFakeEthereum({ selected: ADDRESS_B });
       renderProbe();
 
       await waitFor(() => expect(auth.logout).toHaveBeenCalled());
       expect(text("account")).toBe("none");
       expect(text("signed-in")).toBe("false");
+      expect(window.ethereum.request).not.toHaveBeenCalledWith({ method: "eth_requestAccounts" });
+    });
+
+    it("ends the session and forgets the account when the page is left (refresh or close)", async () => {
+      window.ethereum = createFakeEthereum();
+      const user = userEvent.setup();
+      renderProbe();
+      await user.click(screen.getByText("connect"));
+      await waitFor(() => expect(text("signed-in")).toBe("true"));
+
+      act(() => window.dispatchEvent(new Event("pagehide")));
+
+      expect(text("account")).toBe("none");
+      expect(text("signed-in")).toBe("false");
+      expect(auth.logout).toHaveBeenCalledWith({ keepalive: true });
+    });
+
+    it("asks the wallet to drop this site's account permission on disconnect", async () => {
+      window.ethereum = createFakeEthereum();
+      const user = userEvent.setup();
+      renderProbe();
+      await user.click(screen.getByText("connect"));
+      await user.click(screen.getByText("disconnect"));
+
+      await waitFor(() =>
+        expect(window.ethereum.request).toHaveBeenCalledWith({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] })
+      );
     });
 
     it("signs out when the session expires", async () => {

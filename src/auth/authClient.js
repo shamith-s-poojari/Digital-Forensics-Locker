@@ -43,7 +43,8 @@ export const authClient = {
     return status === 200 && typeof body?.address === "string" ? body : null;
   },
 
-  async logout() {
-    await call("/api/auth/logout", { method: "POST" });
+  /** @param {{ keepalive?: boolean }} [options] `keepalive` lets the request finish after the page has gone. */
+  async logout({ keepalive = false } = {}) {
+    await call("/api/auth/logout", { method: "POST", keepalive });
   },
 };

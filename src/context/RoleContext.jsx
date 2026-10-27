@@ -61,14 +61,6 @@ export function RoleProvider({ children }) {
 
   const switchNetwork = useCallback(() => switchChain(config.chainId), [switchChain, config.chainId]);
 
-  const setPreviewRole = useCallback(
-    (role) => {
-      ledger?.setPreviewRole?.(role);
-      void refresh();
-    },
-    [ledger, refresh]
-  );
-
   const value = useMemo(
     () => ({
       status,
@@ -81,9 +73,8 @@ export function RoleProvider({ children }) {
       switchNetwork,
       config,
       isDemo: mode === "demo",
-      setPreviewRole,
     }),
-    [status, mode, roles, can, result.error, refresh, switchNetwork, config, setPreviewRole]
+    [status, mode, roles, can, result.error, refresh, switchNetwork, config]
   );
 
   return <RoleContext.Provider value={value}>{children}</RoleContext.Provider>;

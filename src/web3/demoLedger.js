@@ -119,7 +119,7 @@ export function createDemoStore({ now = () => Math.floor(Date.now() / 1000), see
     changed() {
       for (const listener of store.listeners) listener();
     },
-    /** Replaces the roles of one address (used by the dev role previewer). There is one Chief at a time. */
+    /** Replaces the roles of one address (used by tests). There is one Chief at a time. */
     setRole(address, role) {
       if (role === "admin" && lower(store.admin) !== lower(address)) {
         const previous = store.roles.get(lower(store.admin));
@@ -319,11 +319,6 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
     subscribe(callback) {
       store.listeners.add(callback);
       return () => store.listeners.delete(callback);
-    },
-
-    /** Demo only: pretend the connected wallet holds this role ("none" | "auditor" | "investigator" | "admin"). */
-    setPreviewRole(role) {
-      if (account) store.setRole(account, role);
     },
   };
 }

@@ -51,6 +51,23 @@ describe("EvidenceLocker", () => {
       expect(await locker.rolesOf(alice.address)).to.deep.equal([false, true, true]);
     });
 
+    it("names the highest role an address holds, or None", async () => {
+      const { locker, chief, alice, carol, dave, INVESTIGATOR, AUDITOR } = await deploy();
+      expect(await locker.getUserRole(chief.address)).to.equal("Admin");
+      expect(await locker.getUserRole(alice.address)).to.equal("Investigator");
+      expect(await locker.getUserRole(carol.address)).to.equal("Auditor");
+      expect(await locker.getUserRole(dave.address)).to.equal("None");
+
+      await locker.connect(chief).grantRole(INVESTIGATOR, chief.address);
+      expect(await locker.getUserRole(chief.address)).to.equal("Admin"); // the highest role wins
+      await locker.connect(chief).grantRole(AUDITOR, alice.address);
+      expect(await locker.getUserRole(alice.address)).to.equal("Investigator");
+      await locker.connect(chief).revokeRole(INVESTIGATOR, alice.address);
+      expect(await locker.getUserRole(alice.address)).to.equal("Auditor");
+      await locker.connect(chief).revokeRole(AUDITOR, alice.address);
+      expect(await locker.getUserRole(alice.address)).to.equal("None");
+    });
+
     it("lists role members and keeps the list in step with grants, revokes and renounces", async () => {
       const { locker, chief, alice, bob, carol, dave, INVESTIGATOR, AUDITOR } = await deploy();
       expect(await locker.getRoleMembers(INVESTIGATOR)).to.have.members([alice.address, bob.address]);

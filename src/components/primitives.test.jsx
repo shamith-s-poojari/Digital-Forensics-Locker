@@ -2,24 +2,15 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import DemoBanner from "./DemoBanner";
 import Layout from "./Layout";
 import Pagination from "./Pagination";
 import StatusBadge from "./StatusBadge";
 import { WalletProvider } from "../context/WalletContext.jsx";
 import { useWallet } from "../context/walletContext.js";
+import { AuthProvider } from "../context/AuthContext.jsx";
+import { RoleTestProvider } from "../test/RoleTestProvider.jsx";
 
 const decodeEntities = (html) => html.replace(/&amp;/g, "&").replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
-
-describe("DemoBanner", () => {
-  it("renders the honesty message as a note", () => {
-    const html = renderToStaticMarkup(<DemoBanner />);
-    expect(html).toContain('role="note"');
-    expect(html.replace(/<[^>]+>/g, "")).toBe(
-      "DEMO — sample data only. Nothing is recorded on a blockchain and this is not evidence-grade."
-    );
-  });
-});
 
 describe("StatusBadge", () => {
   const cases = [
@@ -108,18 +99,17 @@ describe("Layout (no wallet connected)", () => {
     renderToStaticMarkup(
       <MemoryRouter>
         <WalletProvider>
-          <Layout>
-            <div>SECRET-PAGE-CONTENT</div>
-          </Layout>
+          <RoleTestProvider status="disconnected">
+            <AuthProvider>
+              <Layout>
+                <div>SECRET-PAGE-CONTENT</div>
+              </Layout>
+            </AuthProvider>
+          </RoleTestProvider>
         </WalletProvider>
       </MemoryRouter>
     )
   );
-
-  it("shows the demo banner on the restricted screen", () => {
-    expect(html).toContain('role="note"');
-    expect(html).toContain("sample data only");
-  });
 
   it("gates children behind the wallet", () => {
     expect(html).not.toContain("SECRET-PAGE-CONTENT");
@@ -127,7 +117,7 @@ describe("Layout (no wallet connected)", () => {
 
   it("does not claim secure verification and says a wallet is not authorization", () => {
     expect(html).not.toMatch(/secure chain-of-custody verification/i);
-    expect(html).toMatch(/demo/i);
+    expect(html).not.toMatch(/demo/i);
     expect(html).toMatch(/not authorization/i);
   });
 });

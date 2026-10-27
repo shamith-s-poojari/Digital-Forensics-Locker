@@ -128,7 +128,7 @@ export default function Sidebar({ onNavigate }) {
       </nav>
 
       <div style={bottomStyle}>
-        <div style={versionStyle}>v1.0 · Demo build</div>
+        <div style={versionStyle}>v1.0</div>
         <WalletConnect />
       </div>
     </div>

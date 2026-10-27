@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import Layout from "./Layout";
 import { WalletContext } from "../context/walletContext.js";
 import { RoleTestProvider } from "../test/RoleTestProvider.jsx";
+import { AuthProvider } from "../context/AuthContext.jsx";
 
 const ACCOUNT = "0x71C7656EC7ab88b098defB751B7401B5f6d8976F";
 const SUFFIX = "Digital Forensics Locker";
@@ -38,7 +39,7 @@ function installMatchMedia({ mobile = false, reducedMotion = false } = {}) {
   };
 }
 
-function renderLayout({ account = ACCOUNT, path = "/", wallet = {}, children = <p>PAGE-BODY</p> } = {}) {
+function renderLayout({ account = ACCOUNT, path = "/", wallet = {}, roles, roleStatus, children = <p>PAGE-BODY</p> } = {}) {
   const value = {
     account,
     connect: vi.fn(),
@@ -51,8 +52,10 @@ function renderLayout({ account = ACCOUNT, path = "/", wallet = {}, children = <
   const utils = render(
     <MemoryRouter initialEntries={[path]}>
       <WalletContext.Provider value={value}>
-        <RoleTestProvider isDemo>
-          <Layout>{children}</Layout>
+        <RoleTestProvider isDemo roles={roles} status={roleStatus ?? (account ? "ready" : "disconnected")}>
+          <AuthProvider>
+            <Layout>{children}</Layout>
+          </AuthProvider>
         </RoleTestProvider>
       </WalletContext.Provider>
     </MemoryRouter>
@@ -92,12 +95,12 @@ describe("Layout accessibility basics", () => {
     expect(document.activeElement).toBe(main);
   });
 
-  it("renders the page body inside a single <main> landmark and the banner", () => {
+  it("renders the page body inside a single <main> landmark, with the header and no demo banner", () => {
     renderLayout();
     expect(screen.getAllByRole("main")).toHaveLength(1);
     expect(screen.getByRole("main").textContent).toContain("PAGE-BODY");
     expect(screen.getByRole("banner")).toBeTruthy();
-    expect(screen.getByRole("note").textContent).toMatch(/sample data only/);
+    expect(screen.queryByText(/sample data only/)).toBeNull();
   });
 
   it("labels the toggle and wires aria-expanded / aria-controls to the sidebar", () => {
@@ -138,6 +141,52 @@ describe("Layout without a connected wallet", () => {
   it("sets a neutral document title", () => {
     renderLayout({ account: null });
     expect(document.title).toBe(`Connect wallet — ${SUFFIX}`);
+  });
+});
+
+describe("Layout role gate", () => {
+  beforeEach(() => {
+    installMatchMedia({ mobile: false });
+  });
+
+  it("shows the role read from the ledger as a badge next to the wallet address", () => {
+    renderLayout({ roles: { isInvestigator: true } });
+    const badge = screen.getByText("Investigator", { selector: "[data-role]" });
+    expect(badge.getAttribute("data-role")).toBe("investigator");
+    // The badge sits right before the wallet address button in the top bar.
+    expect(badge.nextElementSibling.getAttribute("aria-label")).toMatch(/Disconnect wallet 0x71C7/);
+    expect(screen.queryByLabelText(/view the app as/)).toBeNull();
+  });
+
+  it("shows the most privileged role when the wallet holds several", () => {
+    renderLayout({ roles: { isAdmin: true, isInvestigator: true } });
+    expect(screen.getByText("Admin (Chief)", { selector: "[data-role]" })).toBeTruthy();
+  });
+
+  it("denies an address with no role: no page, no sidebar, no badge, and a way to disconnect", () => {
+    const { wallet } = renderLayout({ roles: {} });
+
+    expect(screen.getByRole("heading", { level: 1, name: "Access Denied: Address not registered" })).toBeTruthy();
+    expect(screen.queryByText("PAGE-BODY")).toBeNull();
+    expect(getSidebar()).toBeNull();
+    expect(document.querySelector("[data-role]")).toBeNull();
+    expect(document.title).toBe(`Access denied — ${SUFFIX}`);
+
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    expect(wallet.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows nothing behind the gate while the role is still being read", () => {
+    renderLayout({ roleStatus: "loading" });
+    expect(screen.getByText(/Checking your role on the ledger/)).toBeTruthy();
+    expect(screen.queryByText("PAGE-BODY")).toBeNull();
+    expect(getSidebar()).toBeNull();
+  });
+
+  it("explains why when the role cannot be read (wrong network)", () => {
+    renderLayout({ roleStatus: "wrong-network" });
+    expect(screen.getByRole("heading", { name: "Switch to Sepolia" })).toBeTruthy();
+    expect(screen.queryByText("PAGE-BODY")).toBeNull();
   });
 });
 
@@ -295,7 +344,7 @@ describe("Layout on mobile (< 768px)", () => {
     renderLayout();
 
     await user.click(getToggle());
-    await user.click(screen.getByRole("link", { name: "Chain of Custody (sample)" }));
+    await user.click(screen.getByRole("link", { name: "Chain of Custody" }));
 
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(getToggle().getAttribute("aria-expanded")).toBe("false");

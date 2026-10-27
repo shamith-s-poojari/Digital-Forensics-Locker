@@ -12,9 +12,9 @@ Status: **proposal for the owner to approve, amended 2026-10-26 after the on-cha
 | Hashing | SHA-256 in the browser, whole file in memory, 10 MB cap. |
 | Upload | The browser hashes the original file, encrypts it (AES-256-GCM, per-file random key), escrows the key with the dev key store (`/api/keys`, wrapped by an env-var master key), then pins only the **encrypted copy** to public IPFS through `/api/pin`. Both endpoints need a wallet sign-in and exist only in the Vite dev/preview servers. No role check on key release yet. |
 | Data | The ledger (contract, or an in-memory demo ledger in development builds). Case titles and officers are still fictional sample data matched by `caseRef`; there is no database. |
-| Honesty labels | Persistent DEMO banner; the UI says what a hash match does and does not prove. |
+| Honesty labels | The UI says what a hash match does and does not prove; the wallet screen and the README say this is not evidence-grade. The DEMO banner was removed at the owner's request on 2026-10-27. |
 
-**Rule for the whole roadmap:** the DEMO banner and the "this cannot confirm authenticity" wording stay until the exit criteria of Phase 5 are met. Never reintroduce "verified" as a conclusion before Phase 4 exits. (The UI uses "hash matched" and "hash mismatch", which describe a comparison, not authenticity.)
+**Rule for the whole roadmap:** the "this cannot confirm authenticity" wording stays until the exit criteria of Phase 5 are met. (The DEMO banner was originally part of this rule; the owner removed it on 2026-10-27.) Never reintroduce "verified" as a conclusion before Phase 4 exits. (The UI uses "hash matched" and "hash mismatch", which describe a comparison, not authenticity.)
 
 **What changed on 2026-10-26.** The on-chain registry and role-based access control were built ahead of Phases 1 to 3, at the owner's request. The consequences are spelled out in the phases below and in decisions D5, D6, D7, D11 and D12. The most important one: **officer addresses and case activity are public on a public chain**, so production needs a permissioned or private network (D6); Sepolia is for development only.
 
@@ -135,7 +135,7 @@ Exit: no open critical or high findings; restore drill passed; runbooks exist an
 - [ ] Privacy review: retention, deletion and erasure obligations versus an immutable log (store only hashes on chain; keep personal data off chain and deletable).
 - [ ] Pilot on staging with real users and non-sensitive data; collect usability findings.
 - [ ] Production deployment (mainnet or chosen network), fresh keys, production monitoring on.
-- [ ] Remove the DEMO banner and demo wording only now; publish the "what this system does and does not prove" page.
+- [ ] Remove the remaining demo wording only now; publish the "what this system does and does not prove" page.
 
 Exit: signed-off review from both external reviewers; pilot complete; go/no-go decision recorded.
 

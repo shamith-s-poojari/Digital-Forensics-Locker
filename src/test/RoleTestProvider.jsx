@@ -22,7 +22,6 @@ export function RoleTestProvider({ roles = { isInvestigator: true }, status = "r
     switchNetwork: async () => true,
     config: { address: null, chainId: 11155111, chainName: "Sepolia", explorerUrl: "", configured: false, deployBlock: 0, invalidAddress: false },
     isDemo,
-    setPreviewRole: () => {},
     ...overrides,
   };
   return <RoleContext.Provider value={value}>{children}</RoleContext.Provider>;

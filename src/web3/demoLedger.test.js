@@ -51,15 +51,15 @@ describe("demo ledger: demo-specific behaviour", () => {
     expect(list.some((ev) => ev.custody.some((c) => c.action === "VerifiedMismatch"))).toBe(true);
   });
 
-  it("gives an account no powers until a preview role is set", async () => {
+  it("gives an account no powers until a role is set", async () => {
     const store = createDemoStore({ seed: false });
     const me = getAddress("0x00000000000000000000000000000000000e0006");
     const ledger = createDemoLedger({ store, account: me, signDelayMs: 0, confirmDelayMs: 0 });
     expect(await ledger.getRoles(me)).toEqual({ isAdmin: false, isInvestigator: false, isAuditor: false });
 
-    ledger.setPreviewRole("investigator");
+    store.setRole(me, "investigator");
     expect((await ledger.getRoles(me)).isInvestigator).toBe(true);
-    ledger.setPreviewRole("admin");
+    store.setRole(me, "admin");
     expect(await ledger.getRoles(me)).toEqual({ isAdmin: true, isInvestigator: false, isAuditor: false });
   });
 

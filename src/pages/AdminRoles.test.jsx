@@ -19,7 +19,7 @@ describe("AdminRoles", () => {
     renderWithDemo(<AdminRoles />, { store, role: "admin" });
     await loaded();
 
-    // Previewing as Admin makes the connected wallet the Chief.
+    // Giving the connected wallet the admin role makes it the Chief.
     expect(within(section("Chief")).getByText("you")).toBeTruthy();
     expect(screen.getByRole("heading", { name: /^Investigators \(\d+\)$/ })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Auditors (1)" })).toBeTruthy();

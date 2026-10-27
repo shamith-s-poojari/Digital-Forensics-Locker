@@ -427,6 +427,18 @@ contract EvidenceLocker is AccessControlDefaultAdminRules, Pausable {
         return (hasRole(DEFAULT_ADMIN_ROLE, account), hasRole(INVESTIGATOR_ROLE, account), hasRole(AUDITOR_ROLE, account));
     }
 
+    /**
+     * @notice The single most privileged role an address holds: "Admin", "Investigator", "Auditor" or "None".
+     * @dev For display and simple gating only. An address can hold several roles (an admin who is also an
+     *      investigator), so access decisions should use `rolesOf` or `hasRole`.
+     */
+    function getUserRole(address user) external view returns (string memory) {
+        if (hasRole(DEFAULT_ADMIN_ROLE, user)) return "Admin";
+        if (hasRole(INVESTIGATOR_ROLE, user)) return "Investigator";
+        if (hasRole(AUDITOR_ROLE, user)) return "Auditor";
+        return "None";
+    }
+
     // ---------------------------------------------------------------------------------------------------------
     // Internals
     // ---------------------------------------------------------------------------------------------------------

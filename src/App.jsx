@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Routes, Route, Link } from "react-router-dom";
 import { WalletProvider } from "./context/WalletContext.jsx";
 import { RoleProvider } from "./context/RoleContext.jsx";
 import { useRole } from "./context/roleContext.js";
+import { AuthProvider } from "./context/AuthContext.jsx";
 import { LedgerProvider } from "./web3/LedgerProvider.jsx";
 import { CaseDirectoryProvider } from "./cases/CaseDirectoryProvider.jsx";
 import { ROUTE_CAPABILITY } from "./web3/roles.js";
@@ -54,11 +55,13 @@ export default function App() {
       <LedgerProvider>
         <CaseDirectoryProvider>
           <RoleProvider>
-            <BrowserRouter>
-              <Layout>
-                <AppRoutes />
-              </Layout>
-            </BrowserRouter>
+            <AuthProvider>
+              <BrowserRouter>
+                <Layout>
+                  <AppRoutes />
+                </Layout>
+              </BrowserRouter>
+            </AuthProvider>
           </RoleProvider>
         </CaseDirectoryProvider>
       </LedgerProvider>

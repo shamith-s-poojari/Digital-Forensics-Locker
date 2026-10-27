@@ -7,8 +7,8 @@ const ALL_LINKS = [
   { to: "/cases", icon: FolderOpen, label: "Case Management" },
   { to: "/upload", icon: Upload, label: "Evidence Upload" },
   { to: "/admin", icon: ShieldCheck, label: "Role Management" },
-  { to: "/evidence", icon: Search, label: "Evidence Viewer (sample)", demoOnly: true },
-  { to: "/custody", icon: GitBranch, label: "Chain of Custody (sample)", demoOnly: true },
+  { to: "/evidence", icon: Search, label: "Evidence Viewer", demoOnly: true },
+  { to: "/custody", icon: GitBranch, label: "Chain of Custody", demoOnly: true },
 ];
 
 /** The links the current wallet's role may use. Fails closed: nothing is listed until the role is known. */
