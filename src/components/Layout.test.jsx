@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Layout from "./Layout";
@@ -124,7 +124,7 @@ describe("Layout without a connected wallet", () => {
   it("shows the restricted screen, hides the page and offers a connect button", () => {
     const { wallet } = renderLayout({ account: null });
 
-    expect(screen.getByRole("heading", { level: 1, name: "Wallet Required" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Sign in to the evidence ledger" })).toBeTruthy();
     expect(screen.queryByText("PAGE-BODY")).toBeNull();
     expect(getSidebar()).toBeNull();
     expect(screen.queryByRole("button", { name: "Navigation menu" })).toBeNull();
@@ -132,7 +132,7 @@ describe("Layout without a connected wallet", () => {
     // The skip link still has a target.
     expect(getMain().id).toBe("main-content");
 
-    fireEvent.click(screen.getByRole("button", { name: /Connect Wallet to Proceed/ }));
+    fireEvent.click(within(getMain()).getByRole("button", { name: "Connect MetaMask" }));
     expect(wallet.connect).toHaveBeenCalledTimes(1);
   });
 

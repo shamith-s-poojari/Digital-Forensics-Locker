@@ -125,7 +125,8 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
 
   it("shows nothing but the connect screen until a wallet is connected", () => {
     render(<App />);
-    expect(screen.getByRole("heading", { name: /Wallet Required/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Sign in to the evidence ledger" })).toBeTruthy();
+    expect(screen.getByRole("list", { name: "How sign-in works" })).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Main" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Case Management" })).toBeNull();
   });
