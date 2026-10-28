@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Menu, X, Wallet, Lock } from "lucide-react";
+import { Menu, X, Wallet } from "lucide-react";
 import AccessDenied from "./AccessDenied";
+import Login from "./Login";
 import Sidebar from "./Sidebar";
 import Clock from "./Clock";
 import SessionBanner from "./SessionBanner";
@@ -21,7 +22,7 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const PAGE_TITLES = {
-  "/": "Case Management", // "/" redirects to /cases
+  "/": "Case Management", // "/" redirects to the role's landing page (landingRoute in roles.js)
   "/cases": "Case Management",
   "/upload": "Evidence Upload",
   "/admin": "Role Management",
@@ -79,7 +80,7 @@ const GATE_TITLES = {
 };
 
 export default function Layout({ children }) {
-  const { gate, account, role, roleLabel, connect, disconnect, error, isConnecting, notice } = useAuth();
+  const { gate, account, role, roleLabel, connect, disconnect, isConnecting } = useAuth();
   const isConnected = Boolean(account);
   // The app itself (sidebar, pages) is only rendered once the contract confirms this wallet holds a role.
   const isGranted = gate === "granted";
@@ -382,9 +383,9 @@ export default function Layout({ children }) {
     overflowX: "auto",
   };
 
-  // Shown instead of the app until a wallet is connected. It is an in-flow flex child (not an
-  // absolutely positioned overlay) so tall content on a short phone screen can't slide under the
-  // sticky header.
+  // Wraps the gate screens shown instead of the app (Login, AccessDenied, ...). It is an in-flow flex
+  // child (not an absolutely positioned overlay) so tall content on a short phone screen can't slide
+  // under the sticky header.
   const restrictedStyle = {
     flex: 1,
     background: "#0f172a",
@@ -393,38 +394,6 @@ export default function Layout({ children }) {
     alignItems: "center",
     justifyContent: "center",
     padding: `32px ${sidePadding}`,
-  };
-
-  const restrictedContentStyle = {
-    textAlign: "center",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "16px",
-  };
-
-  const restrictedTitleStyle = {
-    fontSize: "24px",
-    fontWeight: 700,
-    color: "#e2e8f0",
-  };
-
-  const restrictedMessageStyle = {
-    fontSize: "16px",
-    color: "#cbd5e1",
-    maxWidth: "500px",
-    lineHeight: "1.6",
-  };
-
-  const walletErrorStyle = {
-    maxWidth: "500px",
-    background: "rgba(239,68,68,0.1)",
-    border: "1px solid rgba(239,68,68,0.3)",
-    borderRadius: "6px",
-    padding: "10px 14px",
-    color: "#fca5a5",
-    fontSize: "14px",
-    lineHeight: 1.5,
   };
 
   const connectLabel = isConnecting ? "Connecting…" : null;
@@ -548,44 +517,7 @@ export default function Layout({ children }) {
 
         {!isConnected ? (
           <main id={MAIN_ID} ref={mainRef} tabIndex={-1} style={restrictedStyle}>
-            <div style={restrictedContentStyle}>
-              <Lock size={48} color="#60a5fa" strokeWidth={1.5} aria-hidden="true" />
-              <h1 style={restrictedTitleStyle}>Wallet Required</h1>
-              <p style={restrictedMessageStyle}>
-                Connect your MetaMask wallet to continue. Connecting a wallet is not authorization: what you may
-                see and do is decided by the roles your wallet holds on the ledger.
-              </p>
-              {notice && !error && (
-                <div role="status" style={walletErrorStyle}>
-                  {notice}
-                </div>
-              )}
-              {error && (
-                <div role="alert" style={walletErrorStyle}>
-                  {error}
-                </div>
-              )}
-              <button
-                type="button"
-                className="dfl-focusable"
-                onClick={connect}
-                disabled={isConnecting}
-                style={{
-                  ...connectWalletButtonStyle,
-                  padding: "12px 24px",
-                  fontSize: "14px",
-                  marginTop: "16px",
-                }}
-                onMouseEnter={(e) => {
-                  if (!isConnecting) e.currentTarget.style.background = "#1d4ed8";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#2563eb";
-                }}
-              >
-                <Wallet size={18} aria-hidden="true" /> {connectLabel ?? "Connect Wallet to Proceed"}
-              </button>
-            </div>
+            <Login />
           </main>
         ) : gate === "verifying" ? (
           <main id={MAIN_ID} ref={mainRef} tabIndex={-1} style={restrictedStyle}>

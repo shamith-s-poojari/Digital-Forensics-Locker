@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAPABILITIES, can, NO_ROLES, primaryRole, ROLE_LABELS, ROLES, ROUTE_CAPABILITY, rolesGranting, toRoleFlags } from "./roles.js";
+import { CAPABILITIES, can, landingRoute, NO_ROLES, primaryRole, ROLE_LABELS, ROLES, ROUTE_CAPABILITY, rolesGranting, toRoleFlags } from "./roles.js";
 
 const CHIEF = { isChief: true };
 const ADMIN = { isAdmin: true };
@@ -98,5 +98,20 @@ describe("ROUTE_CAPABILITY", () => {
     expect(ROUTE_CAPABILITY["/upload"]).toBe(CAPABILITIES.UPLOAD);
     expect(ROUTE_CAPABILITY["/admin"]).toBe(CAPABILITIES.MANAGE_ROLES);
     expect(ROUTE_CAPABILITY["/cases"]).toBe(CAPABILITIES.VIEW);
+  });
+});
+
+describe("landingRoute", () => {
+  it("starts the Chief and Admins on role management, everyone else on the case dashboard", () => {
+    expect(landingRoute(CHIEF)).toBe("/admin");
+    expect(landingRoute(ADMIN)).toBe("/admin");
+    expect(landingRoute(INVESTIGATOR)).toBe("/cases");
+    expect(landingRoute(AUDITOR)).toBe("/cases");
+    expect(landingRoute({ isChief: true, isInvestigator: true })).toBe("/admin");
+  });
+
+  it("has no landing page for a wallet without a role", () => {
+    expect(landingRoute(NO_ROLES)).toBeNull();
+    expect(landingRoute(undefined)).toBeNull();
   });
 });

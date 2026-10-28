@@ -8,7 +8,7 @@ import { AuthProvider } from "./context/AuthContext.jsx";
 import { LedgerProvider } from "./web3/LedgerProvider.jsx";
 import { CaseDirectoryProvider } from "./cases/CaseDirectoryProvider.jsx";
 import { AccessRequestProvider } from "./access/AccessRequestProvider.jsx";
-import { ROUTE_CAPABILITY } from "./web3/roles.js";
+import { landingRoute, ROUTE_CAPABILITY } from "./web3/roles.js";
 import Layout from "./components/Layout";
 import RequireCapability from "./components/RequireCapability";
 import AdminRoles from "./pages/AdminRoles";
@@ -35,10 +35,11 @@ const guarded = (path, page) => <RequireCapability capability={ROUTE_CAPABILITY[
  * (from Phase 1) the API re-checks roles, so removing a guard never grants access to anything.
  */
 function AppRoutes() {
-  const { isDemo } = useRole();
+  const { isDemo, roles } = useRole();
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/cases" replace />} />
+      {/* Layout only renders the routes once the gate is "granted", so `roles` here are the ones read from the contract. */}
+      <Route path="/" element={<Navigate to={landingRoute(roles) ?? "/cases"} replace />} />
       <Route path="/cases" element={guarded("/cases", <CaseDashboard />)} />
       <Route path="/upload" element={guarded("/upload", <EvidenceUpload />)} />
       <Route path="/admin" element={guarded("/admin", <AdminRoles />)} />

@@ -60,7 +60,13 @@ export const ROUTE_CAPABILITY = Object.freeze({
   "/custody": CAPABILITIES.VIEW,
 });
 
-export const NO_ROLES = Object.freeze({ isChief: false, isAdmin: false, isInvestigator: false, isAuditor: false });
+/**
+ * Where "/" sends a wallet once its role is read: the first page in this list its role can open. The Chief and Admins
+ * start on Role Management, where pending access requests wait; Investigators and Auditors on the case dashboard.
+ */
+const LANDING_ROUTES = Object.freeze(["/admin", "/cases"]);
+
+export const NO_ROLES =Object.freeze({ isChief: false, isAdmin: false, isInvestigator: false, isAuditor: false });
 
 /** Normalises whatever the ledger returned into four strict booleans. */
 export function toRoleFlags(value) {
@@ -88,6 +94,11 @@ export function can(flags, capability) {
   if (!required) return false;
   const f = toRoleFlags(flags);
   return required.some((flag) => f[flag]);
+}
+
+/** The page a wallet with these role flags lands on, or null if it may open none of them. */
+export function landingRoute(flags) {
+  return LANDING_ROUTES.find((path) => can(flags, ROUTE_CAPABILITY[path])) ?? null;
 }
 
 /** Roles (as labels) that would grant a capability, for "you need X" messages. */

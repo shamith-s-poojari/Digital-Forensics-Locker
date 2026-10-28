@@ -137,6 +137,23 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
     expect(window.location.pathname).toBe("/cases");
   });
 
+  it("sends the Chief from / to role management once connected", async () => {
+    installWallet(CHIEF);
+    render(<App />);
+    await connect();
+    expect(await screen.findByRole("heading", { name: "Role Management" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/admin");
+  });
+
+  it("keeps a deep link instead of redirecting to the landing page", async () => {
+    installWallet(CHIEF);
+    goTo("/cases");
+    render(<App />);
+    await connect();
+    expect(await screen.findByRole("heading", { name: "Case Management" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/cases");
+  });
+
   it("gives an Investigator the upload page and its link", async () => {
     render(<App />);
     await connect();
