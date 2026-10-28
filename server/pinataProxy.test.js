@@ -56,6 +56,15 @@ describe("handlePinRequest", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("refuses callers the authorize check rejects (no wallet sign-in) without contacting Pinata", async () => {
+    const fetchImpl = vi.fn();
+    const res = makeRes();
+    await handlePinRequest(makeReq(), res, { jwt: SECRET, fetchImpl, authorize: () => false });
+    expect(res.statusCode).toBe(401);
+    expect(json(res).error).toMatch(/Sign in with your wallet/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("rejects a foreign Origin", async () => {
     const fetchImpl = vi.fn();
     const res = makeRes();

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Menu, X, Wallet, Lock } from "lucide-react";
+import { Menu, X, Wallet } from "lucide-react";
+import AccessDenied from "./AccessDenied";
+import Login from "./Login";
 import Sidebar from "./Sidebar";
-import DemoBanner from "./DemoBanner";
 import Clock from "./Clock";
+import SessionBanner from "./SessionBanner";
+import { AccessState } from "./RequireCapability";
+import { Spinner } from "./ui";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
-import { useWallet } from "../context/walletContext.js";
+import { useAuth } from "../context/authContext.js";
 
 const APP_NAME = "Digital Forensics Locker";
 const SIDEBAR_ID = "app-sidebar";
@@ -18,16 +22,16 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const PAGE_TITLES = {
-  "/": "Dashboard",
+  "/": "Case Management", // "/" redirects to the role's landing page (landingRoute in roles.js)
+  "/cases": "Case Management",
   "/upload": "Evidence Upload",
+  "/admin": "Role Management",
   "/evidence": "Evidence Viewer",
   "/custody": "Chain of Custody",
-  "/cases": "Case Management",
 };
 
 /**
- * Human-readable title for a route. Unknown paths get "Not found" (the router has no catch-all
- * route yet, so those paths render an empty content area; App.jsx can add a 404 page later).
+ * Human-readable title for a route. Unknown paths get "Not found" (App.jsx renders a 404 page for them).
  */
 function getPageTitle(pathname) {
   const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, "") || "/" : pathname;
@@ -67,9 +71,19 @@ const SHELL_CSS = `
 }
 `;
 
+/** Browser tab title while the gate is closed. */
+const GATE_TITLES = {
+  "signed-out": "Connect wallet",
+  verifying: "Verifying role",
+  denied: "Access denied",
+  unavailable: "Access unavailable",
+};
+
 export default function Layout({ children }) {
-  const { account, connect, disconnect, error, isConnecting } = useWallet();
+  const { gate, account, role, roleLabel, connect, disconnect, isConnecting } = useAuth();
   const isConnected = Boolean(account);
+  // The app itself (sidebar, pages) is only rendered once the contract confirms this wallet holds a role.
+  const isGranted = gate === "granted";
   const location = useLocation();
 
   const isMobile = useMediaQuery(MOBILE_QUERY);
@@ -83,16 +97,16 @@ export default function Layout({ children }) {
   // Close the drawer when the viewport crosses the breakpoint or the wallet disconnects, so a
   // stale "open" flag can't pop it open later. (Adjusting state during render is the pattern
   // React recommends over an effect for this.)
-  const resetKey = `${isMobile}:${isConnected}`;
+  const resetKey = `${isMobile}:${isGranted}`;
   const [previousResetKey, setPreviousResetKey] = useState(resetKey);
   if (previousResetKey !== resetKey) {
     setPreviousResetKey(resetKey);
     setDrawerOpen(false);
   }
 
-  const drawerVisible = isConnected && isMobile && drawerOpen;
+  const drawerVisible = isGranted && isMobile && drawerOpen;
   const sidebarExpanded = isMobile ? drawerOpen : desktopSidebarOpen;
-  const sidebarPushesContent = isConnected && !isMobile && desktopSidebarOpen;
+  const sidebarPushesContent = isGranted && !isMobile && desktopSidebarOpen;
 
   const toggleRef = useRef(null);
   const drawerRef = useRef(null);
@@ -115,7 +129,7 @@ export default function Layout({ children }) {
   };
 
   // Browser tab title: "<Page> — Digital Forensics Locker".
-  const pageTitle = isConnected ? getPageTitle(location.pathname) : "Connect wallet";
+  const pageTitle = isGranted ? getPageTitle(location.pathname) : GATE_TITLES[gate];
   useEffect(() => {
     const previousTitle = document.title;
     document.title = `${pageTitle} — ${APP_NAME}`;
@@ -257,7 +271,7 @@ export default function Layout({ children }) {
     flexDirection: "column",
   };
 
-  // The demo banner and the top bar stick together as one block, so the top bar never
+  // The top bar and the session banner stick together as one block, so the top bar never
   // overlaps the banner even if the banner wraps onto several lines on narrow screens.
   const stickyHeaderStyle = {
     position: "sticky",
@@ -347,6 +361,20 @@ export default function Layout({ children }) {
     whiteSpace: "nowrap",
   };
 
+  // Emerald on the #1e293b top bar, matching the connected-wallet button it sits next to.
+  const roleBadgeStyle = {
+    display: "flex",
+    alignItems: "center",
+    background: "rgba(16,185,129,0.15)",
+    border: "1px solid rgba(16,185,129,0.4)",
+    color: "#34d399",
+    padding: "4px 10px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+  };
+
   const contentAreaStyle = {
     flex: 1,
     padding: sidePadding,
@@ -355,9 +383,9 @@ export default function Layout({ children }) {
     overflowX: "auto",
   };
 
-  // Shown instead of the app until a wallet is connected. It is an in-flow flex child (not an
-  // absolutely positioned overlay) so tall content on a short phone screen can't slide under the
-  // sticky header.
+  // Wraps the gate screens shown instead of the app (Login, AccessDenied, ...). It is an in-flow flex
+  // child (not an absolutely positioned overlay) so tall content on a short phone screen can't slide
+  // under the sticky header.
   const restrictedStyle = {
     flex: 1,
     background: "#0f172a",
@@ -366,38 +394,6 @@ export default function Layout({ children }) {
     alignItems: "center",
     justifyContent: "center",
     padding: `32px ${sidePadding}`,
-  };
-
-  const restrictedContentStyle = {
-    textAlign: "center",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "16px",
-  };
-
-  const restrictedTitleStyle = {
-    fontSize: "24px",
-    fontWeight: 700,
-    color: "#e2e8f0",
-  };
-
-  const restrictedMessageStyle = {
-    fontSize: "16px",
-    color: "#cbd5e1",
-    maxWidth: "500px",
-    lineHeight: "1.6",
-  };
-
-  const walletErrorStyle = {
-    maxWidth: "500px",
-    background: "rgba(239,68,68,0.1)",
-    border: "1px solid rgba(239,68,68,0.3)",
-    borderRadius: "6px",
-    padding: "10px 14px",
-    color: "#fca5a5",
-    fontSize: "14px",
-    lineHeight: 1.5,
   };
 
   const connectLabel = isConnecting ? "Connecting…" : null;
@@ -410,7 +406,7 @@ export default function Layout({ children }) {
         Skip to main content
       </a>
 
-      {isConnected && (
+      {isGranted && (
         <>
           {drawerVisible && <div aria-hidden="true" style={backdropStyle} onClick={() => closeDrawer("toggle")} />}
           <div
@@ -443,9 +439,8 @@ export default function Layout({ children }) {
 
       <div style={mainContainerStyle} inert={drawerVisible}>
         <header style={stickyHeaderStyle}>
-          <DemoBanner />
           <div style={topBarStyle}>
-            {isConnected && (
+            {isGranted && (
               <button
                 ref={toggleRef}
                 type="button"
@@ -462,9 +457,15 @@ export default function Layout({ children }) {
                 {sidebarExpanded ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
               </button>
             )}
-            <div style={titleStyle}>{isConnected ? pageTitle : isMobile ? "Forensics Locker" : APP_NAME}</div>
+            <div style={titleStyle}>{isGranted ? pageTitle : isMobile ? "Forensics Locker" : APP_NAME}</div>
             <div style={rightSectionStyle}>
-              {isConnected && !isMobile && <Clock />}
+              {isGranted && !isMobile && <Clock />}
+              {isGranted && (
+                <span style={roleBadgeStyle} data-role={role} title="Your role, read from the evidence contract">
+                  <span className="sr-only">Role: </span>
+                  {roleLabel}
+                </span>
+              )}
               {isConnected ? (
                 <button
                   type="button"
@@ -511,44 +512,24 @@ export default function Layout({ children }) {
               )}
             </div>
           </div>
+          {isGranted ? <SessionBanner /> : null}
         </header>
 
         {!isConnected ? (
           <main id={MAIN_ID} ref={mainRef} tabIndex={-1} style={restrictedStyle}>
-            <div style={restrictedContentStyle}>
-              <Lock size={48} color="#60a5fa" strokeWidth={1.5} aria-hidden="true" />
-              <h1 style={restrictedTitleStyle}>Wallet Required</h1>
-              <p style={restrictedMessageStyle}>
-                This is a demo with fictional sample data. Connect a MetaMask wallet to open the demo interface.
-                Connecting a wallet is not authorization: no officer identity, role or permission is checked, and
-                nothing you do here is recorded on a blockchain.
-              </p>
-              {error && (
-                <div role="alert" style={walletErrorStyle}>
-                  {error}
-                </div>
-              )}
-              <button
-                type="button"
-                className="dfl-focusable"
-                onClick={connect}
-                disabled={isConnecting}
-                style={{
-                  ...connectWalletButtonStyle,
-                  padding: "12px 24px",
-                  fontSize: "14px",
-                  marginTop: "16px",
-                }}
-                onMouseEnter={(e) => {
-                  if (!isConnecting) e.currentTarget.style.background = "#1d4ed8";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#2563eb";
-                }}
-              >
-                <Wallet size={18} aria-hidden="true" /> {connectLabel ?? "Connect Wallet to Proceed"}
-              </button>
-            </div>
+            <Login />
+          </main>
+        ) : gate === "verifying" ? (
+          <main id={MAIN_ID} ref={mainRef} tabIndex={-1} style={restrictedStyle}>
+            <Spinner label="Checking your role on the ledger…" />
+          </main>
+        ) : gate === "denied" ? (
+          <main id={MAIN_ID} ref={mainRef} tabIndex={-1} style={restrictedStyle}>
+            <AccessDenied />
+          </main>
+        ) : gate === "unavailable" ? (
+          <main id={MAIN_ID} ref={mainRef} tabIndex={-1} style={restrictedStyle}>
+            <AccessState />
           </main>
         ) : (
           <main id={MAIN_ID} ref={mainRef} tabIndex={-1} style={contentAreaStyle}>

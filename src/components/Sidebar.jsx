@@ -1,15 +1,9 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Upload, Search, GitBranch, FolderOpen, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import WalletConnect from "./WalletConnect";
-
-const LINKS = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/upload", icon: Upload, label: "Evidence Upload" },
-  { to: "/evidence", icon: Search, label: "Evidence Viewer" },
-  { to: "/custody", icon: GitBranch, label: "Chain of Custody" },
-  { to: "/cases", icon: FolderOpen, label: "Case Management" },
-];
+import { useNavLinks } from "./navLinks.js";
+import { useAccessRequests } from "../access/accessRequestContext.js";
 
 // Keyboard-only focus ring. #93c5fd on the #0f172a sidebar is about 9.9:1 (WCAG non-text
 // contrast needs 3:1). Styles are inline everywhere else, but pseudo-classes can't be inline,
@@ -30,6 +24,9 @@ const FOCUS_CSS = `
  */
 export default function Sidebar({ onNavigate }) {
   const [hoveredTo, setHoveredTo] = useState(null);
+  const links = useNavLinks();
+  // Only the Chief sees the Role Management link, so only the Chief sees how many requests are waiting.
+  const pendingRequests = useAccessRequests().pending.length;
 
   const sidebarStyle = {
     // Fills the wrapper Layout gives it (240px on desktop, a drawer on phones).
@@ -116,11 +113,10 @@ export default function Sidebar({ onNavigate }) {
       </div>
 
       <nav aria-label="Main" style={navStyle}>
-        {LINKS.map(({ to, icon: Icon, label }) => (
+        {links.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
-            end={to === "/"}
             className="dfl-nav-link"
             // NavLink sets aria-current="page" on the active link by itself.
             style={({ isActive }) => navLinkStyle(isActive, hoveredTo === to)}
@@ -130,12 +126,20 @@ export default function Sidebar({ onNavigate }) {
           >
             <Icon size={18} aria-hidden="true" focusable="false" />
             {label}
+            {to === "/admin" && pendingRequests > 0 ? (
+              <span
+                style={{ marginLeft: "auto", minWidth: "20px", padding: "0 6px", borderRadius: "999px", background: "#f59e0b", color: "#0f172a", fontSize: "11px", fontWeight: 700, textAlign: "center" }}
+              >
+                {pendingRequests}
+                <span className="sr-only"> pending access requests</span>
+              </span>
+            ) : null}
           </NavLink>
         ))}
       </nav>
 
       <div style={bottomStyle}>
-        <div style={versionStyle}>v1.0 · Demo build</div>
+        <div style={versionStyle}>v1.0</div>
         <WalletConnect />
       </div>
     </div>

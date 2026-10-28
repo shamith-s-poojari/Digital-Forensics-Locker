@@ -22,3 +22,26 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      # Fails if the built bundle contains anything secret-like (a VITE_ credential, a JWT, a private key).
+      - run: npm run check:bundle
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The contract tests also run the web app's ledger code, which needs the root dependencies.
+      - run: npm ci
+      - run: npm ci
+        working-directory: contracts
+      - run: npm test
+        working-directory: contracts
+      # The ABI the web app ships must be exactly what the contract compiles to.
+      - run: npm run abi
+        working-directory: contracts
+      - run: git diff --exit-code -- src/web3/EvidenceLocker.abi.json
