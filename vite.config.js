@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import basicSsl from '@vitejs/plugin-basic-ssl'
 import { handlePinRequest, resolvePinataJwt } from './server/pinataProxy.js'
 import { createSiweAuth } from './server/siweAuth.js'
 import { createKeyStore, parseMasterKey } from './server/keyStore.js'
@@ -83,8 +84,12 @@ function serverApi(env) {
 export default defineConfig(({ mode }) => {
   // '' prefix: load every variable for server-side use only (see serverApi above).
   const env = loadEnv(mode, process.cwd(), '')
+  // `npm run dev:lan`: serve to other machines on the local network. Browsers only provide crypto.subtle (evidence
+  // hashing and encryption) on HTTPS or localhost, so this mode also serves HTTPS with a self-signed certificate.
+  const lan = mode === 'lan'
   return {
-    plugins: [react(), serverApi(env)],
+    plugins: [react(), serverApi(env), ...(lan ? [basicSsl()] : [])],
+    server: lan ? { host: true } : undefined,
     // contracts/ is its own package with its own test runner (Hardhat); the web app's run must not pick it up.
     test: {
       exclude: ['**/node_modules/**', '**/dist/**', 'contracts/**'],
