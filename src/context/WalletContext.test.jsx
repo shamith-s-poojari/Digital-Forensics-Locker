@@ -176,6 +176,62 @@ describe("WalletProvider", () => {
       expect(screen.getByRole("alert").textContent).toMatch(/boom/);
     });
 
+    describe("when the wallet already has a connection request open (code -32002)", () => {
+      const pending = () => Promise.reject(Object.assign(new Error("Request already pending"), { code: -32002 }));
+
+      it("says where to answer it, then finishes connecting once it is approved", async () => {
+        window.ethereum = createFakeEthereum({ selected: null, overrides: { eth_requestAccounts: pending } });
+        const user = userEvent.setup();
+        renderProbe();
+
+        await user.click(screen.getByText("connect"));
+        expect((await screen.findByRole("alert")).textContent).toMatch(/MetaMask icon/);
+        expect(text("connecting")).toBe("true");
+        expect(text("account")).toBe("none");
+
+        // The user approves the earlier request in MetaMask.
+        window.ethereum.state.selected = ADDRESS_A;
+        act(() => window.ethereum.emit("accountsChanged", [ADDRESS_A]));
+
+        await waitFor(() => expect(text("signed-in")).toBe("true"));
+        expect(text("account")).toBe(ADDRESS_A);
+        expect(text("connecting")).toBe("false");
+        expect(screen.queryByRole("alert")).toBeNull();
+      });
+
+      it("also notices an approval the wallet did not announce with an event", async () => {
+        window.ethereum = createFakeEthereum({ selected: null, overrides: { eth_requestAccounts: pending } });
+        const user = userEvent.setup();
+        renderProbe();
+
+        await user.click(screen.getByText("connect"));
+        await screen.findByRole("alert");
+        window.ethereum.state.selected = ADDRESS_A;
+
+        await waitFor(() => expect(text("account")).toBe(ADDRESS_A), { timeout: 3000 });
+      });
+
+      it("gives up after a while, leaving the message and the Connect button usable again", async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+          window.ethereum = createFakeEthereum({ selected: null, overrides: { eth_requestAccounts: pending } });
+          const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+          renderProbe();
+
+          await user.click(screen.getByText("connect"));
+          await screen.findByRole("alert");
+          await act(async () => vi.advanceTimersByTimeAsync(121_000));
+
+          expect(text("connecting")).toBe("false");
+          expect(text("account")).toBe("none");
+          expect(screen.getByRole("alert").textContent).toMatch(/already open/);
+          expect(window.ethereum.listenerCount("accountsChanged")).toBe(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+
     it("reports isConnecting while the request is pending and ignores re-entrant clicks", async () => {
       let resolveRequest;
       const requestAccounts = vi.fn(() => new Promise((resolve) => (resolveRequest = resolve)));

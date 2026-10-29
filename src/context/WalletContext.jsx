@@ -23,7 +23,7 @@ function describeConnectError(err) {
     return "Connection request was rejected. Approve the request in your wallet to continue.";
   }
   if (err?.code === -32002) {
-    return "A connection request is already pending. Open your wallet to respond to it.";
+    return "A connection request is already open in your wallet. Click the MetaMask icon in the browser toolbar to approve it; this page continues by itself.";
   }
   return err?.message ? `Could not connect wallet: ${err.message}` : "Could not connect wallet. Please try again.";
 }
@@ -52,6 +52,37 @@ async function readSelectedAccount(provider) {
   } catch {
     return null;
   }
+}
+
+/** How long to wait for the user to answer a connection request the wallet already has open (error -32002). */
+const PENDING_REQUEST_WAIT_MS = 120_000;
+const PENDING_REQUEST_POLL_MS = 1_000;
+
+/**
+ * Waits for the wallet to grant this site an account, which is what approving an already-open connection request
+ * does. MetaMask does not reopen its popup for a second request, so the earlier one is the only way in. Listens for
+ * `accountsChanged` and also polls `eth_accounts`, for wallets that do not emit the event.
+ *
+ * @returns {Promise<string | null>} the approved account, or null if nothing was approved within `timeoutMs`
+ */
+function waitForApprovedAccount(provider, timeoutMs = PENDING_REQUEST_WAIT_MS) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (account) => {
+      if (done) return;
+      done = true;
+      clearInterval(poll);
+      clearTimeout(deadline);
+      provider.removeListener?.("accountsChanged", onAccounts);
+      resolve(account);
+    };
+    const onAccounts = (accounts) => {
+      if (Array.isArray(accounts) && typeof accounts[0] === "string" && accounts[0]) finish(accounts[0]);
+    };
+    provider.on?.("accountsChanged", onAccounts);
+    const poll = setInterval(() => void readSelectedAccount(provider).then((account) => account && finish(account)), PENDING_REQUEST_POLL_MS);
+    const deadline = setTimeout(() => finish(null), timeoutMs);
+  });
 }
 
 /**
@@ -205,7 +236,19 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
     setIsConnecting(true);
     let connected = null;
     try {
-      const accounts = await provider.request({ method: "eth_requestAccounts" });
+      let accounts;
+      try {
+        accounts = await provider.request({ method: "eth_requestAccounts" });
+      } catch (err) {
+        // The wallet already has a request open (an earlier click whose popup was closed or hidden). Say where to
+        // answer it and carry on once it is approved, instead of making the user find it and click Connect again.
+        if (err?.code !== -32002) throw err;
+        setError(describeConnectError(err));
+        const approved = await waitForApprovedAccount(provider);
+        if (!approved) throw err;
+        setError(null);
+        accounts = [approved];
+      }
       if (Array.isArray(accounts) && typeof accounts[0] === "string" && accounts[0]) {
         connected = accounts[0];
         if (!sameAddress(sessionRef.current?.address, connected)) endSession();
