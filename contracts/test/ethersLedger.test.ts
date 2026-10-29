@@ -18,9 +18,11 @@ async function makeContext() {
   const [chief, alice, bob, carol, dave] = await ethers.getSigners();
   const locker = await ethers.deployContract("EvidenceLocker", [3 * 24 * 60 * 60, chief.address]);
   const address = await locker.getAddress();
-  await locker.connect(chief).grantRole(await locker.INVESTIGATOR_ROLE(), alice.address);
-  await locker.connect(chief).grantRole(await locker.INVESTIGATOR_ROLE(), bob.address);
-  await locker.connect(chief).grantRole(await locker.AUDITOR_ROLE(), carol.address);
+  await locker.connect(chief).createBranch("Central Lab");
+  await locker.connect(chief).createBranch("North Branch");
+  await locker.connect(chief).grantBranchRole(await locker.INVESTIGATOR_ROLE(), alice.address, 1);
+  await locker.connect(chief).grantBranchRole(await locker.INVESTIGATOR_ROLE(), bob.address, 1);
+  await locker.connect(chief).grantBranchRole(await locker.AUDITOR_ROLE(), carol.address, 1);
 
   const signers = { chief, alice, bob, carol, dave } as const;
   type Name = keyof typeof signers;

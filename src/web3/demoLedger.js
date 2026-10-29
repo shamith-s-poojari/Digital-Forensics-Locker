@@ -16,6 +16,10 @@ import { CUSTODY_ACTIONS } from "./ethersLedger.js";
 
 export const DEMO_CHIEF = "0x00000000000000000000000000000000000d3a01";
 export const DEMO_AUDITOR = "0x00000000000000000000000000000000000a0d17";
+/** The demo's branches. Sample evidence, sample investigators and wallets named in VITE_DEMO_* belong to the first. */
+export const DEMO_BRANCHES = Object.freeze(["Central Lab", "North Branch"]);
+const DEFAULT_BRANCH = 1;
+const MAX_BRANCH_NAME_LENGTH = 64;
 
 const ZERO_HASH = `0x${"0".repeat(64)}`;
 const abi = AbiCoder.defaultAbiCoder();
@@ -95,12 +99,14 @@ function seedEvidence(store) {
       custodyHead: bytes32ToHex(recomputeHead(custody)),
       ...nextLink(store.evidence, caseRef, { sha256: m.hash, cid: m.cid, officer: submitter, timestamp: submittedAt }),
       caseDigest: SAMPLE_CASE_DIGESTS[caseRef],
+      branchId: DEFAULT_BRANCH,
       custody,
     });
-    store.roles.set(lower(submitter), flagsFor("investigator"));
+    store.caseBranch.set(caseRef, DEFAULT_BRANCH);
+    store.setRole(submitter, "investigator", DEFAULT_BRANCH);
   });
   // A dedicated sample auditor (a distinct address, so no submitter loses their investigator role).
-  store.roles.set(lower(DEMO_AUDITOR), flagsFor("auditor"));
+  store.setRole(DEMO_AUDITOR, "auditor", DEFAULT_BRANCH);
 }
 
 /**
@@ -117,6 +123,11 @@ export function createDemoStore({ now = () => Math.floor(Date.now() / 1000), see
     now,
     chief: DEMO_CHIEF,
     roles: new Map([[lower(DEMO_CHIEF), flagsFor("chief")]]),
+    /** lower address -> { role, branchId } for holders of a branch role (the contract's UserIdentity). */
+    identity: new Map(),
+    branches: DEMO_BRANCHES.map((name, i) => ({ id: i + 1, name })),
+    /** caseRef -> branchId, set by the case's first registration. */
+    caseBranch: new Map(),
     evidence: [],
     paused: false,
     block: 1000,
@@ -125,14 +136,16 @@ export function createDemoStore({ now = () => Math.floor(Date.now() / 1000), see
     changed() {
       for (const listener of store.listeners) listener();
     },
-    /** Replaces the roles of one address (used by tests). There is one Chief at a time. */
-    setRole(address, role) {
+    /** Replaces the roles of one address (used by tests). There is one Chief at a time; branch roles get a branch. */
+    setRole(address, role, branchId = DEFAULT_BRANCH) {
       if (role === "chief" && lower(store.chief) !== lower(address)) {
         const previous = store.roles.get(lower(store.chief));
         if (previous) store.roles.set(lower(store.chief), { ...previous, isChief: false });
         store.chief = address;
       }
       store.roles.set(lower(address), flagsFor(role));
+      if (role === "chief" || role === "none") store.identity.delete(lower(address));
+      else store.identity.set(lower(address), { role, branchId });
       store.changed();
     },
   };
@@ -143,13 +156,20 @@ export function createDemoStore({ now = () => Math.floor(Date.now() / 1000), see
     store.chief = roles.chief;
     store.roles.set(lower(roles.chief), flagsFor("chief"));
   }
-  // Additive, like grantRole: one address may hold several roles (for example the Chief who is also an investigator).
-  const grant = (address, flag) => store.roles.set(lower(address), { ...(store.roles.get(lower(address)) ?? flagsFor("none")), [flag]: true });
-  for (const address of roles?.admins ?? []) grant(address, "isAdmin");
-  for (const address of roles?.investigators ?? []) grant(address, "isInvestigator");
-  for (const address of roles?.auditors ?? []) grant(address, "isAuditor");
+  // Like grantBranchRole in the first branch: the Chief may also hold a branch role, but any address holds at most
+  // one (the first list it appears in wins).
+  const grant = (address, role) => {
+    if (store.identity.has(lower(address))) return;
+    store.roles.set(lower(address), { ...(store.roles.get(lower(address)) ?? flagsFor("none")), [ROLE_FLAG[role]]: true });
+    store.identity.set(lower(address), { role, branchId: DEFAULT_BRANCH });
+  };
+  for (const address of roles?.admins ?? []) grant(address, "admin");
+  for (const address of roles?.investigators ?? []) grant(address, "investigator");
+  for (const address of roles?.auditors ?? []) grant(address, "auditor");
   return store;
 }
+
+const ROLE_FLAG = { admin: "isAdmin", investigator: "isInvestigator", auditor: "isAuditor" };
 
 const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
 
@@ -166,12 +186,21 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
   const need = (...anyOf) => {
     if (!account || !anyOf.some((flag) => flags(account)[flag])) throw new LedgerError(LEDGER_ERROR.NOT_AUTHORIZED);
   };
-  const ROLE_FLAG = { admin: "isAdmin", investigator: "isInvestigator", auditor: "isAuditor" };
-  /** Same rule as the contract: only the Chief manages Admins; the Chief or an Admin manages the working roles. */
-  const needRoleManager = (role) => {
+  const identityOf = (address) => store.identity.get(lower(address)) ?? { role: null, branchId: 0 };
+  /**
+   * Same rule as the contract (_checkBranchAuthority): the Chief manages every branch role anywhere; a Branch Admin
+   * manages the working roles, and only in its own branch.
+   */
+  const needRoleManager = (role, branchId) => {
     if (!ROLE_FLAG[role]) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
+    if (account && flags(account).isChief) return;
     if (role === "admin") need("isChief");
-    else need("isChief", "isAdmin");
+    need("isAdmin");
+    if (identityOf(account).branchId !== branchId) throw new LedgerError(LEDGER_ERROR.NOT_AUTHORIZED);
+  };
+  /** The acting investigator must belong to the branch that owns the evidence. */
+  const needOwnBranch = (ev) => {
+    if (identityOf(account).branchId !== ev.branchId) throw new LedgerError(LEDGER_ERROR.NOT_AUTHORIZED);
   };
   const live = () => {
     if (store.paused) throw new LedgerError(LEDGER_ERROR.PAUSED);
@@ -209,8 +238,10 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
     };
   }
 
-  const requireInvestigator = (address) => {
-    if (!isAddress(address) || !flags(address).isInvestigator) throw new LedgerError(LEDGER_ERROR.INVALID_RECIPIENT);
+  const requireInvestigator = (address, branchId) => {
+    if (!isAddress(address) || !flags(address).isInvestigator || identityOf(address).branchId !== branchId) {
+      throw new LedgerError(LEDGER_ERROR.INVALID_RECIPIENT);
+    }
     return getAddress(address);
   };
 
@@ -218,6 +249,8 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
     kind: "demo",
 
     getRoles: async (address) => ({ ...flags(address) }),
+    getIdentity: async (address) => ({ ...identityOf(address) }),
+    listBranches: async () => store.branches.map((b) => ({ ...b })),
     listEvidence: async () => store.evidence.map(clone),
     getEvidence: async (id) => clone(find(id)),
     findEvidence: async (caseRef, sha256) =>
@@ -232,8 +265,9 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
       return {}; // the demo has no transactions to link to
     },
     listRoleMembers: async () => {
-      const members = { chief: getAddress(lower(store.chief)), admins: [], investigators: [], auditors: [] };
+      const members = { chief: getAddress(lower(store.chief)), admins: [], investigators: [], auditors: [], branchOf: {} };
       for (const [address, f] of store.roles) {
+        if (f.isAdmin || f.isInvestigator || f.isAuditor) members.branchOf[getAddress(address)] = identityOf(address).branchId;
         if (f.isAdmin) members.admins.push(getAddress(address));
         if (f.isInvestigator) members.investigators.push(getAddress(address));
         if (f.isAuditor) members.auditors.push(getAddress(address));
@@ -253,6 +287,11 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
         if (!isValidCid(cid)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
         const existing = store.evidence.find((e) => e.caseRef === caseRef && e.sha256 === hash);
         if (existing) throw new LedgerError(LEDGER_ERROR.DUPLICATE, undefined, { existingId: existing.id });
+        // The case belongs to the branch of its first registration (the contract's _claimCase).
+        const branchId = identityOf(account).branchId;
+        const owner = store.caseBranch.get(caseRef);
+        if (owner !== undefined && owner !== branchId) throw new LedgerError(LEDGER_ERROR.NOT_AUTHORIZED);
+        store.caseBranch.set(caseRef, branchId);
 
         const submittedAt = store.now();
         const ev = {
@@ -267,6 +306,7 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
           custodyHead: bytes32ToHex(ZERO_HASH),
           ...nextLink(store.evidence, caseRef, { sha256: hash, cid, officer: account, timestamp: submittedAt }),
           caseDigest: digest,
+          branchId,
           custody: [],
         };
         append(ev, "Submitted", null, null);
@@ -278,7 +318,9 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
       transact(() => {
         need("isInvestigator");
         live();
-        append(find(id), "Accessed", null, noteHash);
+        const ev = find(id);
+        needOwnBranch(ev);
+        append(ev, "Accessed", null, noteHash);
       }),
 
     logVerification: (id, sha256, noteHash) =>
@@ -286,6 +328,7 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
         need("isInvestigator");
         live();
         const ev = find(id);
+        needOwnBranch(ev);
         append(ev, ev.sha256 === bytes32ToHex(hexToBytes32(sha256)) ? "VerifiedMatch" : "VerifiedMismatch", null, noteHash);
       }),
 
@@ -294,8 +337,9 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
         need("isInvestigator");
         live();
         const ev = find(id);
+        needOwnBranch(ev);
         if (!sameAddress(ev.custodian, account)) throw new LedgerError(LEDGER_ERROR.NOT_CUSTODIAN, undefined, { custodian: ev.custodian });
-        const recipient = requireInvestigator(to);
+        const recipient = requireInvestigator(to, ev.branchId);
         if (sameAddress(recipient, account)) throw new LedgerError(LEDGER_ERROR.INVALID_RECIPIENT);
         ev.custodian = recipient;
         append(ev, "Transferred", recipient, noteHash);
@@ -305,23 +349,38 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
       transact(() => {
         need("isChief");
         const ev = find(id);
-        const recipient = requireInvestigator(to);
+        const recipient = requireInvestigator(to, ev.branchId);
         ev.custodian = recipient;
         append(ev, "Reassigned", recipient, noteHash);
       }),
 
-    grantRole: (role, address) =>
+    /** Grants a branch role in one branch (the contract's grantBranchRole). */
+    grantRole: async (role, address, branchId) =>
       transact(() => {
-        needRoleManager(role);
+        needRoleManager(role, branchId);
         if (!isAddress(address)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
+        if (!store.branches.some((b) => b.id === branchId)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
+        const current = identityOf(address);
+        if (current.role && (current.role !== role || current.branchId !== branchId)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
         store.roles.set(lower(address), { ...flags(address), [ROLE_FLAG[role]]: true });
+        store.identity.set(lower(address), { role, branchId });
       }),
 
-    revokeRole: (role, address) =>
+    revokeRole: async (role, address) =>
       transact(() => {
-        needRoleManager(role);
         if (!isAddress(address)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
+        needRoleManager(role, identityOf(address).branchId);
+        if (!flags(address)[ROLE_FLAG[role]]) return;
         store.roles.set(lower(address), { ...flags(address), [ROLE_FLAG[role]]: false });
+        store.identity.delete(lower(address));
+      }),
+
+    createBranch: async (name) =>
+      transact(() => {
+        need("isChief");
+        const trimmed = String(name ?? "").trim();
+        if (!trimmed || new TextEncoder().encode(trimmed).length > MAX_BRANCH_NAME_LENGTH) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT);
+        store.branches.push({ id: store.branches.length + 1, name: trimmed });
       }),
 
     pause: () =>

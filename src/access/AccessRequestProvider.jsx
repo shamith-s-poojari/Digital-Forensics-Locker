@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "../context/walletContext.js";
 import { useLedger } from "../web3/ledgerContext.js";
+import { branchScope } from "../web3/roles.js";
 import { AccessRequestContext, UNAVAILABLE_REQUESTS } from "./accessRequestContext.js";
 import { createDemoAccessRequestStore, httpAccessRequestStore } from "./accessRequestStores.js";
+
+/** The acting wallet's branch scope, read from the ledger. Only the demo store needs it; the server works it out. */
+async function readScope(ledger, account) {
+  const [flags, identity] = await Promise.all([ledger.getRoles(account), ledger.getIdentity?.(account)]);
+  return branchScope(flags, identity);
+}
 
 /**
  * Provides access requests (see accessRequestContext.js) from the store that matches the ledger: the server store
@@ -13,7 +20,7 @@ import { createDemoAccessRequestStore, httpAccessRequestStore } from "./accessRe
  * @param {object} [props.store] Override for tests (any object with the interface in accessRequestStores.js).
  */
 export function AccessRequestProvider({ children, store: override }) {
-  const { mode } = useLedger();
+  const { mode, ledger } = useLedger();
   const { account, isSignedIn, ensureSession } = useWallet();
   const [demoStore] = useState(() => createDemoAccessRequestStore());
   const store = override ?? (mode === "demo" ? demoStore : mode === "chain" ? httpAccessRequestStore : null);
@@ -25,11 +32,13 @@ export function AccessRequestProvider({ children, store: override }) {
 
   const read = useCallback(
     () =>
-      Promise.all([store.mine(account), store.list()]).then(
-        ([mine, pending]) => ({ status: "ready", mine, pending, error: null, key }),
-        (err) => ({ status: err?.status === 401 ? "signed-out" : "error", mine: null, pending: [], error: err?.message ?? "Could not read access requests.", key })
-      ),
-    [store, account, key]
+      (store.kind === "demo" && ledger ? readScope(ledger, account) : Promise.resolve(undefined))
+        .then((scope) => Promise.all([store.mine(account), store.list(scope)]))
+        .then(
+          ([mine, pending]) => ({ status: "ready", mine, pending, error: null, key }),
+          (err) => ({ status: err?.status === 401 ? "signed-out" : "error", mine: null, pending: [], error: err?.message ?? "Could not read access requests.", key })
+        ),
+    [store, ledger, account, key]
   );
 
   const reload = useCallback(async () => {

@@ -59,11 +59,13 @@ function createApi(env, { production }) {
     filePath: resolve(env.CASE_STORE || `${dataDir}/cases.json`),
     getSession: auth.getSession,
     checkRole: gate.check,
+    readScope: gate.scope,
   })
   const accessRequests = createAccessRequestStore({
     filePath: resolve(env.ACCESS_REQUEST_STORE || `${dataDir}/access-requests.json`),
     getSession: auth.getSession,
     checkRole: gate.check,
+    readScope: gate.scope,
   })
   const checkUpload = (req) => gate.check(auth.getSession(req), CAPABILITIES.UPLOAD)
   let warned = false

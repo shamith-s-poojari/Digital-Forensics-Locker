@@ -23,20 +23,23 @@ A chain-of-custody system for digital evidence. A React web app and a Solidity s
 
 ## Roles
 
-| | Chief | Admin | Investigator | Auditor |
+The locker is federated: headquarters (the Chief) runs any number of **branches** (regional labs), and every other role belongs to exactly one branch.
+
+| | Chief (HQ) | Branch Admin | Investigator | Auditor |
 | --- | --- | --- | --- | --- |
-| View cases, evidence, custody timeline | yes | yes | yes | yes |
+| View cases, evidence, custody timeline | every branch | own branch | own branch | own branch |
 | Check a file against the ledger (free, read-only) | yes | yes | yes | yes |
-| Register evidence | **no** | **no** | yes | no |
-| Log access, record a verification result | **no** | **no** | yes | no |
-| Transfer custody | **no** | **no** | only the current custodian, only to another Investigator | no |
-| Grant and revoke Investigator / Auditor, decide access requests | yes | yes | no | no |
-| Appoint and remove Admins | yes | **no** | no | no |
+| Register evidence | **no** | **no** | own branch's cases | no |
+| Log access, record a verification result | **no** | **no** | own branch's cases | no |
+| Transfer custody | **no** | **no** | only the current custodian, only to another Investigator of the branch | no |
+| Grant and revoke Investigator / Auditor, decide access requests | any branch | own branch | no | no |
+| Create branches, appoint and remove Branch Admins | yes | **no** | no | no |
 | Pause and resume all evidence writes | yes | yes | no | no |
 | Reassign custody when the custodian cannot act | yes (recorded as such) | no | no | no |
 
-- **Chief and Admins:** there is one Chief (the contract's `DEFAULT_ADMIN_ROLE`) and any number of Admins (`ADMIN_ROLE`), whom only the Chief appoints. Admins share the day-to-day role management so the Chief is not a bottleneck.
-- **Separation of duties:** neither the Chief nor an Admin can write evidence unless also given the Investigator role.
+- **Chief and Branch Admins:** there is one Chief (the contract's `DEFAULT_ADMIN_ROLE`) and any number of Branch Admins (`BRANCH_ADMIN_ROLE`), whom only the Chief appoints, each to one branch. The contract's role hierarchy (`_setRoleAdmin`) is Chief → Branch Admin → Investigator / Auditor, and a Branch Admin's grants are limited to its own branch on chain.
+- **Branches:** a case belongs to the branch of the investigator who registers its first evidence; the contract refuses writes to it from any other branch. A wallet asking for access picks its branch, and the request goes to that branch's Admin (or the Chief). "View … own branch" is enforced by the API for case titles and access requests; ledger records themselves are public (see below), so the UI only filters them.
+- **Separation of duties:** neither the Chief nor a Branch Admin can write evidence unless also given the Investigator role.
 - **The Chief role** is one address, moved only by the contract's two-step transfer with a waiting period. Use a multisig, not a personal wallet, for anything real.
 - **"Auditor is read-only" means "no write permission", not secrecy.** Blockchain reads cannot be restricted, so every view function is open. Privacy comes from what is stored (below), not from who may read.
 
@@ -77,6 +80,7 @@ The Chief can also grant and revoke roles on the Role Management page, but those
 | Script | What it does |
 | --- | --- |
 | `npm run dev` | Dev server with hot reload (demo ledger unless a contract is configured). |
+| `npm run dev:lan` | Dev server exposed on the local network (`0.0.0.0`) for LAN access. |
 | `npm run build` | Production build into `dist/`. |
 | `npm run check:bundle` | Fails if `dist/` contains anything secret-like (a JWT, a private key, a credential-named `VITE_` variable). Run after `build`; CI does. |
 | `npm run preview` | Serve the production build. |
@@ -103,7 +107,7 @@ npx hardhat node        # terminal 1, leave running; prints test accounts and th
 
 ```bash
 cd contracts
-ADMINS=0xYourAdminAccount INVESTIGATORS=0xYourInvestigatorAccount AUDITORS=0xYourAuditorAccount npx hardhat run scripts/deploy.ts --network localhost
+BRANCHES="Central Lab,North Branch" ADMINS=0xYourAdminAccount INVESTIGATORS=0xYourInvestigatorAccount AUDITORS=0xYourAuditorAccount npx hardhat run scripts/deploy.ts --network localhost
 ```
 
 The Chief is the first test account printed by `hardhat node`; import its private key into MetaMask (it is a public, test-only key) to manage roles. Add the network to MetaMask (RPC `http://127.0.0.1:8545`, chain id 31337), copy the printed `VITE_*` values into `.env` and restart `npm run dev`. The accounts you name are sent 10 test ETH for gas. Restarting `hardhat node` wipes the chain, so deploy again after a restart.

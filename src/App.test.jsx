@@ -81,9 +81,12 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
     await screen.findByRole("heading", { name: "Access Denied: Address not registered" });
 
     await userEvent.selectOptions(screen.getByLabelText("Role you need"), "auditor");
+    await waitFor(() => expect(within(screen.getByLabelText("Branch location")).getByRole("option", { name: "Central Lab" })).toBeTruthy());
+    await userEvent.selectOptions(screen.getByLabelText("Branch location"), "Central Lab");
     await userEvent.type(screen.getByLabelText("Reason (optional)"), "Internal audit team");
     await userEvent.click(screen.getByRole("button", { name: "Request access" }));
-    expect(await screen.findByText(/Waiting for the Chief/)).toBeTruthy();
+    expect(await screen.findByText(/Waiting for the branch's Admin or the Chief/)).toBeTruthy();
+    expect(screen.getByText("Central Lab")).toBeTruthy();
 
     // The Chief switches MetaMask to their account and finds the request waiting.
     window.ethereum.switchTo(CHIEF);
@@ -238,7 +241,7 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
     await screen.findByRole("heading", { level: 1, name: "Investigator workbench" });
     goTo("/admin");
     expect(await screen.findByRole("heading", { name: "Not authorised" })).toBeTruthy();
-    expect(screen.getByText(/Required: Chief or Admin/)).toBeTruthy();
+    expect(screen.getByText(/Required: Chief or Branch Admin/)).toBeTruthy();
   });
 
   it("shows a 404 for unknown pages", async () => {

@@ -8,34 +8,46 @@ import { shorten } from "../web3/format.js";
 import { friendlyMessage } from "../web3/ledgerErrors.js";
 import { useLedger } from "../web3/ledgerContext.js";
 import { ROLE_LABELS } from "../web3/roles.js";
+import { useBranches } from "../web3/useBranches.js";
 import { Button, Field, INPUT_CLASS, Spinner } from "./ui";
 
 const ROLE_CHOICES = [
-  { value: "investigator", help: "Register evidence, log access and verification, transfer custody." },
-  { value: "auditor", help: "Read-only: view the ledger and check files against it." },
-  { value: "admin", help: "Manage Investigators and Auditors, approve access requests, pause the ledger. Only the Chief can approve this." },
+  { value: "investigator", help: "Register evidence, log access and verification, transfer custody, for your branch's cases." },
+  { value: "auditor", help: "Read-only: view your branch's ledger records and check files against them." },
+  { value: "admin", help: "Manage your branch's Investigators and Auditors, approve its access requests, pause the ledger. Only the Chief can approve this." },
 ];
 
 function RequestForm({ previous, onSubmit }) {
   const roleId = useId();
+  const branchId = useId();
   const reasonId = useId();
+  const { status: branchStatus, branches, error: branchError } = useBranches();
   const [role, setRole] = useState(previous?.role ?? "investigator");
+  // "" until chosen: a branch is never preselected, so nobody joins one by accident.
+  const [branch, setBranch] = useState(previous?.branchId ? String(previous.branchId) : "");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [branchMissing, setBranchMissing] = useState(false);
 
   async function submit(event) {
     event.preventDefault();
+    if (!branch) {
+      setBranchMissing(true);
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      await onSubmit({ role, reason });
+      await onSubmit({ role, branchId: Number(branch), reason });
     } catch (err) {
       setError(err?.message ?? "Could not send the request.");
     } finally {
       setBusy(false);
     }
   }
+
+  const noBranches = branchStatus === "ready" && branches.length === 0;
 
   return (
     <form onSubmit={(e) => void submit(e)} noValidate className="space-y-3 text-left" aria-label="Request access">
@@ -44,6 +56,34 @@ function RequestForm({ previous, onSubmit }) {
           {ROLE_CHOICES.map((r) => (
             <option key={r.value} value={r.value}>
               {ROLE_LABELS[r.value]}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field
+        label="Branch location"
+        htmlFor={branchId}
+        hint={role === "admin" ? "The branch you would administer." : "Your request goes to this branch's Admin (or the Chief)."}
+        error={branchError ?? (noBranches ? "No branches exist yet. Ask the Chief to create one." : branchMissing ? "Choose your branch location." : "")}
+      >
+        <select
+          id={branchId}
+          value={branch}
+          required
+          disabled={branchStatus !== "ready" || noBranches}
+          aria-invalid={branchMissing ? "true" : undefined}
+          onChange={(e) => {
+            setBranch(e.target.value);
+            setBranchMissing(false);
+          }}
+          className={INPUT_CLASS}
+        >
+          <option value="" disabled>
+            {branchStatus === "ready" ? "Select a branch…" : "Loading branches…"}
+          </option>
+          {branches.map((b) => (
+            <option key={b.id} value={String(b.id)}>
+              {b.name}
             </option>
           ))}
         </select>
@@ -59,8 +99,8 @@ function RequestForm({ previous, onSubmit }) {
           className={INPUT_CLASS}
         />
       </Field>
-      <p className="text-xs text-slate-400">The reason is stored off chain and shown to the Chief. Do not include case details.</p>
-      <Button type="submit" variant="primary" icon={Send} disabled={busy} className="w-full justify-center">
+      <p className="text-xs text-slate-400">The reason is stored off chain and shown to your Branch Admin and the Chief. Do not include case details.</p>
+      <Button type="submit" variant="primary" icon={Send} disabled={busy || noBranches} className="w-full justify-center">
         {busy ? "Sending…" : "Request access"}
       </Button>
     </form>
@@ -102,6 +142,7 @@ export default function AccessDenied() {
   const { refresh } = useRole();
   const requests = useAccessRequests();
   const { mine } = requests;
+  const { nameOf } = useBranches();
   const [checking, setChecking] = useState(false);
 
   const checkAgain = async () => {
@@ -136,7 +177,8 @@ export default function AccessDenied() {
       <div role="status" className="space-y-3">
         <p className="flex items-center justify-center gap-2 text-sm text-sky-100">
           <Clock3 className="size-4" aria-hidden="true" />
-          Request sent for the <strong>{ROLE_LABELS[mine.role]}</strong> role. Waiting for the Chief to approve it.
+          Request sent for the <strong>{ROLE_LABELS[mine.role]}</strong> role in <strong>{nameOf(mine.branchId)}</strong>.{" "}
+          {mine.role === "admin" ? "Waiting for the Chief to approve it." : "Waiting for the branch's Admin or the Chief to approve it."}
         </p>
         <p className="text-xs text-slate-400">This page opens by itself once the role is granted on the ledger.</p>
         <Button size="sm" icon={RefreshCw} disabled={checking} onClick={() => void checkAgain()}>

@@ -41,6 +41,12 @@ const REVERT_NAME_TO_CODE = {
   InvalidRecipient: LEDGER_ERROR.INVALID_RECIPIENT,
   ZeroValue: LEDGER_ERROR.INVALID_INPUT,
   InvalidCid: LEDGER_ERROR.INVALID_INPUT,
+  // Branches: acting on another branch is an authorisation failure; the rest are bad input.
+  OutsideBranch: LEDGER_ERROR.NOT_AUTHORIZED,
+  UnknownBranch: LEDGER_ERROR.INVALID_INPUT,
+  InvalidBranchName: LEDGER_ERROR.INVALID_INPUT,
+  AlreadyAssigned: LEDGER_ERROR.INVALID_INPUT,
+  BranchRequired: LEDGER_ERROR.INVALID_INPUT,
 };
 
 function isUserRejection(err) {
@@ -126,13 +132,13 @@ export function normalizeError(err, iface) {
 
 const FRIENDLY = {
   [LEDGER_ERROR.USER_REJECTED]: () => "You rejected the request in your wallet. Nothing was sent.",
-  [LEDGER_ERROR.NOT_AUTHORIZED]: () => "Your wallet is not authorised for this action. Ask the Chief to check your role.",
+  [LEDGER_ERROR.NOT_AUTHORIZED]: () => "Your wallet is not authorised for this action (or it belongs to another branch). Ask your Branch Admin or the Chief to check your role.",
   [LEDGER_ERROR.PAUSED]: () => "The system is paused by the Chief. No evidence can be recorded until it is resumed.",
   [LEDGER_ERROR.DUPLICATE]: (d) =>
     d?.existingId ? `This file is already registered for this case as evidence #${d.existingId}.` : "This file is already registered for this case.",
   [LEDGER_ERROR.UNKNOWN_EVIDENCE]: () => "That evidence record does not exist.",
   [LEDGER_ERROR.NOT_CUSTODIAN]: () => "Only the current custodian can transfer this evidence.",
-  [LEDGER_ERROR.INVALID_RECIPIENT]: () => "The recipient must be a different address that holds the Investigator role.",
+  [LEDGER_ERROR.INVALID_RECIPIENT]: () => "The recipient must be a different address that holds the Investigator role in the evidence's branch.",
   [LEDGER_ERROR.INVALID_INPUT]: () => "The request contained an empty or invalid value.",
   [LEDGER_ERROR.INSUFFICIENT_FUNDS]: () => "Your wallet needs a little test ETH to pay the network fee.",
   [LEDGER_ERROR.NETWORK]: () => "Could not reach the blockchain network. Check your connection and the selected network, then retry.",

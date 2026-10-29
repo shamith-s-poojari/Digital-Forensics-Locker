@@ -17,7 +17,7 @@ export const ROLE_LABELS = Object.freeze({
   [ROLES.NONE]: "No role",
   [ROLES.AUDITOR]: "Auditor",
   [ROLES.INVESTIGATOR]: "Investigator",
-  [ROLES.ADMIN]: "Admin",
+  [ROLES.ADMIN]: "Branch Admin",
   [ROLES.CHIEF]: "Chief",
 });
 
@@ -95,6 +95,24 @@ export function can(flags, capability) {
   if (!required) return false;
   const f = toRoleFlags(flags);
   return required.some((flag) => f[flag]);
+}
+
+/**
+ * Which branches' data a wallet may see. The Chief sees every branch (`global`); everyone else only their own
+ * `branchId` (0 or null: no branch, so nothing branch-scoped). Shared by the UI and the server (server/chainRoles.js).
+ *
+ * @param {{ isChief?: boolean }} flags
+ * @param {{ branchId?: number }} [identity]  from the contract's identityOf
+ * @returns {{ global: boolean, branchId: number | null }}
+ */
+export function branchScope(flags, identity) {
+  const branchId = Number(identity?.branchId) > 0 ? Number(identity.branchId) : null;
+  return { global: flags?.isChief === true, branchId };
+}
+
+/** True if a record tagged with `branchId` is inside the scope. */
+export function inBranchScope(scope, branchId) {
+  return Boolean(scope?.global) || (scope?.branchId != null && scope.branchId === branchId);
 }
 
 /** The page a wallet with these role flags lands on, or null if it may open none of them. */

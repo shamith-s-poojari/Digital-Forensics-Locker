@@ -6,7 +6,9 @@
 //   POST /api/cases                 { caseNumber, title, description } -> 201 Case      (creates version 1)
 //   POST /api/cases/:caseRef/versions { title, description } -> 201 Case               (appends a version)
 //
-//   Case    = { caseRef, caseNumber, createdBy, createdAt, versions: Version[] }   oldest version first
+//   Case    = { caseRef, caseNumber, branchId, createdBy, createdAt, versions: Version[] }   oldest version first
+//             branchId: the creating investigator's branch (the contract's identityOf); null on a server without a
+//             contract. On chain, the case's first evidence record tags it with the same branch (EvidenceLocker).
 //   Version = { version, title, description, salt, digest, editedBy, editedAt }
 //
 // No endpoint edits or deletes a version. Each version's digest (src/cases/caseDigest.js) is what evidence records
@@ -15,7 +17,9 @@
 // fields; the stored `digest` is a convenience, not trusted.
 //
 // Roles (server/chainRoles.js, via `checkRole`): reading needs the view capability (any role); creating and editing
-// need the upload capability (Investigator), matching the UI.
+// need the upload capability (Investigator), matching the UI. Branches (via `readScope`): the Chief reads every case;
+// anyone else reads and edits only its own branch's cases, and another branch's case is answered as missing (404).
+// A case stored before branches existed has no branchId and is visible to the Chief alone.
 //
 // LIMITS (development build): a JSON file for one process.
 
@@ -24,8 +28,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { computeCaseDigest, normaliseText } from "../src/cases/caseDigest.js";
 import { deriveCaseRef } from "../src/web3/format.js";
-import { CAPABILITIES } from "../src/web3/roles.js";
-import { allowAll } from "./chainRoles.js";
+import { CAPABILITIES, inBranchScope } from "../src/web3/roles.js";
+import { allowAll, globalScope } from "./chainRoles.js";
 import { isSameSiteRequest } from "./siweAuth.js";
 
 const CASE_REF = /^0x[0-9a-f]{64}$/;
@@ -79,9 +83,11 @@ function readFields(body) {
  * @param {(req) => ({ address: string } | null)} options.getSession
  * @param {(session, capability: string) => Promise<null | { status: number, error: string }>} [options.checkRole]
  *        From server/chainRoles.js. Defaults to no role checks.
+ * @param {(session) => Promise<{ global: boolean, branchId: number | null }>} [options.readScope]
+ *        From server/chainRoles.js. Defaults to every branch.
  * @param {() => number} [options.now]
  */
-export function createCaseStore({ filePath, getSession, checkRole = allowAll, now = Date.now }) {
+export function createCaseStore({ filePath, getSession, checkRole = allowAll, readScope = globalScope, now = Date.now }) {
   let loading = null;
   let writeChain = Promise.resolve();
 
@@ -119,7 +125,9 @@ export function createCaseStore({ filePath, getSession, checkRole = allowAll, no
     };
   }
 
-  async function create(req, res, session) {
+  const visible = (entry, scope) => inBranchScope(scope, entry.branchId ?? null);
+
+  async function create(req, res, session, scope) {
     let body;
     try {
       body = await readJson(req, MAX_BODY_BYTES);
@@ -135,7 +143,7 @@ export function createCaseStore({ filePath, getSession, checkRole = allowAll, no
     const caseRef = deriveCaseRef(caseNumber);
     if (map.has(caseRef)) return sendJson(res, 409, { error: "This case already exists. Edit it instead." });
 
-    const entry = { caseRef, caseNumber, createdBy: session.address, createdAt: new Date(now()).toISOString(), versions: [] };
+    const entry = { caseRef, caseNumber, branchId: scope.branchId, createdBy: session.address, createdAt: new Date(now()).toISOString(), versions: [] };
     entry.versions.push(makeVersion(entry, 1, fields, session.address));
     map.set(caseRef, entry);
     try {
@@ -147,7 +155,7 @@ export function createCaseStore({ filePath, getSession, checkRole = allowAll, no
     return sendJson(res, 201, entry);
   }
 
-  async function appendVersion(req, res, session, caseRef) {
+  async function appendVersion(req, res, session, caseRef, scope) {
     let body;
     try {
       body = await readJson(req, MAX_BODY_BYTES);
@@ -157,7 +165,7 @@ export function createCaseStore({ filePath, getSession, checkRole = allowAll, no
     const fields = readFields(body);
     if (fields.error) return sendJson(res, 400, { error: fields.error });
     const entry = (await cases()).get(caseRef);
-    if (!entry) return sendJson(res, 404, { error: "No such case." });
+    if (!entry || !visible(entry, scope)) return sendJson(res, 404, { error: "No such case." });
 
     const current = entry.versions[entry.versions.length - 1];
     if (current.title === fields.title && current.description === fields.description) return sendJson(res, 200, entry); // nothing changed
@@ -206,13 +214,14 @@ export function createCaseStore({ filePath, getSession, checkRole = allowAll, no
       }
     }
 
-    if (req.method === "GET" && !caseRef) sendJson(res, 200, { cases: [...(await cases()).values()] });
-    else if (req.method === "POST" && !caseRef) await create(req, res, session);
+    const scope = req.method === "GET" || req.method === "POST" ? await readScope(session) : null;
+    if (req.method === "GET" && !caseRef) sendJson(res, 200, { cases: [...(await cases()).values()].filter((entry) => visible(entry, scope)) });
+    else if (req.method === "POST" && !caseRef) await create(req, res, session, scope);
     else if (req.method === "GET" && caseRef && !sub) {
       const entry = (await cases()).get(caseRef);
-      if (entry) sendJson(res, 200, entry);
+      if (entry && visible(entry, scope)) sendJson(res, 200, entry);
       else sendJson(res, 404, { error: "No such case." });
-    } else if (req.method === "POST" && caseRef && sub === "versions") await appendVersion(req, res, session, caseRef);
+    } else if (req.method === "POST" && caseRef && sub === "versions") await appendVersion(req, res, session, caseRef, scope);
     else sendJson(res, 405, { error: "Method not allowed." });
     return true;
   }

@@ -12,12 +12,12 @@ const STEPS = [
   {
     icon: ShieldCheck,
     title: "Your role is read from the contract",
-    body: "Chief, Admin, Investigator or Auditor, exactly as the evidence ledger records it. You cannot pick it here.",
+    body: "Chief, Branch Admin, Investigator or Auditor, and your branch, exactly as the evidence ledger records them. You cannot pick them here.",
   },
   {
     icon: LayoutDashboard,
     title: "Open your workspace",
-    body: "A registered wallet goes straight to its dashboard. A wallet with no role can ask the Chief for one.",
+    body: "A registered wallet goes straight to its dashboard. A wallet with no role can ask its branch for one.",
   },
 ];
 
