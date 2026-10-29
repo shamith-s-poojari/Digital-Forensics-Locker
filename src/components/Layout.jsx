@@ -22,7 +22,8 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const PAGE_TITLES = {
-  "/": "Case Management", // "/" redirects to the role's landing page (landingRoute in roles.js)
+  "/": "Dashboard", // "/" redirects to the role's landing page (landingRoute in roles.js)
+  "/home": "Dashboard",
   "/cases": "Case Management",
   "/upload": "Evidence Upload",
   "/admin": "Role Management",

@@ -33,22 +33,22 @@ describe("Sidebar by role", () => {
 
   it("shows an Auditor only the read-only destination", () => {
     renderSidebar({}, "/cases", { roles: { isAuditor: true }, isDemo: false });
-    expect(names()).toEqual(["Case Management"]);
+    expect(names()).toEqual(["Dashboard", "Case Management"]);
   });
 
   it("shows an Investigator the dashboard and evidence upload", () => {
     renderSidebar({}, "/cases", { roles: { isInvestigator: true }, isDemo: false });
-    expect(names()).toEqual(["Case Management", "Evidence Upload"]);
+    expect(names()).toEqual(["Dashboard", "Case Management", "Evidence Upload"]);
   });
 
   it("shows the Chief the dashboard and role management, but not evidence upload", () => {
     renderSidebar({}, "/cases", { roles: { isChief: true }, isDemo: false });
-    expect(names()).toEqual(["Case Management", "Role Management"]);
+    expect(names()).toEqual(["Dashboard", "Case Management", "Role Management"]);
   });
 
   it("shows someone holding both roles everything they may use", () => {
     renderSidebar({}, "/cases", { roles: { isChief: true, isInvestigator: true }, isDemo: false });
-    expect(names()).toEqual(["Case Management", "Evidence Upload", "Role Management"]);
+    expect(names()).toEqual(["Dashboard", "Case Management", "Evidence Upload", "Role Management"]);
   });
 
   it("lists nothing while the role is unknown or the wallet has no role (fails closed)", () => {
@@ -78,7 +78,7 @@ describe("Sidebar", () => {
     const names = within(nav)
       .getAllByRole("link")
       .map((a) => a.textContent);
-    expect(names).toEqual(["Case Management", "Evidence Upload", "Evidence Viewer", "Chain of Custody"]);
+    expect(names).toEqual(["Dashboard", "Case Management", "Evidence Upload", "Evidence Viewer", "Chain of Custody"]);
   });
 
   it("marks only the current page with aria-current", () => {

@@ -199,7 +199,8 @@ describe("Layout document title", () => {
   });
 
   it.each([
-    ["/", "Case Management"],
+    ["/", "Dashboard"],
+    ["/home", "Dashboard"],
     ["/upload", "Evidence Upload"],
     ["/evidence", "Evidence Viewer"],
     ["/custody", "Chain of Custody"],
@@ -218,7 +219,7 @@ describe("Layout document title", () => {
   it("restores the previous title on unmount", () => {
     document.title = "Before";
     const { unmount } = renderLayout();
-    expect(document.title).toBe(`Case Management — ${SUFFIX}`);
+    expect(document.title).toBe(`Dashboard — ${SUFFIX}`);
     unmount();
     expect(document.title).toBe("Before");
   });

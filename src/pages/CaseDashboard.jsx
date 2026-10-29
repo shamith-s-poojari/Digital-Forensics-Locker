@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { AlertTriangle, Download, FilePlus2, Inbox } from "lucide-react";
 import Can from "../components/Can";
 import CaseChainCheck from "../components/cases/CaseChainCheck";
@@ -36,7 +36,9 @@ export default function CaseDashboard() {
   const { status, records, paused, error, version, reload } = useEvidence();
 
   const [query, setQuery] = useState("");
-  const [selection, setSelection] = useState({ caseRef: null, id: null });
+  // Dashboards link straight to an item with /cases?case=<caseRef>&evidence=<id>.
+  const [params] = useSearchParams();
+  const [selection, setSelection] = useState(() => ({ caseRef: params.get("case"), id: Number(params.get("evidence")) || null }));
   const [refreshing, setRefreshing] = useState(false);
 
   const write = useWriteFlow({ config, onConfirmed: reload });

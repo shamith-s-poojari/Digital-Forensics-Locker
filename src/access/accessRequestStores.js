@@ -40,7 +40,15 @@ const postJson = (path, data) => call(path, { method: "POST", headers: { "Conten
 export const httpAccessRequestStore = {
   kind: "server",
   mine: async () => (await call("/api/access-requests/mine")).request ?? null,
-  list: async () => (await call("/api/access-requests")).requests ?? [],
+  // Only the Chief and Admins may list requests; the server refuses everyone else (403), who has nothing to see here.
+  list: async () => {
+    try {
+      return (await call("/api/access-requests")).requests ?? [];
+    } catch (err) {
+      if (err?.status === 403) return [];
+      throw err;
+    }
+  },
   submit: (fields) => postJson("/api/access-requests", fields),
   resolve: (id, status) => postJson(`/api/access-requests/${encodeURIComponent(id)}/resolve`, { status }),
 };

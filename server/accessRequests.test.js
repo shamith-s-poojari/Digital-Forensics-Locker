@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAccessRequestStore } from "./accessRequests.js";
+import { createRoleGate } from "./chainRoles.js";
 
 const HOST = "localhost:5173";
 const ALICE = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
@@ -37,9 +38,11 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-function setup() {
+/** @param {{ roles?: Record<string, object> }} [options] roles: on-chain role flags by address; omitted = no role checks */
+function setup({ roles } = {}) {
   const filePath = join(dir, "access-requests.json");
-  const store = createAccessRequestStore({ filePath, getSession: (req) => (req.as ? { address: req.as } : null), now: () => Date.parse("2026-10-27T09:00:00.000Z") });
+  const checkRole = roles ? createRoleGate({ readRoles: async (address) => roles[address] ?? {} }).check : undefined;
+  const store = createAccessRequestStore({ filePath, getSession: (req) => (req.as ? { address: req.as } : null), checkRole, now: () => Date.parse("2026-10-27T09:00:00.000Z") });
   async function call(options) {
     const res = makeRes();
     const handled = await store.handle(makeReq(options), res);
@@ -106,5 +109,34 @@ describe("createAccessRequestStore", () => {
     expect((await call({ method: "POST", url: "/api/access-requests/not-an-id/resolve", body: { status: "approved" } })).status).toBe(400);
     expect((await call({ method: "POST", url: `/api/access-requests/${"0".repeat(36)}/resolve`, body: { status: "approved" } })).status).toBe(404);
     expect((await call({ method: "DELETE", url: "/api/access-requests" })).status).toBe(405);
+  });
+});
+
+describe("createAccessRequestStore with on-chain roles", () => {
+  const ADMIN = "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65";
+  const INVESTIGATOR = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc";
+  const roles = { [CHIEF]: { isChief: true }, [ADMIN]: { isAdmin: true }, [INVESTIGATOR]: { isInvestigator: true } };
+
+  it("lets a wallet with no role submit and read its own request, but not list everyone's", async () => {
+    const { submit, call } = setup({ roles });
+    expect((await submit({ role: "auditor" })).status).toBe(201);
+    expect((await call({ url: "/api/access-requests/mine" })).json.request.role).toBe("auditor");
+    expect((await call({ url: "/api/access-requests" })).status).toBe(403);
+    expect((await call({ url: "/api/access-requests", as: INVESTIGATOR })).status).toBe(403);
+    expect((await call({ url: "/api/access-requests", as: ADMIN })).json.requests).toHaveLength(1);
+  });
+
+  it("lets only the Chief or an Admin resolve, and only the Chief resolve an Admin request", async () => {
+    const { submit, call } = setup({ roles });
+    const { json: auditorRequest } = await submit({ role: "auditor" });
+    const resolve = (id, as) => call({ method: "POST", url: `/api/access-requests/${id}/resolve`, body: { status: "approved" }, as });
+
+    expect((await resolve(auditorRequest.id, INVESTIGATOR)).status).toBe(403);
+    expect((await resolve(auditorRequest.id, ADMIN)).status).toBe(200);
+
+    const { json: adminRequest } = await submit({ role: "admin" });
+    expect((await resolve(adminRequest.id, ADMIN)).status).toBe(403);
+    expect((await call({ url: "/api/access-requests/mine" })).json.request.status).toBe("pending");
+    expect((await resolve(adminRequest.id, CHIEF)).status).toBe(200);
   });
 });

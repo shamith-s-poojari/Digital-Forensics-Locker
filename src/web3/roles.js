@@ -52,6 +52,7 @@ const REQUIRED_FLAG = Object.freeze({
  * navigation (navLinks.js), so a link can never be shown for a page the user could not open, or vice versa.
  */
 export const ROUTE_CAPABILITY = Object.freeze({
+  "/home": CAPABILITIES.VIEW, // each role's own dashboard (src/pages/RoleHome.jsx)
   "/cases": CAPABILITIES.VIEW,
   "/upload": CAPABILITIES.UPLOAD,
   "/admin": CAPABILITIES.MANAGE_ROLES,
@@ -61,10 +62,10 @@ export const ROUTE_CAPABILITY = Object.freeze({
 });
 
 /**
- * Where "/" sends a wallet once its role is read: the first page in this list its role can open. The Chief and Admins
- * start on Role Management, where pending access requests wait; Investigators and Auditors on the case dashboard.
+ * Where "/" sends a wallet once its role is read: the first page in this list its role can open. Every role starts on
+ * its own dashboard (/home), which shows the Chief, an Admin, an Investigator or an Auditor what needs their attention.
  */
-const LANDING_ROUTES = Object.freeze(["/admin", "/cases"]);
+const LANDING_ROUTES = Object.freeze(["/home", "/cases"]);
 
 export const NO_ROLES =Object.freeze({ isChief: false, isAdmin: false, isInvestigator: false, isAuditor: false });
 

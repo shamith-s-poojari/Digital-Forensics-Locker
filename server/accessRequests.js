@@ -11,14 +11,19 @@
 // A request grants nothing: roles exist only on the contract, which the Chief changes with a transaction the
 // contract checks. Resolving a request is bookkeeping.
 //
-// LIMITS (development build): the server does not read on-chain roles yet, so any signed-in wallet can list and
-// resolve requests (the worst it can do is hide a request; it cannot grant a role); a JSON file for one process.
+// Roles (server/chainRoles.js, via `checkRole`): any signed-in wallet may submit and read its own request (that is
+// who requests are for); listing and resolving need the manage-roles capability (Chief or Admin), and resolving a
+// request for the Admin role needs the Chief, as on the contract.
+//
+// LIMITS (development build): a JSON file for one process.
 
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { readRequestFields } from "../src/access/accessRequestStores.js";
 import { sameAddress } from "../src/web3/format.js";
+import { CAPABILITIES } from "../src/web3/roles.js";
+import { allowAll } from "./chainRoles.js";
 import { isSameSiteRequest } from "./siweAuth.js";
 
 const MAX_BODY_BYTES = 4 * 1024;
@@ -59,9 +64,11 @@ function readJson(req, limit) {
  * @param {object} options
  * @param {string} options.filePath
  * @param {(req) => ({ address: string } | null)} options.getSession
+ * @param {(session, capability: string) => Promise<null | { status: number, error: string }>} [options.checkRole]
+ *        From server/chainRoles.js. Defaults to no role checks.
  * @param {() => number} [options.now]
  */
-export function createAccessRequestStore({ filePath, getSession, now = Date.now }) {
+export function createAccessRequestStore({ filePath, getSession, checkRole = allowAll, now = Date.now }) {
   let loading = null;
   let writeChain = Promise.resolve();
 
@@ -122,6 +129,8 @@ export function createAccessRequestStore({ filePath, getSession, now = Date.now 
     if (input.status !== "approved" && input.status !== "rejected") return sendJson(res, 400, { error: "Decision must be approved or rejected." });
     const request = (await requests()).find((r) => r.id === id);
     if (!request) return sendJson(res, 404, { error: "No such request." });
+    const denied = await checkRole(session, request.role === "admin" ? CAPABILITIES.MANAGE_ADMINS : CAPABILITIES.MANAGE_ROLES);
+    if (denied) return sendJson(res, denied.status, { error: denied.error });
 
     const before = { ...request };
     Object.assign(request, { status: input.status, resolvedBy: session.address, resolvedAt: new Date(now()).toISOString() });
@@ -156,7 +165,9 @@ export function createAccessRequestStore({ filePath, getSession, now = Date.now 
 
     const [, , , id, sub] = path.split("/"); // "", "api", "access-requests", id | "mine", "resolve"
     if (req.method === "GET" && !id) {
-      sendJson(res, 200, { requests: (await requests()).filter((r) => r.status === "pending") });
+      const denied = await checkRole(session, CAPABILITIES.MANAGE_ROLES);
+      if (denied) sendJson(res, denied.status, { error: denied.error });
+      else sendJson(res, 200, { requests: (await requests()).filter((r) => r.status === "pending") });
     } else if (req.method === "GET" && id === "mine" && !sub) {
       sendJson(res, 200, { request: (await requests()).findLast((r) => sameAddress(r.address, session.address)) ?? null });
     } else if (req.method === "POST" && !id) {

@@ -45,10 +45,12 @@ const navNames = () => within(screen.getByRole("navigation", { name: "Main" })).
 const CHIEF = "0x90F79bf6EB2c4f870365E785982E1f101E93b906";
 const AUDITOR = "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65";
 const STRANGER = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc";
+const ADMIN = "0x976EA74026E726554dB657fA54763abd0C3a0aa9";
 
 beforeEach(() => {
   window.history.pushState({}, "", "/");
   vi.stubEnv("VITE_DEMO_CHIEF", CHIEF);
+  vi.stubEnv("VITE_DEMO_ADMINS", ADMIN);
   vi.stubEnv("VITE_DEMO_INVESTIGATORS", ACCOUNT);
   vi.stubEnv("VITE_DEMO_AUDITORS", AUDITOR);
   installWallet();
@@ -131,19 +133,52 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
     expect(screen.queryByRole("heading", { name: "Case Management" })).toBeNull();
   });
 
-  it("sends / to the case dashboard once connected", async () => {
+  it("sends / to the role's own dashboard once connected", async () => {
     render(<App />);
     await connect();
-    expect(await screen.findByRole("heading", { name: "Case Management" })).toBeTruthy();
-    expect(window.location.pathname).toBe("/cases");
+    expect(await screen.findByRole("heading", { level: 1, name: "Investigator workbench" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/home");
   });
 
-  it("sends the Chief from / to role management once connected", async () => {
-    installWallet(CHIEF);
+  it.each([
+    ["the Chief", CHIEF, "Chief's overview", ["Team", "Access requests (0)"]],
+    ["an Admin", ADMIN, "Admin workspace", ["Officers", "Access requests (0)"]],
+    ["an Investigator", ACCOUNT, "Investigator workbench", [/^In my custody/, "Handed to me this week"]],
+    ["an Auditor", AUDITOR, "Audit view", [/^Exceptions to review/, "Activity log"]],
+  ])("gives %s their own dashboard", async (_who, wallet, title, panels) => {
+    installWallet(wallet);
     render(<App />);
     await connect();
-    expect(await screen.findByRole("heading", { name: "Role Management" })).toBeTruthy();
-    expect(window.location.pathname).toBe("/admin");
+    expect(await screen.findByRole("heading", { level: 1, name: title })).toBeTruthy();
+    for (const panel of panels) expect(await screen.findByRole("heading", { level: 2, name: panel })).toBeTruthy();
+  });
+
+  it("shows read-only dashboards no write shortcuts, and Investigators theirs", async () => {
+    installWallet(AUDITOR);
+    render(<App />);
+    await connect();
+    await screen.findByRole("heading", { level: 1, name: "Audit view" });
+    expect(screen.queryByRole("link", { name: "Register evidence" })).toBeNull();
+    cleanup();
+
+    installWallet(ACCOUNT);
+    render(<App />);
+    await connect();
+    await screen.findByRole("heading", { level: 1, name: "Investigator workbench" });
+    expect(screen.getByRole("link", { name: "Register evidence" }).getAttribute("href")).toBe("/upload");
+  });
+
+  it("opens the case dashboard on the item a dashboard row links to", async () => {
+    installWallet(AUDITOR);
+    render(<App />);
+    await connect();
+    await screen.findByRole("heading", { level: 1, name: "Audit view" });
+    const log = screen.getByRole("heading", { level: 2, name: "Activity log" }).closest("section");
+    const firstItem = within(log).getAllByRole("link").find((a) => a.getAttribute("href")?.startsWith("/cases?case="));
+    const id = firstItem.textContent.match(/Evidence #(\d+)/)[1];
+    await userEvent.click(firstItem);
+    expect(await screen.findByRole("heading", { name: "Case Management" })).toBeTruthy();
+    expect(window.location.search).toContain(`evidence=${id}`);
   });
 
   it("keeps a deep link instead of redirecting to the landing page", async () => {
@@ -158,7 +193,7 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
   it("gives an Investigator the upload page and its link", async () => {
     render(<App />);
     await connect();
-    await screen.findByRole("heading", { name: "Case Management" });
+    await screen.findByRole("heading", { level: 1, name: "Investigator workbench" });
     expect(navNames()).toContain("Evidence Upload");
 
     goTo("/upload");
@@ -176,7 +211,7 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
     installWallet(AUDITOR);
     render(<App />);
     await connect();
-    await waitFor(() => expect(navNames()).toEqual(["Case Management", "Evidence Viewer", "Chain of Custody"]));
+    await waitFor(() => expect(navNames()).toEqual(["Dashboard", "Case Management", "Evidence Viewer", "Chain of Custody"]));
 
     goTo("/upload");
     expect(await screen.findByRole("heading", { name: "Not authorised" })).toBeTruthy();
@@ -200,7 +235,7 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
   it("keeps an Investigator out of role management", async () => {
     render(<App />);
     await connect();
-    await screen.findByRole("heading", { name: "Case Management" });
+    await screen.findByRole("heading", { level: 1, name: "Investigator workbench" });
     goTo("/admin");
     expect(await screen.findByRole("heading", { name: "Not authorised" })).toBeTruthy();
     expect(screen.getByText(/Required: Chief or Admin/)).toBeTruthy();

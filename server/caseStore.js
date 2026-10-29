@@ -14,14 +14,18 @@
 // digests that no version reproduces any more, and the dashboard reports it. Clients recompute digests from the
 // fields; the stored `digest` is a convenience, not trusted.
 //
-// LIMITS (development build): any signed-in wallet may read, create and edit (no on-chain role check yet); a JSON
-// file for one process.
+// Roles (server/chainRoles.js, via `checkRole`): reading needs the view capability (any role); creating and editing
+// need the upload capability (Investigator), matching the UI.
+//
+// LIMITS (development build): a JSON file for one process.
 
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { computeCaseDigest, normaliseText } from "../src/cases/caseDigest.js";
 import { deriveCaseRef } from "../src/web3/format.js";
+import { CAPABILITIES } from "../src/web3/roles.js";
+import { allowAll } from "./chainRoles.js";
 import { isSameSiteRequest } from "./siweAuth.js";
 
 const CASE_REF = /^0x[0-9a-f]{64}$/;
@@ -73,9 +77,11 @@ function readFields(body) {
  * @param {object} options
  * @param {string} options.filePath
  * @param {(req) => ({ address: string } | null)} options.getSession
+ * @param {(session, capability: string) => Promise<null | { status: number, error: string }>} [options.checkRole]
+ *        From server/chainRoles.js. Defaults to no role checks.
  * @param {() => number} [options.now]
  */
-export function createCaseStore({ filePath, getSession, now = Date.now }) {
+export function createCaseStore({ filePath, getSession, checkRole = allowAll, now = Date.now }) {
   let loading = null;
   let writeChain = Promise.resolve();
 
@@ -191,6 +197,13 @@ export function createCaseStore({ filePath, getSession, now = Date.now }) {
     if (caseRef !== undefined && !CASE_REF.test(caseRef)) {
       sendJson(res, 400, { error: "Malformed case reference." });
       return true;
+    }
+    if (req.method === "GET" || req.method === "POST") {
+      const denied = await checkRole(session, req.method === "GET" ? CAPABILITIES.VIEW : CAPABILITIES.UPLOAD);
+      if (denied) {
+        sendJson(res, denied.status, { error: denied.error });
+        return true;
+      }
     }
 
     if (req.method === "GET" && !caseRef) sendJson(res, 200, { cases: [...(await cases()).values()] });

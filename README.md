@@ -108,7 +108,7 @@ ADMINS=0xYourAdminAccount INVESTIGATORS=0xYourInvestigatorAccount AUDITORS=0xYou
 
 The Chief is the first test account printed by `hardhat node`; import its private key into MetaMask (it is a public, test-only key) to manage roles. Add the network to MetaMask (RPC `http://127.0.0.1:8545`, chain id 31337), copy the printed `VITE_*` values into `.env` and restart `npm run dev`. The accounts you name are sent 10 test ETH for gas. Restarting `hardhat node` wipes the chain, so deploy again after a restart.
 
-To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLOYER_PRIVATE_KEY` in Hardhat's encrypted keystore (`npx hardhat keystore set ...`) and run the deploy script with `--network sepolia`; see [`contracts/README.md`](contracts/README.md). That path has not yet been exercised end to end in this repository. The script prints the values to put in `.env`:
+To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLOYER_PRIVATE_KEY` in Hardhat's encrypted keystore (`npx hardhat keystore set ...`) and run the deploy script with `--network sepolia`; see [`contracts/README.md`](contracts/README.md). To host the app for several machines on Railway, follow [`docs/DEPLOY_RAILWAY.md`](docs/DEPLOY_RAILWAY.md). That path has not yet been exercised end to end in this repository. The script prints the values to put in `.env`:
 
 | Variable | Public? | Purpose |
 | --- | --- | --- |
@@ -131,7 +131,7 @@ After changing the contract, run `npm run abi` in `contracts/` to refresh `src/w
 2. Put it in `.env` as `PINATA_JWT=...` (**no `VITE_` prefix**), add `EVIDENCE_MASTER_KEY` (see the table above), then restart `npm run dev`. The proxy still accepts the legacy `VITE_PINATA_JWT` name for now and prints a warning, but that name is a leak waiting to happen.
 3. Register evidence from the upload page. If the key is missing or wrong, the page shows the server's error against the pinning step and nothing is sent to the ledger.
 
-What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-data` only, 10 MB cap, a required `X-Requested-With` header (blocks cross-site form posts), same-origin `Origin` check, 30 s upstream timeout, and errors that never echo the token. It also requires a wallet sign-in session (below). Sessions are kept in the dev server's memory, so do not expose a dev or preview server to an untrusted network: any wallet can sign in, and a signed-in wallet can spend your Pinata quota. A deployed site needs the same handlers mounted on a real server with a shared session store and a check of the signer's on-chain role; that is not included.
+What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-data` only, 10 MB cap, a required `X-Requested-With` header (blocks cross-site form posts), same-origin `Origin` check, 30 s upstream timeout, and errors that never echo the token. It also requires a wallet sign-in session (below) and, with a contract configured, the Investigator role read from the contract (`server/chainRoles.js`; the key store, case store and access requests check roles the same way). Do not expose `npm run dev` to an untrusted network: on the demo ledger it cannot check roles, so any signed-in wallet can spend your Pinata quota. The production server (`npm start`, used on Railway) always checks roles and grants nothing without a contract. Sessions are kept in the server's memory, so it runs as a single instance; a shared session store is still to do.
 
 ### Encryption before pinning
 

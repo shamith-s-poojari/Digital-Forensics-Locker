@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createRoleGate } from "./chainRoles.js";
 import { createKeyStore, parseMasterKey } from "./keyStore.js";
 
 const HOST = "localhost:5173";
@@ -43,7 +44,8 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-function setup({ masterKey = randomBytes(32), masterKeyVersion = 1 } = {}) {
+/** roleOf: returns the signed-in wallet's on-chain role flags at the time of each call; omitted = no role checks. */
+function setup({ masterKey = randomBytes(32), masterKeyVersion = 1, roleOf } = {}) {
   const filePath = join(dir, "keys.json");
   const accessLogPath = join(dir, "access.log");
   const store = createKeyStore({
@@ -52,6 +54,8 @@ function setup({ masterKey = randomBytes(32), masterKeyVersion = 1 } = {}) {
     filePath,
     accessLogPath,
     getSession: (req) => (req.signedIn ? { address: ALICE } : null),
+    // A fresh gate per call, so a role change in the test is seen at once (no cache).
+    checkRole: roleOf ? (session, capability) => createRoleGate({ readRoles: async () => roleOf() }).check(session, capability) : undefined,
     now: () => Date.parse("2026-10-26T12:00:00.000Z"),
   });
   async function call(options) {
@@ -70,6 +74,28 @@ describe("parseMasterKey", () => {
     expect(parseMasterKey(randomBytes(16).toString("base64"))).toBeNull();
     expect(parseMasterKey("")).toBeNull();
     expect(parseMasterKey(undefined)).toBeNull();
+  });
+});
+
+describe("createKeyStore with on-chain roles", () => {
+  it("stores keys only for Investigators and releases them only to wallets that hold a role", async () => {
+    let role = {};
+    const { put, get, accessLogPath } = setup({ roleOf: () => role });
+
+    expect((await put()).status).toBe(403); // no role
+    role = { isAuditor: true };
+    expect((await put()).status).toBe(403); // auditors cannot register evidence
+    role = { isInvestigator: true };
+    expect((await put()).status).toBe(201);
+
+    role = {};
+    const refused = await get();
+    expect(refused.status).toBe(403);
+    expect(refused.json.key).toBeUndefined();
+    await expect(readFile(accessLogPath, "utf8")).rejects.toThrow(); // nothing released, nothing logged
+
+    role = { isAuditor: true };
+    expect((await get()).json.key).toBe(RAW_KEY);
   });
 });
 
