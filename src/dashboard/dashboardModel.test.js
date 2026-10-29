@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { activityFeed, caseCount, caseLabel, evidenceLink, exceptions, inCustodyOf, receivedRecently, submittedBy } from "./dashboardModel.js";
+import {
+  activityFeed,
+  branchBreakdown,
+  branchOfMember,
+  caseCount,
+  caseLabel,
+  evidenceLink,
+  exceptions,
+  inCustodyOf,
+  membersInBranch,
+  receivedRecently,
+  submittedBy,
+} from "./dashboardModel.js";
 
 const ANA = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
 const BEN = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc";
@@ -49,6 +61,22 @@ describe("dashboardModel", () => {
     expect(found.mismatches.map((r) => r.id)).toEqual([2]);
     expect(found.reassignments.map((e) => e.key)).toEqual(["3:1"]);
     expect(found.unchecked).toBe(2); // #1 and #3 were never re-checked
+  });
+
+  it("places members in their branch and narrows the role lists to one branch", () => {
+    const ADMIN = "0x976EA74026E726554dB657fA54763abd0C3a0aa9";
+    const members = { chief: CHIEF, admins: [ADMIN], investigators: [ANA, BEN], auditors: [], branchOf: { [ADMIN]: 1, [ANA]: 1, [BEN]: 2 } };
+    expect(branchOfMember(members, ANA.toLowerCase())).toBe(1);
+    expect(branchOfMember(members, CHIEF)).toBeNull();
+
+    const north = membersInBranch(members, 2);
+    expect(north).toMatchObject({ chief: CHIEF, admins: [], investigators: [BEN], auditors: [] });
+
+    const branched = records.map((r) => ({ ...r, branchId: r.caseRef === CASE_A ? 1 : 2 }));
+    expect(branchBreakdown([{ id: 1, name: "Central" }, { id: 2, name: "North" }], members, branched)).toEqual([
+      { id: 1, name: "Central", admins: 1, investigators: 1, auditors: 0, evidence: 3, cases: 1, mismatches: 1 },
+      { id: 2, name: "North", admins: 0, investigators: 1, auditors: 0, evidence: 1, cases: 1, mismatches: 0 },
+    ]);
   });
 
   it("counts cases, labels them and links to one item", () => {

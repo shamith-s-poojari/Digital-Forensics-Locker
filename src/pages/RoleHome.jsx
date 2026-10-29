@@ -5,6 +5,7 @@ import { useRole } from "../context/roleContext.js";
 import { useWallet } from "../context/walletContext.js";
 import { directoryFromCases } from "../web3/caseModel.js";
 import { primaryRole, ROLES } from "../web3/roles.js";
+import { useBranches } from "../web3/useBranches.js";
 import { useEvidence } from "../web3/useEvidence.js";
 import { useLedgerQuery } from "../web3/useLedgerQuery.js";
 import AdminDashboard from "./dashboards/AdminDashboard";
@@ -13,7 +14,7 @@ import ChiefDashboard from "./dashboards/ChiefDashboard";
 import InvestigatorDashboard from "./dashboards/InvestigatorDashboard";
 
 const loadMembers = (ledger) => ledger.listRoleMembers();
-const NO_MEMBERS = Object.freeze({ chief: null, admins: [], investigators: [], auditors: [] });
+const NO_MEMBERS = Object.freeze({ chief: null, admins: [], investigators: [], auditors: [], branchOf: {} });
 
 const DASHBOARDS = {
   [ROLES.CHIEF]: ChiefDashboard,
@@ -23,16 +24,18 @@ const DASHBOARDS = {
 };
 
 /**
- * /home: each role's own dashboard, chosen by the wallet's most senior role on the contract (roles.js primaryRole).
- * A Chief or Admin who also holds the Investigator role sees their investigator work underneath.
+ * /home: each role's own dashboard, chosen by the wallet's most senior role on the contract (roles.js primaryRole),
+ * for the wallet's branch (the contract's identityOf). The Chief sees every branch; everyone else their own.
+ * A Chief or Branch Admin who also holds the Investigator role sees their investigator work underneath.
  *
  * What a dashboard shows is a convenience, like every page: the contract and the API check each action again.
  */
 export default function RoleHome() {
-  const { roles } = useRole();
+  const { roles, branchId } = useRole();
   const { account } = useWallet();
   const { status, records, paused, error } = useEvidence();
   const members = useLedgerQuery(loadMembers);
+  const { branches, nameOf } = useBranches();
   const directoryState = useCaseDirectory();
   const directory = useMemo(() => directoryFromCases(directoryState.cases), [directoryState.cases]);
   // "x minutes ago" is relative to when the page opened; reloading the page refreshes it.
@@ -50,7 +53,19 @@ export default function RoleHome() {
   const role = primaryRole(roles);
   const Dashboard = DASHBOARDS[role];
   if (!Dashboard) return null; // the route guard never lets a wallet without a role this far
-  const props = { records, paused, members: members.data ?? NO_MEMBERS, directory, account, nowMs };
+  // `records` are already narrowed to the wallet's branch (every branch for the Chief) by useEvidence.
+  const props = {
+    records,
+    paused,
+    members: members.data ?? NO_MEMBERS,
+    directory,
+    account,
+    nowMs,
+    branchId,
+    branchName: branchId ? nameOf(branchId) : null,
+    branches,
+    branchNameOf: nameOf,
+  };
 
   return (
     <div className="space-y-10">

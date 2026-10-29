@@ -38,7 +38,7 @@ function CustodyTable({ items, directory, nowMs }) {
  * shortcuts to register evidence. With `embedded`, it is shown under another role's dashboard (a Chief or Admin who
  * also investigates) and drops its page heading.
  */
-export default function InvestigatorDashboard({ records, paused, directory, account, nowMs, embedded = false }) {
+export default function InvestigatorDashboard({ records, paused, directory, account, nowMs, branchName, embedded = false }) {
   const custody = inCustodyOf(records, account);
   const mine = submittedBy(records, account);
   const received = receivedRecently(records, account, { nowSeconds: Math.floor(nowMs / 1000) });
@@ -67,9 +67,9 @@ export default function InvestigatorDashboard({ records, paused, directory, acco
         </h2>
       ) : (
         <>
-          <DashboardIntro icon={Fingerprint} title="Investigator workbench">
-            Register evidence, keep its custody trail up to date and hand it on with a recorded transfer. Every action is a
-            transaction your wallet signs, so the ledger shows exactly who held what and when.
+          <DashboardIntro icon={Fingerprint} title="Investigator workbench" branch={branchName}>
+            Register evidence, keep its custody trail up to date and hand it on with a recorded transfer, for the cases of
+            your branch. Every action is a transaction your wallet signs, so the ledger shows exactly who held what and when.
           </DashboardIntro>
           <PausedNotice paused={paused} />
         </>

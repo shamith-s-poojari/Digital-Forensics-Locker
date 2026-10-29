@@ -49,6 +49,36 @@ export const caseLabel = (directory, caseRef) => directory[caseRef]?.caseNumber 
 /** Distinct cases among `records`. */
 export const caseCount = (records) => new Set(records.map((r) => r.caseRef)).size;
 
+/** The branch a member belongs to, from listRoleMembers' `branchOf` (0 or missing: none). */
+export function branchOfMember(members, address) {
+  const entry = Object.entries(members.branchOf ?? {}).find(([a]) => sameAddress(a, address));
+  return entry ? Number(entry[1]) || null : null;
+}
+
+/** The role lists narrowed to one branch. The Chief seat belongs to no branch and is kept. */
+export function membersInBranch(members, branchId) {
+  const inBranch = (a) => branchOfMember(members, a) === branchId;
+  return { ...members, admins: members.admins.filter(inBranch), investigators: members.investigators.filter(inBranch), auditors: members.auditors.filter(inBranch) };
+}
+
+/** Per-branch counts for the Chief: who works there, and how much evidence its cases hold. */
+export function branchBreakdown(branches, members, records) {
+  return branches.map((branch) => {
+    const staff = membersInBranch(members, branch.id);
+    const evidence = records.filter((r) => r.branchId === branch.id);
+    return {
+      id: branch.id,
+      name: branch.name,
+      admins: staff.admins.length,
+      investigators: staff.investigators.length,
+      auditors: staff.auditors.length,
+      evidence: evidence.length,
+      cases: caseCount(evidence),
+      mismatches: evidence.filter((r) => integrityState(r) === "mismatch").length,
+    };
+  });
+}
+
 /**
  * What an Auditor should look at first: items whose latest hash re-check failed, custody the Chief reassigned (an
  * override of the normal handover), and how many items have never been re-checked.

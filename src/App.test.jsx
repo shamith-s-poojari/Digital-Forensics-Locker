@@ -144,8 +144,8 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
   });
 
   it.each([
-    ["the Chief", CHIEF, "Chief's overview", ["Team", "Access requests (0)"]],
-    ["an Admin", ADMIN, "Admin workspace", ["Officers", "Access requests (0)"]],
+    ["the Chief", CHIEF, "Chief's overview", ["Branches", "Team", "Access requests (0)"]],
+    ["a Branch Admin", ADMIN, "Branch Admin workspace", ["Officers in Central Lab", "Access requests (0)"]],
     ["an Investigator", ACCOUNT, "Investigator workbench", [/^In my custody/, "Handed to me this week"]],
     ["an Auditor", AUDITOR, "Audit view", [/^Exceptions to review/, "Activity log"]],
   ])("gives %s their own dashboard", async (_who, wallet, title, panels) => {
@@ -154,6 +154,20 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
     await connect();
     expect(await screen.findByRole("heading", { level: 1, name: title })).toBeTruthy();
     for (const panel of panels) expect(await screen.findByRole("heading", { level: 2, name: panel })).toBeTruthy();
+  });
+
+  it("shows branch staff their branch, and the Chief every branch", async () => {
+    render(<App />);
+    await connect();
+    const heading = await screen.findByRole("heading", { level: 1, name: "Investigator workbench" });
+    expect(within(heading.parentElement).getByText("Central Lab")).toBeTruthy();
+    cleanup();
+
+    installWallet(CHIEF);
+    render(<App />);
+    await connect();
+    const table = await screen.findByRole("table");
+    await waitFor(() => expect(within(table).getAllByRole("rowheader").map((th) => th.textContent)).toEqual(["Central Lab", "North Branchno Branch Admin"]));
   });
 
   it("shows read-only dashboards no write shortcuts, and Investigators theirs", async () => {

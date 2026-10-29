@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, PauseCircle } from "lucide-react";
+import { ArrowRight, Building2, PauseCircle } from "lucide-react";
 import { useAccessRequests } from "../../access/accessRequestContext.js";
 import { caseLabel, evidenceLink } from "../../dashboard/dashboardModel.js";
 import { ACTION_META } from "../../web3/caseModel.js";
@@ -20,15 +20,22 @@ const TILE_TONES = {
   danger: "text-rose-200",
 };
 
-/** The page heading for a role's dashboard. */
-export function DashboardIntro({ icon: Icon, title, children }) {
+/** The page heading for a role's dashboard. `branch`: the branch name to show next to it, if the role has one. */
+export function DashboardIntro({ icon: Icon, title, branch, children }) {
   return (
     <header className="flex items-start gap-3">
       <span className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-sky-500/40 bg-sky-500/10 text-sky-300">
         <Icon className="size-5" aria-hidden="true" />
       </span>
       <div>
-        <h1 className="text-2xl font-bold text-slate-50">{title}</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-bold text-slate-50">{title}</h1>
+          {branch ? (
+            <Badge tone="info" icon={Building2}>
+              {branch}
+            </Badge>
+          ) : null}
+        </div>
         <p className="mt-1 max-w-prose text-sm text-slate-400">{children}</p>
       </div>
     </header>
@@ -112,8 +119,8 @@ export function ActivityList({ entries, directory, you, nowMs }) {
   );
 }
 
-/** One role's holders, with copyable addresses. */
-export function MemberGroup({ label, addresses, you }) {
+/** One role's holders, with copyable addresses. `tagOf(address)`: an optional label (such as the branch) per holder. */
+export function MemberGroup({ label, addresses, you, tagOf }) {
   return (
     <div className="px-4 py-3">
       <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -127,6 +134,7 @@ export function MemberGroup({ label, addresses, you }) {
           {addresses.map((a) => (
             <li key={a} className="flex items-center gap-1.5">
               <CopyChip value={a} display={shorten(a)} label={`${label} address`} />
+              {tagOf ? <span className="text-xs text-slate-400">{tagOf(a)}</span> : null}
               {sameAddress(a, you) ? <Badge tone="info">you</Badge> : null}
             </li>
           ))}
@@ -137,10 +145,12 @@ export function MemberGroup({ label, addresses, you }) {
 }
 
 /**
- * Pending access requests, read-only. Approving grants a role on chain, so the decision itself is made on Role
- * Management, which runs the transaction. Requests for the Admin role can only be approved by the Chief.
+ * Pending access requests the viewer may decide, read-only. The list arrives already narrowed (accessRequestStores.js
+ * `isRequestInScope`): the Chief sees every branch's, a Branch Admin only its own branch's working-role requests.
+ * Approving grants a role on chain, so the decision itself is made on Role Management, which runs the transaction.
+ * `branchNameOf(id)`: shows the branch each request is for (the Chief's view spans branches).
  */
-export function RequestQueue({ isChief, nowMs }) {
+export function RequestQueue({ isChief, nowMs, branchNameOf }) {
   const requests = useAccessRequests();
   if (requests.status === "unavailable") return null;
   const pending = requests.pending;
@@ -162,7 +172,8 @@ export function RequestQueue({ isChief, nowMs }) {
               <span className="text-slate-200">
                 wants <strong>{ROLE_LABELS[r.role] ?? r.role}</strong>
               </span>
-              {r.role === "admin" && !isChief ? <Badge tone="warning">Chief decides</Badge> : null}
+              {branchNameOf && r.branchId ? <Badge icon={Building2}>{branchNameOf(r.branchId)}</Badge> : null}
+              {r.role === "admin" && isChief ? <Badge tone="warning">Only you can decide</Badge> : null}
               {r.reason ? <span className="w-full text-xs text-slate-400 sm:w-auto">“{r.reason}”</span> : null}
               <time className="ml-auto text-xs text-slate-500" dateTime={r.createdAt} title={r.createdAt}>
                 {timeAgo(Date.parse(r.createdAt) / 1000, nowMs)}

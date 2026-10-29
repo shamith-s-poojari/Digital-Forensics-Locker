@@ -50,15 +50,15 @@ function ExceptionList({ mismatches, reassignments, directory, nowMs }) {
  * An Auditor's home: read-only. The size of the ledger, the exceptions to review first, and the full activity log.
  * Checking a file against the ledger and exporting a case record happen on Case Management.
  */
-export default function AuditorDashboard({ records, paused, directory, account, nowMs }) {
+export default function AuditorDashboard({ records, paused, directory, account, nowMs, branchName }) {
   const { mismatches, reassignments, unchecked } = exceptions(records);
   const events = records.reduce((sum, r) => sum + r.custody.length, 0);
 
   return (
     <div className="space-y-6">
-      <DashboardIntro icon={ScanSearch} title="Audit view">
-        Read-only. You can see every case, item and custody step, check any file against its registered hash and export
-        a case record a third party can verify. You cannot change anything on the ledger.
+      <DashboardIntro icon={ScanSearch} title="Audit view" branch={branchName}>
+        Read-only. You can see every case, item and custody step of your branch, check any file against its registered
+        hash and export a case record a third party can verify. You cannot change anything on the ledger.
       </DashboardIntro>
       <PausedNotice paused={paused} />
 
