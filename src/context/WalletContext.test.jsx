@@ -286,6 +286,59 @@ describe("WalletProvider", () => {
         expect(text("connecting")).toBe("false");
       });
 
+      // Real MetaMask: connecting more accounts leaves its active account (reported first) unchanged.
+      function metaMaskLike() {
+        const shared = [ADDRESS_A];
+        const wallet = createFakeEthereum({
+          overrides: {
+            eth_accounts: async () => [...shared],
+            eth_requestAccounts: async () => [...shared],
+            wallet_requestPermissions: async () => {
+              shared.push(ADDRESS_B); // ticked in MetaMask's window; A stays the active account
+              return [{ parentCapability: "eth_accounts" }];
+            },
+          },
+        });
+        return { wallet, shared };
+      }
+
+      it("moves to a newly connected account even though the wallet still reports the old one first, and stays there", async () => {
+        const { wallet } = metaMaskLike();
+        window.ethereum = wallet;
+        const user = userEvent.setup();
+        renderProbe();
+        await user.click(screen.getByText("connect"));
+        await waitFor(() => expect(text("signed-in")).toBe("true"));
+
+        await user.click(screen.getByText("switch account"));
+        await waitFor(() => expect(text("account")).toBe(ADDRESS_B));
+        await waitFor(() => expect(auth.session?.address).toBe(ADDRESS_B));
+
+        // Coming back to the tab, and the check before an evidence action, keep B: the wallet still shares it.
+        act(() => window.dispatchEvent(new Event("focus")));
+        await act(async () => {});
+        expect(text("account")).toBe(ADDRESS_B);
+        await user.click(screen.getByText("ensure"));
+        await waitFor(() => expect(text("ensure")).toBe("ok"));
+        expect(text("account")).toBe(ADDRESS_B);
+        // A re-sent account list with the same active account is not a switch either.
+        act(() => window.ethereum.emit("accountsChanged", [ADDRESS_A, ADDRESS_B]));
+        expect(text("account")).toBe(ADDRESS_B);
+      });
+
+      it("follows the user when they pick another active account in the wallet itself", async () => {
+        const { wallet, shared } = metaMaskLike();
+        shared.push(ADDRESS_B);
+        window.ethereum = wallet;
+        const user = userEvent.setup();
+        renderProbe();
+        await user.click(screen.getByText("connect"));
+        expect(text("account")).toBe(ADDRESS_A);
+
+        act(() => window.ethereum.emit("accountsChanged", [ADDRESS_B, ADDRESS_A]));
+        expect(text("account")).toBe(ADDRESS_B);
+      });
+
       it("explains the manual way for a wallet that cannot open a picker", async () => {
         window.ethereum = createFakeEthereum({
           overrides: { wallet_requestPermissions: () => Promise.reject(Object.assign(new Error("Method not found"), { code: -32601 })) },

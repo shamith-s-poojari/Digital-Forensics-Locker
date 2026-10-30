@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Menu, Repeat, X, Wallet } from "lucide-react";
+import { Menu, X, Wallet } from "lucide-react";
 import AccessDenied from "./AccessDenied";
+import AccountSwitcher from "./AccountSwitcher";
 import Login from "./Login";
 import Sidebar from "./Sidebar";
 import Clock from "./Clock";
@@ -81,7 +82,7 @@ const GATE_TITLES = {
 };
 
 export default function Layout({ children }) {
-  const { gate, account, role, roleLabel, connect, switchAccount, disconnect, isConnecting } = useAuth();
+  const { gate, account, role, roleLabel, connect, disconnect, isConnecting } = useAuth();
   const isConnected = Boolean(account);
   // The app itself (sidebar, pages) is only rendered once the contract confirms this wallet holds a role.
   const isGranted = gate === "granted";
@@ -527,19 +528,7 @@ export default function Layout({ children }) {
                   <Wallet size={16} aria-hidden="true" /> {connectLabel ?? (isMobile ? "Connect wallet" : "Connect MetaMask")}
                 </button>
               )}
-              {isConnected && (
-                <button
-                  type="button"
-                  className="dfl-focusable"
-                  onClick={() => void switchAccount()}
-                  disabled={isConnecting}
-                  style={switchAccountButtonStyle}
-                  title="Pick another of your wallet's accounts (for example to use a different role)"
-                >
-                  <Repeat size={14} aria-hidden="true" />
-                  {isMobile ? <span className="sr-only">Switch account</span> : "Switch account"}
-                </button>
-              )}
+              {isConnected && <AccountSwitcher buttonStyle={switchAccountButtonStyle} compact={isMobile} />}
             </div>
           </div>
           {isGranted ? <SessionBanner /> : null}

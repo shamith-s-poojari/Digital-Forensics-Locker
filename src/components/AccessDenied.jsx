@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
-import { Clock3, Crown, RefreshCw, Repeat, Send, ShieldX, Wallet, XCircle } from "lucide-react";
+import { Clock3, Crown, RefreshCw, Send, ShieldX, Wallet, XCircle } from "lucide-react";
+import AccountSwitcher from "./AccountSwitcher";
 import { useAccessRequests } from "../access/accessRequestContext.js";
 import { MAX_REASON_LENGTH } from "../access/accessRequestStores.js";
 import { useAuth } from "../context/authContext.js";
@@ -10,6 +11,20 @@ import { useLedger } from "../web3/ledgerContext.js";
 import { ROLE_LABELS } from "../web3/roles.js";
 import { useBranches } from "../web3/useBranches.js";
 import { Button, Field, INPUT_CLASS, Spinner } from "./ui";
+
+const SWITCH_BUTTON_STYLE = {
+  display: "flex",
+  alignItems: "center",
+  gap: "6px",
+  background: "#2563eb",
+  border: "1px solid #3b82f6",
+  color: "#fff",
+  padding: "8px 14px",
+  borderRadius: "6px",
+  fontSize: "14px",
+  fontWeight: 600,
+  cursor: "pointer",
+};
 
 const ROLE_CHOICES = [
   { value: "investigator", help: "Register evidence, log access and verification, transfer custody, for your branch's cases." },
@@ -138,7 +153,7 @@ function ClaimChief() {
  * for a role here; access follows only once the Chief grants it on the ledger.
  */
 export default function AccessDenied() {
-  const { account, switchAccount, disconnect, isConnecting, isDemo } = useAuth();
+  const { account, disconnect, isDemo } = useAuth();
   const { refresh } = useRole();
   const requests = useAccessRequests();
   const { mine } = requests;
@@ -211,9 +226,7 @@ export default function AccessDenied() {
       {isDemo ? <ClaimChief /> : null}
       <p className="text-xs text-slate-400">Holding a role on another of your accounts? Switch to it; your wallet will ask which accounts to share with this site.</p>
       <div className="flex flex-wrap justify-center gap-2">
-        <Button variant="primary" icon={Repeat} disabled={isConnecting} onClick={() => void switchAccount()}>
-          {isConnecting ? "Waiting for your wallet…" : "Switch account"}
-        </Button>
+        <AccountSwitcher buttonStyle={SWITCH_BUTTON_STYLE} />
         <Button variant="ghost" icon={Wallet} onClick={disconnect}>
           Disconnect
         </Button>
