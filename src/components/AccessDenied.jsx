@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { Clock3, Crown, RefreshCw, Send, ShieldX, Wallet, XCircle } from "lucide-react";
+import { Clock3, Crown, RefreshCw, Repeat, Send, ShieldX, Wallet, XCircle } from "lucide-react";
 import { useAccessRequests } from "../access/accessRequestContext.js";
 import { MAX_REASON_LENGTH } from "../access/accessRequestStores.js";
 import { useAuth } from "../context/authContext.js";
@@ -138,7 +138,7 @@ function ClaimChief() {
  * for a role here; access follows only once the Chief grants it on the ledger.
  */
 export default function AccessDenied() {
-  const { account, disconnect, isDemo } = useAuth();
+  const { account, switchAccount, disconnect, isConnecting, isDemo } = useAuth();
   const { refresh } = useRole();
   const requests = useAccessRequests();
   const { mine } = requests;
@@ -209,9 +209,15 @@ export default function AccessDenied() {
       </p>
       <div className="w-full rounded-lg border border-slate-700 bg-slate-900/70 p-4">{body}</div>
       {isDemo ? <ClaimChief /> : null}
-      <Button variant="ghost" icon={Wallet} onClick={disconnect}>
-        Disconnect
-      </Button>
+      <p className="text-xs text-slate-400">Holding a role on another of your accounts? Switch to it; your wallet will ask which accounts to share with this site.</p>
+      <div className="flex flex-wrap justify-center gap-2">
+        <Button variant="primary" icon={Repeat} disabled={isConnecting} onClick={() => void switchAccount()}>
+          {isConnecting ? "Waiting for your wallet…" : "Switch account"}
+        </Button>
+        <Button variant="ghost" icon={Wallet} onClick={disconnect}>
+          Disconnect
+        </Button>
+      </div>
     </div>
   );
 }

@@ -10,6 +10,8 @@ import { createContext, useContext } from "react";
  *   chainId: number | null      Chain the wallet is on (null until known, or when disconnected).
  *   switchChain: (id) => Promise<boolean>  Asks the wallet to switch network; sets `error` on failure.
  *   connect: () => Promise<void> Requests account access; never throws, sets `error` on failure.
+ *   switchAccount: () => Promise<void>  Opens the wallet's account picker to connect another account to this site
+ *                               (MetaMask hides accounts not connected here); never throws, sets `error` on failure.
  *   disconnect: () => void      Ends the session here and on the server, and asks the wallet to drop this site's
  *                               account permission (best effort), so the next connect starts from scratch.
  *   error: string | null        Human-readable message for the last failed connect attempt.
@@ -34,6 +36,7 @@ export const WalletContext = createContext(null);
  *   chainId: number | null,
  *   switchChain: (chainId: number) => Promise<boolean>,
  *   connect: () => Promise<void>,
+ *   switchAccount: () => Promise<void>,
  *   disconnect: () => void,
  *   error: string | null,
  *   isConnecting: boolean,

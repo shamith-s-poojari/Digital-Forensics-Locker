@@ -19,7 +19,7 @@ const KEYS = new Map([
 ]);
 
 function Probe() {
-  const { account, connect, disconnect, error, isConnecting, isSignedIn, isSigningIn, signIn, ensureSession, notice } = useWallet();
+  const { account, connect, switchAccount, disconnect, error, isConnecting, isSignedIn, isSigningIn, signIn, ensureSession, notice } = useWallet();
   return (
     <div>
       <p data-testid="account">{account ?? "none"}</p>
@@ -29,6 +29,7 @@ function Probe() {
       <p data-testid="notice">{notice ?? ""}</p>
       {error && <p role="alert">{error}</p>}
       <button onClick={connect}>connect</button>
+      <button onClick={() => void switchAccount()}>switch account</button>
       <button onClick={disconnect}>disconnect</button>
       <button onClick={() => void signIn()}>sign in</button>
       <button
@@ -229,6 +230,73 @@ describe("WalletProvider", () => {
         } finally {
           vi.useRealTimers();
         }
+      });
+    });
+
+    describe("switching to another of the wallet's accounts", () => {
+      it("opens the wallet's account picker and moves to the account chosen there, signed in as it", async () => {
+        window.ethereum = createFakeEthereum({
+          overrides: {
+            wallet_requestPermissions: async () => {
+              window.ethereum.state.selected = ADDRESS_B; // the user connects account B in MetaMask
+              return [{ parentCapability: "eth_accounts" }];
+            },
+          },
+        });
+        const user = userEvent.setup();
+        renderProbe();
+        await user.click(screen.getByText("connect"));
+        await waitFor(() => expect(text("signed-in")).toBe("true"));
+
+        await user.click(screen.getByText("switch account"));
+
+        await waitFor(() => expect(text("account")).toBe(ADDRESS_B));
+        await waitFor(() => expect(auth.session?.address).toBe(ADDRESS_B));
+        expect(text("signed-in")).toBe("true");
+        expect(window.ethereum.request).toHaveBeenCalledWith({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+      });
+
+      it("keeps the current account and session when the same account is chosen again", async () => {
+        window.ethereum = createFakeEthereum({ overrides: { wallet_requestPermissions: async () => [] } });
+        const user = userEvent.setup();
+        renderProbe();
+        await user.click(screen.getByText("connect"));
+        await waitFor(() => expect(text("signed-in")).toBe("true"));
+        const signatures = window.ethereum.signCount();
+
+        await user.click(screen.getByText("switch account"));
+
+        expect(text("account")).toBe(ADDRESS_A);
+        expect(text("signed-in")).toBe("true");
+        expect(window.ethereum.signCount()).toBe(signatures);
+      });
+
+      it("stays on the current account when the picker is closed, and says why", async () => {
+        window.ethereum = createFakeEthereum({
+          overrides: { wallet_requestPermissions: () => Promise.reject(Object.assign(new Error("User rejected"), { code: 4001 })) },
+        });
+        const user = userEvent.setup();
+        renderProbe();
+        await user.click(screen.getByText("connect"));
+
+        await user.click(screen.getByText("switch account"));
+
+        expect(text("account")).toBe(ADDRESS_A);
+        expect(screen.getByRole("alert").textContent).toMatch(/rejected/i);
+        expect(text("connecting")).toBe("false");
+      });
+
+      it("explains the manual way for a wallet that cannot open a picker", async () => {
+        window.ethereum = createFakeEthereum({
+          overrides: { wallet_requestPermissions: () => Promise.reject(Object.assign(new Error("Method not found"), { code: -32601 })) },
+        });
+        const user = userEvent.setup();
+        renderProbe();
+        await user.click(screen.getByText("connect"));
+
+        await user.click(screen.getByText("switch account"));
+
+        expect(screen.getByRole("alert").textContent).toMatch(/Disconnect, select the account in your wallet/);
       });
     });
 

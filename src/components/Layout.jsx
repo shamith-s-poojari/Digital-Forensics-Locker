@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Menu, X, Wallet } from "lucide-react";
+import { Menu, Repeat, X, Wallet } from "lucide-react";
 import AccessDenied from "./AccessDenied";
 import Login from "./Login";
 import Sidebar from "./Sidebar";
@@ -81,7 +81,7 @@ const GATE_TITLES = {
 };
 
 export default function Layout({ children }) {
-  const { gate, account, role, roleLabel, connect, disconnect, isConnecting } = useAuth();
+  const { gate, account, role, roleLabel, connect, switchAccount, disconnect, isConnecting } = useAuth();
   const isConnected = Boolean(account);
   // The app itself (sidebar, pages) is only rendered once the contract confirms this wallet holds a role.
   const isGranted = gate === "granted";
@@ -362,6 +362,22 @@ export default function Layout({ children }) {
     whiteSpace: "nowrap",
   };
 
+  const switchAccountButtonStyle = {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    background: "transparent",
+    border: "1px solid rgba(96,165,250,0.35)",
+    color: "#93c5fd",
+    padding: "8px 10px",
+    borderRadius: "6px",
+    fontSize: "12px",
+    fontWeight: 600,
+    cursor: isConnecting ? "wait" : "pointer",
+    opacity: isConnecting ? 0.6 : 1,
+    whiteSpace: "nowrap",
+  };
+
   // Emerald on the #1e293b top bar, matching the connected-wallet button it sits next to.
   const roleBadgeStyle = {
     display: "flex",
@@ -509,6 +525,19 @@ export default function Layout({ children }) {
                   }}
                 >
                   <Wallet size={16} aria-hidden="true" /> {connectLabel ?? (isMobile ? "Connect wallet" : "Connect MetaMask")}
+                </button>
+              )}
+              {isConnected && (
+                <button
+                  type="button"
+                  className="dfl-focusable"
+                  onClick={() => void switchAccount()}
+                  disabled={isConnecting}
+                  style={switchAccountButtonStyle}
+                  title="Pick another of your wallet's accounts (for example to use a different role)"
+                >
+                  <Repeat size={14} aria-hidden="true" />
+                  {isMobile ? <span className="sr-only">Switch account</span> : "Switch account"}
                 </button>
               )}
             </div>

@@ -271,6 +271,45 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
     if (connected && !sameAddress(sessionRef.current?.address, connected)) await signInAs(connected);
   }, [endSession, lookUpChain, signInAs, updateAccount]);
 
+  /**
+   * Opens the wallet's account picker so the user can connect another of their accounts to this site. MetaMask only
+   * shares accounts the user connected here: picking an unconnected account in the extension alone leaves the site
+   * on the old one, which is why this exists. The chosen account replaces the current one and is asked to sign in.
+   */
+  const switchAccount = useCallback(async () => {
+    if (connectingRef.current) return;
+    const provider = getEthereumProvider();
+    if (!provider) {
+      setError("No Ethereum wallet detected. Install MetaMask (or another browser wallet) and try again.");
+      return;
+    }
+
+    connectingRef.current = true;
+    setError(null);
+    setIsConnecting(true);
+    let picked = null;
+    try {
+      await provider.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+      picked = await readSelectedAccount(provider);
+    } catch (err) {
+      setError(
+        err?.code === -32601
+          ? "This wallet cannot switch accounts from the page. Disconnect, select the account in your wallet, then connect again."
+          : describeConnectError(err)
+      );
+    } finally {
+      connectingRef.current = false;
+      setIsConnecting(false);
+    }
+    // The wallet's accountsChanged event may already have applied the switch (applyAccounts).
+    if (!picked || sameAddress(picked, accountRef.current)) return;
+    endSession();
+    updateAccount(picked);
+    setNotice(null);
+    lookUpChain(provider);
+    await signInAs(picked);
+  }, [endSession, lookUpChain, signInAs, updateAccount]);
+
   const disconnect = useCallback(() => {
     // Also withdraw this site's account permission (MetaMask supports this; other wallets may not), so the next
     // connect shows the wallet's account picker again instead of silently reusing the account.
@@ -427,6 +466,7 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
       account,
       chainId,
       connect,
+      switchAccount,
       disconnect,
       switchChain,
       error,
@@ -440,7 +480,7 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
       notice,
       clearNotice,
     }),
-    [account, chainId, connect, disconnect, switchChain, error, isConnecting, clearError, session, isSignedIn, isSigningIn, signIn, ensureSession, notice, clearNotice]
+    [account, chainId, connect, switchAccount, disconnect, switchChain, error, isConnecting, clearError, session, isSignedIn, isSigningIn, signIn, ensureSession, notice, clearNotice]
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
