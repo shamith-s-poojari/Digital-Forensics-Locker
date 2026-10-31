@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Menu, X, Wallet } from "lucide-react";
 import AccessDenied from "./AccessDenied";
+import AccountSwitcher from "./AccountSwitcher";
 import Login from "./Login";
 import Sidebar from "./Sidebar";
 import Clock from "./Clock";
@@ -10,6 +11,7 @@ import { AccessState } from "./RequireCapability";
 import { Spinner } from "./ui";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
 import { useAuth } from "../context/authContext.js";
+import { accountName } from "../web3/accountNames.js";
 
 const APP_NAME = "Digital Forensics Locker";
 const SIDEBAR_ID = "app-sidebar";
@@ -22,7 +24,8 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const PAGE_TITLES = {
-  "/": "Case Management", // "/" redirects to the role's landing page (landingRoute in roles.js)
+  "/": "Dashboard", // "/" redirects to the role's landing page (landingRoute in roles.js)
+  "/home": "Dashboard",
   "/cases": "Case Management",
   "/upload": "Evidence Upload",
   "/admin": "Role Management",
@@ -361,6 +364,22 @@ export default function Layout({ children }) {
     whiteSpace: "nowrap",
   };
 
+  const switchAccountButtonStyle = {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    background: "transparent",
+    border: "1px solid rgba(96,165,250,0.35)",
+    color: "#93c5fd",
+    padding: "8px 10px",
+    borderRadius: "6px",
+    fontSize: "12px",
+    fontWeight: 600,
+    cursor: isConnecting ? "wait" : "pointer",
+    opacity: isConnecting ? 0.6 : 1,
+    whiteSpace: "nowrap",
+  };
+
   // Emerald on the #1e293b top bar, matching the connected-wallet button it sits next to.
   const roleBadgeStyle = {
     display: "flex",
@@ -491,6 +510,7 @@ export default function Layout({ children }) {
                       display: "inline-block",
                     }}
                   ></span>
+                  {accountName(account) ? <span style={{ color: "#bae6fd", fontFamily: "inherit" }}>{accountName(account)} ·</span> : null}
                   {truncateAddress(account)}
                 </button>
               ) : (
@@ -510,6 +530,7 @@ export default function Layout({ children }) {
                   <Wallet size={16} aria-hidden="true" /> {connectLabel ?? (isMobile ? "Connect wallet" : "Connect MetaMask")}
                 </button>
               )}
+              {isConnected && <AccountSwitcher buttonStyle={switchAccountButtonStyle} compact={isMobile} />}
             </div>
           </div>
           {isGranted ? <SessionBanner /> : null}

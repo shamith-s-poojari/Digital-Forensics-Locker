@@ -17,7 +17,7 @@ export const ROLE_LABELS = Object.freeze({
   [ROLES.NONE]: "No role",
   [ROLES.AUDITOR]: "Auditor",
   [ROLES.INVESTIGATOR]: "Investigator",
-  [ROLES.ADMIN]: "Admin",
+  [ROLES.ADMIN]: "Branch Admin",
   [ROLES.CHIEF]: "Chief",
 });
 
@@ -52,6 +52,7 @@ const REQUIRED_FLAG = Object.freeze({
  * navigation (navLinks.js), so a link can never be shown for a page the user could not open, or vice versa.
  */
 export const ROUTE_CAPABILITY = Object.freeze({
+  "/home": CAPABILITIES.VIEW, // each role's own dashboard (src/pages/RoleHome.jsx)
   "/cases": CAPABILITIES.VIEW,
   "/upload": CAPABILITIES.UPLOAD,
   "/admin": CAPABILITIES.MANAGE_ROLES,
@@ -61,10 +62,10 @@ export const ROUTE_CAPABILITY = Object.freeze({
 });
 
 /**
- * Where "/" sends a wallet once its role is read: the first page in this list its role can open. The Chief and Admins
- * start on Role Management, where pending access requests wait; Investigators and Auditors on the case dashboard.
+ * Where "/" sends a wallet once its role is read: the first page in this list its role can open. Every role starts on
+ * its own dashboard (/home), which shows the Chief, an Admin, an Investigator or an Auditor what needs their attention.
  */
-const LANDING_ROUTES = Object.freeze(["/admin", "/cases"]);
+const LANDING_ROUTES = Object.freeze(["/home", "/cases"]);
 
 export const NO_ROLES =Object.freeze({ isChief: false, isAdmin: false, isInvestigator: false, isAuditor: false });
 
@@ -94,6 +95,24 @@ export function can(flags, capability) {
   if (!required) return false;
   const f = toRoleFlags(flags);
   return required.some((flag) => f[flag]);
+}
+
+/**
+ * Which branches' data a wallet may see. The Chief sees every branch (`global`); everyone else only their own
+ * `branchId` (0 or null: no branch, so nothing branch-scoped). Shared by the UI and the server (server/chainRoles.js).
+ *
+ * @param {{ isChief?: boolean }} flags
+ * @param {{ branchId?: number }} [identity]  from the contract's identityOf
+ * @returns {{ global: boolean, branchId: number | null }}
+ */
+export function branchScope(flags, identity) {
+  const branchId = Number(identity?.branchId) > 0 ? Number(identity.branchId) : null;
+  return { global: flags?.isChief === true, branchId };
+}
+
+/** True if a record tagged with `branchId` is inside the scope. */
+export function inBranchScope(scope, branchId) {
+  return Boolean(scope?.global) || (scope?.branchId != null && scope.branchId === branchId);
 }
 
 /** The page a wallet with these role flags lands on, or null if it may open none of them. */

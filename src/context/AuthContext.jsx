@@ -13,7 +13,7 @@ import { useWallet } from "./walletContext.js";
  * Must be inside both <WalletProvider> and <RoleProvider>.
  */
 export function AuthProvider({ children }) {
-  const { account, connect, disconnect, isConnecting, error, notice } = useWallet();
+  const { account, connect, switchAccount, disconnect, isConnecting, error, notice } = useWallet();
   const { status, role, isDemo } = useRole();
 
   const gate = !account
@@ -34,13 +34,14 @@ export function AuthProvider({ children }) {
       role: grantedRole,
       roleLabel: ROLE_LABELS[grantedRole],
       connect,
+      switchAccount,
       disconnect,
       isConnecting,
       error,
       notice,
       isDemo,
     }),
-    [gate, account, grantedRole, connect, disconnect, isConnecting, error, notice, isDemo]
+    [gate, account, grantedRole, connect, switchAccount, disconnect, isConnecting, error, notice, isDemo]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -5,11 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:lan": "vite --host 0.0.0.0",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
+    "preview": "vite preview --host 0.0.0.0",
+    "start": "vite preview",
     "test": "vitest run",
     "check:bundle": "node scripts/check-bundle.mjs"
+  },
+  "engines": {
+    "node": ">=22.12"
   },
   "dependencies": {
     "ethers": "^6.17.0",

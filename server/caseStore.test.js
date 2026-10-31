@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { computeCaseDigest } from "../src/cases/caseDigest.js";
 import { deriveCaseRef } from "../src/web3/format.js";
 import { createCaseStore } from "./caseStore.js";
+import { createRoleGate } from "./chainRoles.js";
 
 const HOST = "localhost:5173";
 const ALICE = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
@@ -39,9 +40,18 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-function setup() {
+/** roleOf: returns the signed-in wallet's on-chain role flags at the time of each call; omitted = no role checks. */
+function setup({ roleOf } = {}) {
   const filePath = join(dir, "cases.json");
-  const store = createCaseStore({ filePath, getSession: (req) => (req.signedIn ? { address: ALICE } : null), now: () => Date.parse("2026-10-27T09:00:00.000Z") });
+  // A fresh gate per call, so the role in force is never a cached one.
+  const gate = () => createRoleGate({ readRoles: async () => roleOf() });
+  const store = createCaseStore({
+    filePath,
+    getSession: (req) => (req.signedIn ? { address: ALICE } : null),
+    checkRole: roleOf ? (session, capability) => gate().check(session, capability) : undefined,
+    readScope: roleOf ? (session) => gate().scope(session) : undefined,
+    now: () => Date.parse("2026-10-27T09:00:00.000Z"),
+  });
   async function call(options) {
     const res = makeRes();
     const handled = await store.handle(makeReq(options), res);
@@ -51,6 +61,41 @@ function setup() {
   const edit = (body, caseRef = CASE_REF) => call({ method: "POST", url: `/api/cases/${caseRef}/versions`, body });
   return { call, create, edit, filePath };
 }
+
+describe("createCaseStore with on-chain roles", () => {
+  it("lets any role read cases, only Investigators create and edit them, and nobody without a role see them", async () => {
+    let role = { isInvestigator: true, branchId: 1 };
+    const { call, create, edit } = setup({ roleOf: () => role });
+    expect((await create()).status).toBe(201);
+
+    role = { isAuditor: true, branchId: 1 };
+    expect((await call({ url: "/api/cases" })).json.cases).toHaveLength(1);
+    expect((await call({ url: `/api/cases/${CASE_REF}` })).status).toBe(200);
+    expect((await edit({ title: "Changed", description: "" })).status).toBe(403);
+
+    role = { isChief: true };
+    expect((await create({ caseNumber: "case-2", title: "t", description: "" })).status).toBe(403); // separation of duties
+
+    role = {};
+    expect((await call({ url: "/api/cases" })).status).toBe(403);
+  });
+
+  it("tags a case with its creator's branch and hides it from other branches, but not from the Chief", async () => {
+    let role = { isInvestigator: true, branchId: 1 };
+    const { call, create, edit } = setup({ roleOf: () => role });
+    expect((await create()).json.branchId).toBe(1);
+
+    role = { isInvestigator: true, branchId: 2 };
+    expect((await call({ url: "/api/cases" })).json.cases).toHaveLength(0);
+    expect((await call({ url: `/api/cases/${CASE_REF}` })).status).toBe(404);
+    expect((await edit({ title: "Hijacked", description: "" })).status).toBe(404);
+    expect((await create()).status).toBe(409); // the case number is still taken, whichever branch holds it
+
+    role = { isChief: true };
+    expect((await call({ url: "/api/cases" })).json.cases.map((c) => c.branchId)).toEqual([1]);
+    expect((await call({ url: `/api/cases/${CASE_REF}` })).json.versions).toHaveLength(1);
+  });
+});
 
 describe("createCaseStore", () => {
   it("ignores other paths", async () => {

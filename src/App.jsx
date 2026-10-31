@@ -16,6 +16,7 @@ import CaseDashboard from "./pages/CaseDashboard";
 import ChainOfCustody from "./pages/ChainOfCustody";
 import EvidenceUpload from "./pages/EvidenceUpload";
 import EvidenceViewer from "./pages/EvidenceViewer";
+import RoleHome from "./pages/RoleHome";
 
 function NotFound() {
   return (
@@ -40,6 +41,7 @@ function AppRoutes() {
     <Routes>
       {/* Layout only renders the routes once the gate is "granted", so `roles` here are the ones read from the contract. */}
       <Route path="/" element={<Navigate to={landingRoute(roles) ?? "/cases"} replace />} />
+      <Route path="/home" element={guarded("/home", <RoleHome />)} />
       <Route path="/cases" element={guarded("/cases", <CaseDashboard />)} />
       <Route path="/upload" element={guarded("/upload", <EvidenceUpload />)} />
       <Route path="/admin" element={guarded("/admin", <AdminRoles />)} />

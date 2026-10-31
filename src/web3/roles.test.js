@@ -102,12 +102,10 @@ describe("ROUTE_CAPABILITY", () => {
 });
 
 describe("landingRoute", () => {
-  it("starts the Chief and Admins on role management, everyone else on the case dashboard", () => {
-    expect(landingRoute(CHIEF)).toBe("/admin");
-    expect(landingRoute(ADMIN)).toBe("/admin");
-    expect(landingRoute(INVESTIGATOR)).toBe("/cases");
-    expect(landingRoute(AUDITOR)).toBe("/cases");
-    expect(landingRoute({ isChief: true, isInvestigator: true })).toBe("/admin");
+  it("starts every role on its own dashboard", () => {
+    for (const flags of [CHIEF, ADMIN, INVESTIGATOR, AUDITOR, { isChief: true, isInvestigator: true }]) {
+      expect(landingRoute(flags)).toBe("/home");
+    }
   });
 
   it("has no landing page for a wallet without a role", () => {

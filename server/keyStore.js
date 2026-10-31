@@ -2,7 +2,7 @@
 //
 // The browser encrypts each file with its own random key (src/crypto/evidenceCrypto.js) and sends that key here
 // before the encrypted copy is pinned. The key is wrapped (encrypted) with the agency master key and only the wrapped
-// form is written to disk. Endpoints (mounted by vite.config.js, both need a wallet sign-in session):
+// form is written to disk. Endpoints (mounted by vite.config.js, both need a wallet sign-in session and a role):
 //
 //   POST /api/keys        { keyId, sha256, key }  -> 201   stores a key once; an id can never be overwritten
 //   GET  /api/keys/:keyId                         -> { keyId, sha256, key, createdBy, createdAt }
@@ -13,12 +13,17 @@
 //
 // Every key release is appended to an access log (who, which key, when).
 //
-// LIMITS (development build): the master key comes from an environment variable rather than a KMS/HSM; any signed-in
-// wallet may read any key (the server does not yet check on-chain roles); the store is a JSON file for one process.
+// Roles (server/chainRoles.js, via `checkRole`): storing a key needs the upload capability (Investigator); releasing
+// one needs the view capability (any role on the ledger).
+//
+// LIMITS (development build): the master key comes from an environment variable rather than a KMS/HSM; any wallet
+// with a role may read any key (there is no per-case access list); the store is a JSON file for one process.
 
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { CAPABILITIES } from "../src/web3/roles.js";
+import { allowAll } from "./chainRoles.js";
 import { isSameSiteRequest } from "./siweAuth.js";
 
 const KEY_ID = /^[0-9a-f]{32}$/;
@@ -90,9 +95,11 @@ function unwrapKey(masterKey, entry) {
  * @param {string} options.filePath                JSON file holding the wrapped keys.
  * @param {string} options.accessLogPath           JSON-lines file; one line per key release.
  * @param {(req) => ({ address: string } | null)} options.getSession  From server/siweAuth.js.
+ * @param {(session, capability: string) => Promise<null | { status: number, error: string }>} [options.checkRole]
+ *        From server/chainRoles.js. Defaults to no role checks.
  * @param {() => number} [options.now]
  */
-export function createKeyStore({ masterKey, masterKeyVersion = 1, filePath, accessLogPath, getSession, now = Date.now }) {
+export function createKeyStore({ masterKey, masterKeyVersion = 1, filePath, accessLogPath, getSession, checkRole = allowAll, now = Date.now }) {
   /** @type {Promise<Map<string, object>> | null} */
   let loading = null;
   // Writes are chained so two uploads at once cannot interleave and lose an entry.
@@ -201,9 +208,20 @@ export function createKeyStore({ masterKey, masterKeyVersion = 1, filePath, acce
       return true;
     }
 
-    if (req.method === "POST" && path === "/api/keys") await store(req, res, session);
-    else if (req.method === "GET" && path.startsWith("/api/keys/")) await release(res, session, path.slice("/api/keys/".length));
-    else sendJson(res, 405, { error: "Method not allowed." });
+    const storing = req.method === "POST" && path === "/api/keys";
+    const releasing = req.method === "GET" && path.startsWith("/api/keys/");
+    if (!storing && !releasing) {
+      sendJson(res, 405, { error: "Method not allowed." });
+      return true;
+    }
+    const denied = await checkRole(session, storing ? CAPABILITIES.UPLOAD : CAPABILITIES.VIEW);
+    if (denied) {
+      sendJson(res, denied.status, { error: denied.error });
+      return true;
+    }
+
+    if (storing) await store(req, res, session);
+    else await release(res, session, path.slice("/api/keys/".length));
     return true;
   }
 

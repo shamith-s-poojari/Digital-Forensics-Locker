@@ -23,20 +23,23 @@ A chain-of-custody system for digital evidence. A React web app and a Solidity s
 
 ## Roles
 
-| | Chief | Admin | Investigator | Auditor |
+The locker is federated: headquarters (the Chief) runs any number of **branches** (regional labs), and every other role belongs to exactly one branch.
+
+| | Chief (HQ) | Branch Admin | Investigator | Auditor |
 | --- | --- | --- | --- | --- |
-| View cases, evidence, custody timeline | yes | yes | yes | yes |
+| View cases, evidence, custody timeline | every branch | own branch | own branch | own branch |
 | Check a file against the ledger (free, read-only) | yes | yes | yes | yes |
-| Register evidence | **no** | **no** | yes | no |
-| Log access, record a verification result | **no** | **no** | yes | no |
-| Transfer custody | **no** | **no** | only the current custodian, only to another Investigator | no |
-| Grant and revoke Investigator / Auditor, decide access requests | yes | yes | no | no |
-| Appoint and remove Admins | yes | **no** | no | no |
+| Register evidence | **no** | **no** | own branch's cases | no |
+| Log access, record a verification result | **no** | **no** | own branch's cases | no |
+| Transfer custody | **no** | **no** | only the current custodian, only to another Investigator of the branch | no |
+| Grant and revoke Investigator / Auditor, decide access requests | any branch | own branch | no | no |
+| Create branches, appoint and remove Branch Admins | yes | **no** | no | no |
 | Pause and resume all evidence writes | yes | yes | no | no |
 | Reassign custody when the custodian cannot act | yes (recorded as such) | no | no | no |
 
-- **Chief and Admins:** there is one Chief (the contract's `DEFAULT_ADMIN_ROLE`) and any number of Admins (`ADMIN_ROLE`), whom only the Chief appoints. Admins share the day-to-day role management so the Chief is not a bottleneck.
-- **Separation of duties:** neither the Chief nor an Admin can write evidence unless also given the Investigator role.
+- **Chief and Branch Admins:** there is one Chief (the contract's `DEFAULT_ADMIN_ROLE`) and any number of Branch Admins (`BRANCH_ADMIN_ROLE`), whom only the Chief appoints, each to one branch. The contract's role hierarchy (`_setRoleAdmin`) is Chief → Branch Admin → Investigator / Auditor, and a Branch Admin's grants are limited to its own branch on chain.
+- **Branches:** a case belongs to the branch of the investigator who registers its first evidence; the contract refuses writes to it from any other branch. A wallet asking for access picks its branch, and the request goes to that branch's Admin (or the Chief). "View … own branch" is enforced by the API for case titles and access requests; ledger records themselves are public (see below), so the UI only filters them.
+- **Separation of duties:** neither the Chief nor a Branch Admin can write evidence unless also given the Investigator role.
 - **The Chief role** is one address, moved only by the contract's two-step transfer with a waiting period. Use a multisig, not a personal wallet, for anything real.
 - **"Auditor is read-only" means "no write permission", not secrecy.** Blockchain reads cannot be restricted, so every view function is open. Privacy comes from what is stored (below), not from who may read.
 
@@ -77,6 +80,7 @@ The Chief can also grant and revoke roles on the Role Management page, but those
 | Script | What it does |
 | --- | --- |
 | `npm run dev` | Dev server with hot reload (demo ledger unless a contract is configured). |
+| `npm run dev:lan` | Dev server exposed on the local network (`0.0.0.0`) for LAN access. |
 | `npm run build` | Production build into `dist/`. |
 | `npm run check:bundle` | Fails if `dist/` contains anything secret-like (a JWT, a private key, a credential-named `VITE_` variable). Run after `build`; CI does. |
 | `npm run preview` | Serve the production build. |
@@ -103,12 +107,12 @@ npx hardhat node        # terminal 1, leave running; prints test accounts and th
 
 ```bash
 cd contracts
-ADMINS=0xYourAdminAccount INVESTIGATORS=0xYourInvestigatorAccount AUDITORS=0xYourAuditorAccount npx hardhat run scripts/deploy.ts --network localhost
+BRANCHES="Central Lab,North Branch" ADMINS=0xYourAdminAccount INVESTIGATORS=0xYourInvestigatorAccount AUDITORS=0xYourAuditorAccount npx hardhat run scripts/deploy.ts --network localhost
 ```
 
 The Chief is the first test account printed by `hardhat node`; import its private key into MetaMask (it is a public, test-only key) to manage roles. Add the network to MetaMask (RPC `http://127.0.0.1:8545`, chain id 31337), copy the printed `VITE_*` values into `.env` and restart `npm run dev`. The accounts you name are sent 10 test ETH for gas. Restarting `hardhat node` wipes the chain, so deploy again after a restart.
 
-To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLOYER_PRIVATE_KEY` in Hardhat's encrypted keystore (`npx hardhat keystore set ...`) and run the deploy script with `--network sepolia`; see [`contracts/README.md`](contracts/README.md). That path has not yet been exercised end to end in this repository. The script prints the values to put in `.env`:
+To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLOYER_PRIVATE_KEY` in Hardhat's encrypted keystore (`npx hardhat keystore set ...`) and run the deploy script with `--network sepolia`; see [`contracts/README.md`](contracts/README.md). To host the app for several machines on Railway, follow [`docs/DEPLOY_RAILWAY.md`](docs/DEPLOY_RAILWAY.md). That path has not yet been exercised end to end in this repository. The script prints the values to put in `.env`:
 
 | Variable | Public? | Purpose |
 | --- | --- | --- |
@@ -131,7 +135,7 @@ After changing the contract, run `npm run abi` in `contracts/` to refresh `src/w
 2. Put it in `.env` as `PINATA_JWT=...` (**no `VITE_` prefix**), add `EVIDENCE_MASTER_KEY` (see the table above), then restart `npm run dev`. The proxy still accepts the legacy `VITE_PINATA_JWT` name for now and prints a warning, but that name is a leak waiting to happen.
 3. Register evidence from the upload page. If the key is missing or wrong, the page shows the server's error against the pinning step and nothing is sent to the ledger.
 
-What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-data` only, 10 MB cap, a required `X-Requested-With` header (blocks cross-site form posts), same-origin `Origin` check, 30 s upstream timeout, and errors that never echo the token. It also requires a wallet sign-in session (below). Sessions are kept in the dev server's memory, so do not expose a dev or preview server to an untrusted network: any wallet can sign in, and a signed-in wallet can spend your Pinata quota. A deployed site needs the same handlers mounted on a real server with a shared session store and a check of the signer's on-chain role; that is not included.
+What the proxy enforces (`server/pinataProxy.js`): POST only, `multipart/form-data` only, 10 MB cap, a required `X-Requested-With` header (blocks cross-site form posts), same-origin `Origin` check, 30 s upstream timeout, and errors that never echo the token. It also requires a wallet sign-in session (below) and, with a contract configured, the Investigator role read from the contract (`server/chainRoles.js`; the key store, case store and access requests check roles the same way). Do not expose `npm run dev` to an untrusted network: on the demo ledger it cannot check roles, so any signed-in wallet can spend your Pinata quota. The production server (`npm start`, used on Railway) always checks roles and grants nothing without a contract. Sessions are kept in the server's memory, so it runs as a single instance; a shared session store is still to do.
 
 ### Encryption before pinning
 

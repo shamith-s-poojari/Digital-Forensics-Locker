@@ -11,7 +11,8 @@ import { LEDGER_ERROR } from "./ledgerErrors.js";
  * Each scenario receives a fresh context `ctx`:
  *   ctx.as(name)      -> the ledger bound to that actor
  *   ctx.address(name) -> the actor's address
- * Actors: chief (the Chief), alice and bob (Investigators), carol (Auditor), dave (no role).
+ * Actors: chief (the Chief), alice and bob (Investigators), carol (Auditor), all in branch 1, and dave (no role).
+ * Branches 1 and 2 exist from the start.
  */
 
 const HASH_1 = "11".repeat(32);
@@ -159,9 +160,10 @@ export const scenarios = [
       assert.deepEqual(members.auditors, [ctx.address("carol")]);
       assert.deepEqual(members.admins, []);
 
-      await rejectsWith(ctx.as("alice").grantRole("auditor", ctx.address("dave")), LEDGER_ERROR.NOT_AUTHORIZED);
+      await rejectsWith(ctx.as("alice").grantRole("auditor", ctx.address("dave"), 1), LEDGER_ERROR.NOT_AUTHORIZED);
 
-      await mine(ctx.as("chief").grantRole("investigator", ctx.address("dave")));
+      await mine(ctx.as("chief").grantRole("investigator", ctx.address("dave"), 1));
+      assert.deepEqual(await ctx.as("dave").getIdentity(ctx.address("dave")), { role: "investigator", branchId: 1 });
       assert.deepEqual(await ctx.as("dave").getRoles(ctx.address("dave")), { isChief: false, isAdmin: false, isInvestigator: true, isAuditor: false });
       assert.equal(await registerAs(ctx, "dave"), 1);
 
@@ -169,27 +171,34 @@ export const scenarios = [
       assert.deepEqual(await ctx.as("dave").getRoles(ctx.address("dave")), { isChief: false, isAdmin: false, isInvestigator: false, isAuditor: false });
       await rejectsWith(ctx.as("dave").logAccess(1), LEDGER_ERROR.NOT_AUTHORIZED);
       assert.ok(!(await ctx.as("dave").listRoleMembers()).investigators.includes(ctx.address("dave")));
+      assert.deepEqual(await ctx.as("dave").getIdentity(ctx.address("dave")), { role: null, branchId: 0 });
 
       // The Chief has no evidence powers of its own.
       assert.deepEqual(await ctx.as("chief").getRoles(ctx.address("chief")), { isChief: true, isAdmin: false, isInvestigator: false, isAuditor: false });
     },
   },
   {
-    name: "the Chief appoints Admins; an Admin manages working roles and can pause, but cannot appoint Admins or write evidence",
+    name: "the Chief appoints Branch Admins; a Branch Admin manages working roles in its branch and can pause, but cannot appoint Admins or write evidence",
     async run(ctx) {
-      await rejectsWith(ctx.as("alice").grantRole("admin", ctx.address("dave")), LEDGER_ERROR.NOT_AUTHORIZED);
-      await mine(ctx.as("chief").grantRole("admin", ctx.address("dave")));
+      await rejectsWith(ctx.as("alice").grantRole("admin", ctx.address("dave"), 1), LEDGER_ERROR.NOT_AUTHORIZED);
+      await mine(ctx.as("chief").grantRole("admin", ctx.address("dave"), 1));
       assert.deepEqual(await ctx.as("carol").getRoles(ctx.address("dave")), { isChief: false, isAdmin: true, isInvestigator: false, isAuditor: false });
-      assert.deepEqual((await ctx.as("carol").listRoleMembers()).admins, [ctx.address("dave")]);
+      const members = await ctx.as("carol").listRoleMembers();
+      assert.deepEqual(members.admins, [ctx.address("dave")]);
+      assert.equal(members.branchOf[ctx.address("dave")], 1);
 
-      // Working roles: yes.
-      await mine(ctx.as("dave").grantRole("auditor", ctx.address("alice")));
-      assert.deepEqual(await ctx.as("carol").getRoles(ctx.address("alice")), { isChief: false, isAdmin: false, isInvestigator: true, isAuditor: true });
-      await mine(ctx.as("dave").revokeRole("auditor", ctx.address("alice")));
-      assert.equal((await ctx.as("carol").getRoles(ctx.address("alice"))).isAuditor, false);
+      // Working roles in its own branch: yes.
+      await mine(ctx.as("dave").revokeRole("investigator", ctx.address("bob")));
+      await mine(ctx.as("dave").grantRole("auditor", ctx.address("bob"), 1));
+      assert.deepEqual(await ctx.as("carol").getRoles(ctx.address("bob")), { isChief: false, isAdmin: false, isInvestigator: false, isAuditor: true });
+      await mine(ctx.as("dave").revokeRole("auditor", ctx.address("bob")));
+      assert.equal((await ctx.as("carol").getRoles(ctx.address("bob"))).isAuditor, false);
+
+      // In another branch: no.
+      await rejectsWith(ctx.as("dave").grantRole("auditor", ctx.address("bob"), 2), LEDGER_ERROR.NOT_AUTHORIZED);
 
       // Other Admins: no.
-      await rejectsWith(ctx.as("dave").grantRole("admin", ctx.address("carol")), LEDGER_ERROR.NOT_AUTHORIZED);
+      await rejectsWith(ctx.as("dave").grantRole("admin", ctx.address("bob"), 1), LEDGER_ERROR.NOT_AUTHORIZED);
 
       // Pause: yes. Evidence: no.
       await mine(ctx.as("dave").pause());
@@ -199,7 +208,36 @@ export const scenarios = [
 
       // Removed by the Chief, the powers go at once.
       await mine(ctx.as("chief").revokeRole("admin", ctx.address("dave")));
-      await rejectsWith(ctx.as("dave").grantRole("auditor", ctx.address("bob")), LEDGER_ERROR.NOT_AUTHORIZED);
+      await rejectsWith(ctx.as("dave").grantRole("auditor", ctx.address("bob"), 1), LEDGER_ERROR.NOT_AUTHORIZED);
+    },
+  },
+  {
+    name: "branches compartmentalise cases: a case belongs to the branch that opened it",
+    async run(ctx) {
+      assert.deepEqual(
+        (await ctx.as("dave").listBranches()).map((b) => b.id),
+        [1, 2]
+      );
+      await rejectsWith(ctx.as("alice").createBranch("Rogue Branch"), LEDGER_ERROR.NOT_AUTHORIZED);
+      await rejectsWith(ctx.as("chief").createBranch(""), LEDGER_ERROR.INVALID_INPUT);
+      await mine(ctx.as("chief").createBranch("South Branch"));
+      assert.deepEqual((await ctx.as("dave").listBranches()).at(-1), { id: 3, name: "South Branch" });
+
+      // One branch role per address; unknown branches are refused.
+      await rejectsWith(ctx.as("chief").grantRole("auditor", ctx.address("alice"), 1), LEDGER_ERROR.INVALID_INPUT);
+      await rejectsWith(ctx.as("chief").grantRole("investigator", ctx.address("dave"), 9), LEDGER_ERROR.INVALID_INPUT);
+      await mine(ctx.as("chief").grantRole("investigator", ctx.address("dave"), 2));
+
+      const id = await registerAs(ctx, "alice");
+      assert.equal((await ctx.as("carol").getEvidence(id)).branchId, 1);
+      await rejectsWith(ctx.as("dave").logAccess(id), LEDGER_ERROR.NOT_AUTHORIZED);
+      await rejectsWith(ctx.as("dave").logVerification(id, HASH_1), LEDGER_ERROR.NOT_AUTHORIZED);
+      await rejectsWith(ctx.as("dave").registerEvidence({ caseRef: CASE_A, sha256: HASH_2, cid: CID, caseDigest: DIGEST }), LEDGER_ERROR.NOT_AUTHORIZED);
+      await rejectsWith(ctx.as("alice").transferCustody(id, ctx.address("dave")), LEDGER_ERROR.INVALID_RECIPIENT);
+      await rejectsWith(ctx.as("chief").reassignCustody(id, ctx.address("dave")), LEDGER_ERROR.INVALID_RECIPIENT);
+
+      const own = await registerAs(ctx, "dave", { caseRef: CASE_B });
+      assert.equal((await ctx.as("carol").getEvidence(own)).branchId, 2);
     },
   },
   {

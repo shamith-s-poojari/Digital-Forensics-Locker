@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { isAddress } from "ethers";
-import { Check, Crown, PauseCircle, PlayCircle, ShieldPlus, UserMinus, X } from "lucide-react";
+import { Building2, Check, Crown, PauseCircle, PlayCircle, Plus, ShieldPlus, UserMinus, X } from "lucide-react";
 import { useAccessRequests } from "../access/accessRequestContext.js";
 import Can from "../components/Can";
 import WriteActivity from "../components/WriteActivity";
@@ -9,7 +9,8 @@ import { useRole } from "../context/roleContext.js";
 import { useWallet } from "../context/walletContext.js";
 import { sameAddress } from "../web3/format.js";
 import { useLedger } from "../web3/ledgerContext.js";
-import { CAPABILITIES, ROLE_LABELS } from "../web3/roles.js";
+import { CAPABILITIES, ROLE_LABELS, inBranchScope } from "../web3/roles.js";
+import { useBranches } from "../web3/useBranches.js";
 import { useLedgerQuery } from "../web3/useLedgerQuery.js";
 import { useWriteFlow } from "../web3/useWriteFlow.js";
 
@@ -23,31 +24,35 @@ const ROLE_OPTIONS = [
   { value: "auditor", label: "Auditor", help: "Read-only: can view the ledger and check files against it. Cannot write." },
   {
     value: "admin",
-    label: "Admin",
-    help: "Can grant and revoke Investigators and Auditors, approve access requests and pause the ledger. Cannot appoint Admins or write evidence.",
+    label: "Branch Admin",
+    help: "Can grant and revoke Investigators and Auditors in their branch, approve its access requests and pause the ledger. Cannot appoint Admins or write evidence.",
     chiefOnly: true,
   },
 ];
+
+const MAX_BRANCH_NAME_LENGTH = 64;
 
 const MEMBER_LIST = { admin: "admins", investigator: "investigators", auditor: "auditors" };
 const holdersOf = (members, role) => members[MEMBER_LIST[role]] ?? [];
 
 /**
- * Pending access requests. Approving grants the role on the ledger (a transaction the contract checks) and only then
- * marks the request approved; rejecting just records the decision. Only the Chief can approve an Admin request.
+ * Pending access requests: every branch's for the Chief, the own branch's for a Branch Admin (the API and the demo
+ * store narrow the list; the contract refuses a grant outside the admin's branch whatever this page shows).
+ * Approving grants the role in the requested branch on the ledger (a transaction the contract checks) and only then
+ * marks the request approved; rejecting just records the decision. Only the Chief can approve a Branch Admin request.
  */
-function RequestsPanel({ members, busy, runWrite, ledger, canManageAdmins }) {
+function RequestsPanel({ members, busy, runWrite, ledger, canManageAdmins, nameOf }) {
   const requests = useAccessRequests();
   const [error, setError] = useState("");
   if (requests.status === "unavailable") return null;
 
-  const holds = (r) => holdersOf(members, r.role).some((a) => sameAddress(a, r.address));
+  const holds = (r) => holdersOf(members, r.role).some((a) => sameAddress(a, r.address)) && members.branchOf?.[r.address] === r.branchId;
 
   async function approve(r) {
     setError("");
     try {
       if (!holds(r)) {
-        const outcome = await runWrite(`Grant ${ROLE_LABELS[r.role]} role`, () => ledger.grantRole(r.role, r.address));
+        const outcome = await runWrite(`Grant ${ROLE_LABELS[r.role]} role in ${nameOf(r.branchId)}`, () => ledger.grantRole(r.role, r.address, r.branchId));
         if (!outcome.ok) return;
       }
       await requests.resolve(r.id, "approved");
@@ -88,12 +93,13 @@ function RequestsPanel({ members, busy, runWrite, ledger, canManageAdmins }) {
                 <div className="flex flex-wrap items-center gap-2">
                   <CopyChip value={r.address} label="Requesting address" />
                   <Badge tone="info">{ROLE_LABELS[r.role]}</Badge>
+                  <Badge>{nameOf(r.branchId)}</Badge>
                 </div>
                 {r.reason ? <p className="text-sm text-slate-300">{r.reason}</p> : null}
                 <p className="text-xs text-slate-500">Requested {new Date(r.createdAt).toLocaleString()}</p>
               </div>
               {r.role === "admin" && !canManageAdmins ? (
-                <span className="text-xs text-slate-400">Only the Chief can approve Admins</span>
+                <span className="text-xs text-slate-400">Only the Chief can approve Branch Admins</span>
               ) : (
                 <Button size="sm" variant="primary" icon={Check} disabled={busy} onClick={() => void approve(r)} aria-label={`Approve ${ROLE_LABELS[r.role]} for ${r.address}`}>
                   Approve
@@ -110,11 +116,72 @@ function RequestsPanel({ members, busy, runWrite, ledger, canManageAdmins }) {
   );
 }
 
-function MemberRow({ address, role, isYou, disabled, canRevoke = true, onRevoke }) {
+/** Chief only: the branches, and a form to open a new one. Branch names are public on the ledger. */
+function BranchesPanel({ branches, busy, runWrite, ledger }) {
+  const nameId = useId();
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+
+  async function onCreate(event) {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || new TextEncoder().encode(trimmed).length > MAX_BRANCH_NAME_LENGTH) {
+      setError(`Enter a branch name of 1 to ${MAX_BRANCH_NAME_LENGTH} characters.`);
+      return;
+    }
+    if (branches.some((b) => b.name.toLowerCase() === trimmed.toLowerCase())) {
+      setError("A branch with that name already exists.");
+      return;
+    }
+    setError("");
+    const outcome = await runWrite(`Create branch ${trimmed}`, () => ledger.createBranch(trimmed));
+    if (outcome.ok) setName("");
+  }
+
+  return (
+    <Panel title={`Branches (${branches.length})`} titleId="branches-heading">
+      {branches.length === 0 ? (
+        <p className="mb-3 text-sm text-slate-400">No branches yet. Create one before appointing Branch Admins or granting roles.</p>
+      ) : (
+        <ul className="mb-3 flex flex-wrap gap-2">
+          {branches.map((b) => (
+            <li key={b.id}>
+              <Badge>
+                <Building2 className="mr-1 inline size-3" aria-hidden="true" />#{b.id} {b.name}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form onSubmit={(e) => void onCreate(e)} noValidate className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <Field label="New branch name" htmlFor={nameId} error={error} hint="Public on the ledger: use a location, never a person's name.">
+          <input
+            id={nameId}
+            value={name}
+            maxLength={MAX_BRANCH_NAME_LENGTH}
+            onChange={(e) => {
+              setName(e.target.value);
+              setError("");
+            }}
+            placeholder="For example: North Regional Lab"
+            autoComplete="off"
+            className={INPUT_CLASS}
+          />
+        </Field>
+        <Button type="submit" variant="primary" icon={Plus} disabled={busy || !name.trim()}>
+          Create branch
+        </Button>
+      </form>
+    </Panel>
+  );
+}
+
+function MemberRow({ address, role, branchName, isYou, disabled, canRevoke = true, onRevoke }) {
   const [confirming, setConfirming] = useState(false);
   return (
     <li className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-4 py-2 last:border-b-0">
       <CopyChip value={address} label={`${role} address`} className="min-w-0 flex-1" />
+      {branchName ? <Badge>{branchName}</Badge> : null}
       {isYou ? <Badge tone="info">you</Badge> : null}
       {!canRevoke ? null : confirming ? (
         <span className="flex items-center gap-1.5">
@@ -143,28 +210,45 @@ function MemberRow({ address, role, isYou, disabled, canRevoke = true, onRevoke 
 }
 
 /**
- * Role Management (Chief and Admins). Assigns or revokes the Investigator and Auditor roles on the contract, decides
- * access requests, and can pause or resume all evidence writes. Only the Chief appoints or removes Admins.
+ * Role Management (Chief and Branch Admins).
+ *  - The Chief (headquarters) sees every branch: creates branches, appoints and removes Branch Admins, and may grant
+ *    or revoke the working roles in any branch.
+ *  - A Branch Admin sees and manages only its own branch's Investigators and Auditors and access requests.
+ * Both can pause or resume all evidence writes. The contract enforces every one of these limits; this page only
+ * avoids offering what would be refused.
  *
- * By design neither the Chief nor an Admin can register evidence unless also given the Investigator role.
+ * By design neither the Chief nor a Branch Admin can register evidence unless also given the Investigator role.
  */
 export default function AdminRoles() {
   const { ledger, config } = useLedger();
   const { account } = useWallet();
-  const canManageAdmins = useRole().can(CAPABILITIES.MANAGE_ADMINS);
+  const { can, branchId: myBranch } = useRole();
+  const canManageAdmins = can(CAPABILITIES.MANAGE_ADMINS);
   const roleOptions = ROLE_OPTIONS.filter((r) => !r.chiefOnly || canManageAdmins);
   const { status, data, error, reload } = useLedgerQuery(loadAdminData);
-  const write = useWriteFlow({ config, onConfirmed: reload });
+  const { branches, nameOf, reload: reloadBranches } = useBranches();
+  const write = useWriteFlow({
+    config,
+    onConfirmed: async () => {
+      await Promise.all([reload(), reloadBranches()]);
+    },
+  });
 
   const addressId = useId();
   const roleId = useId();
+  const branchSelectId = useId();
   const [address, setAddress] = useState("");
   const [role, setRole] = useState("investigator");
+  const [chosenBranch, setChosenBranch] = useState("");
   const [formError, setFormError] = useState("");
 
   const members = data?.members;
   const paused = data?.paused ?? false;
   const roleInfo = ROLE_OPTIONS.find((r) => r.value === role);
+  // A Branch Admin always grants in its own branch; the Chief picks one (the first by default).
+  const grantBranch = canManageAdmins ? Number(chosenBranch) || branches[0]?.id || 0 : myBranch ?? 0;
+  const scope = { global: canManageAdmins, branchId: myBranch };
+  const inScope = (a) => inBranchScope(scope, members?.branchOf?.[a]);
 
   async function onGrant(event) {
     event.preventDefault();
@@ -173,12 +257,16 @@ export default function AdminRoles() {
       setFormError("Enter a valid wallet address (0x followed by 40 hex characters).");
       return;
     }
+    if (!grantBranch) {
+      setFormError("Choose a branch.");
+      return;
+    }
     if (holdersOf(members, role).some((a) => sameAddress(a, trimmed))) {
-      setFormError(`That address is already an ${roleInfo.label}.`);
+      setFormError(`That address already holds the ${roleInfo.label} role.`);
       return;
     }
     setFormError("");
-    const outcome = await write.runWrite(`Grant ${roleInfo.label} role`, () => ledger.grantRole(role, trimmed));
+    const outcome = await write.runWrite(`Grant ${roleInfo.label} role in ${nameOf(grantBranch)}`, () => ledger.grantRole(role, trimmed, grantBranch));
     if (outcome.ok) setAddress("");
   }
 
@@ -188,7 +276,12 @@ export default function AdminRoles() {
     <div className="mx-auto max-w-4xl space-y-4">
       <div>
         <h1 className="text-xl font-bold text-slate-50">Role Management</h1>
-        <p className="text-sm text-slate-300">Decide which wallet addresses may work with evidence. Changes are transactions on the ledger and take effect once confirmed.</p>
+        <p className="text-sm text-slate-300">
+          {canManageAdmins
+            ? "Headquarters view: every branch. Decide which wallet addresses may work with evidence, and where."
+            : `Branch view: ${nameOf(myBranch)}. Decide which wallet addresses may work with this branch's evidence.`}{" "}
+          Changes are transactions on the ledger and take effect once confirmed.
+        </p>
       </div>
 
       {status === "loading" || status === "idle" ? <Spinner label="Reading roles from the ledger…" /> : null}
@@ -213,10 +306,12 @@ export default function AdminRoles() {
             </p>
           </Panel>
 
-          <RequestsPanel members={members} busy={busy} runWrite={write.runWrite} ledger={ledger} canManageAdmins={canManageAdmins} />
+          {canManageAdmins ? <BranchesPanel branches={branches} busy={busy} runWrite={write.runWrite} ledger={ledger} /> : null}
+
+          <RequestsPanel members={members} busy={busy} runWrite={write.runWrite} ledger={ledger} canManageAdmins={canManageAdmins} nameOf={nameOf} />
 
           <Panel title="Authorise an address" titleId="grant-heading">
-            <form onSubmit={(e) => void onGrant(e)} noValidate className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end">
+            <form onSubmit={(e) => void onGrant(e)} noValidate className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_10rem_auto] sm:items-end">
               <Field label="Wallet address" htmlFor={addressId} error={formError}>
                 <input
                   id={addressId}
@@ -241,17 +336,40 @@ export default function AdminRoles() {
                   ))}
                 </select>
               </Field>
-              <Button type="submit" variant="primary" icon={ShieldPlus} disabled={busy || !address.trim()}>
+              <Field label="Branch" htmlFor={branchSelectId}>
+                <select
+                  id={branchSelectId}
+                  value={String(grantBranch || "")}
+                  disabled={!canManageAdmins}
+                  onChange={(e) => setChosenBranch(e.target.value)}
+                  className={INPUT_CLASS}
+                >
+                  {canManageAdmins ? (
+                    branches.length === 0 ? (
+                      <option value="">No branches yet</option>
+                    ) : (
+                      branches.map((b) => (
+                        <option key={b.id} value={String(b.id)}>
+                          {b.name}
+                        </option>
+                      ))
+                    )
+                  ) : (
+                    <option value={String(myBranch ?? "")}>{nameOf(myBranch)}</option>
+                  )}
+                </select>
+              </Field>
+              <Button type="submit" variant="primary" icon={ShieldPlus} disabled={busy || !address.trim() || !grantBranch}>
                 Grant role
               </Button>
-              <p className="text-xs text-slate-400 sm:col-span-3">{roleInfo.help}</p>
+              <p className="text-xs text-slate-400 sm:col-span-4">{roleInfo.help}</p>
             </form>
           </Panel>
 
           {[
-            { key: "admin", title: "Admins", list: members.admins, canRevoke: canManageAdmins },
-            { key: "investigator", title: "Investigators", list: members.investigators, canRevoke: true },
-            { key: "auditor", title: "Auditors", list: members.auditors, canRevoke: true },
+            { key: "admin", title: "Branch Admins", list: members.admins.filter(inScope), canRevoke: canManageAdmins },
+            { key: "investigator", title: "Investigators", list: members.investigators.filter(inScope), canRevoke: true },
+            { key: "auditor", title: "Auditors", list: members.auditors.filter(inScope), canRevoke: true },
           ].map(({ key, title, list, canRevoke }) => (
             <Panel key={key} title={`${title} (${list.length})`} titleId={`${key}-heading`} bodyClassName="p-0">
               {list.length === 0 ? (
@@ -263,6 +381,7 @@ export default function AdminRoles() {
                       key={a}
                       address={a}
                       role={key}
+                      branchName={canManageAdmins && members.branchOf?.[a] !== undefined ? nameOf(members.branchOf[a]) : null}
                       isYou={sameAddress(a, account)}
                       disabled={busy}
                       canRevoke={canRevoke}
