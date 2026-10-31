@@ -1,5 +1,6 @@
 import { Check, Copy, Loader2 } from "lucide-react";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { accountName } from "../web3/accountNames.js";
 
 /*
  * Small building blocks for the tactical dark UI: slate surfaces, high-contrast text, electric-blue accent.
@@ -74,8 +75,11 @@ export function Panel({ title, titleId, actions, children, className = "", bodyC
 export function CopyChip({ value, display, label, className = "", textClassName = "text-slate-100" }) {
   const { copiedKey, copy } = useCopyToClipboard();
   const copied = copiedKey === value;
+  // A wallet address with a display name (VITE_ACCOUNT_NAMES) shows the name too; the address stays the copied value.
+  const name = accountName(value);
   return (
     <span className={`inline-flex max-w-full items-center gap-1.5 rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 ${className}`}>
+      {name ? <span className="shrink-0 text-xs font-semibold text-sky-200">{name}</span> : null}
       <code className={`truncate font-mono text-xs ${textClassName}`} title={value}>
         {display ?? value}
       </code>

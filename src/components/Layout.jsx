@@ -11,6 +11,7 @@ import { AccessState } from "./RequireCapability";
 import { Spinner } from "./ui";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
 import { useAuth } from "../context/authContext.js";
+import { accountName } from "../web3/accountNames.js";
 
 const APP_NAME = "Digital Forensics Locker";
 const SIDEBAR_ID = "app-sidebar";
@@ -509,6 +510,7 @@ export default function Layout({ children }) {
                       display: "inline-block",
                     }}
                   ></span>
+                  {accountName(account) ? <span style={{ color: "#bae6fd", fontFamily: "inherit" }}>{accountName(account)} ·</span> : null}
                   {truncateAddress(account)}
                 </button>
               ) : (
