@@ -83,7 +83,8 @@ The Chief can also grant and revoke roles on the Role Management page, but those
 | `npm run dev:lan` | Dev server exposed on the local network (`0.0.0.0`) for LAN access. |
 | `npm run build` | Production build into `dist/`. |
 | `npm run check:bundle` | Fails if `dist/` contains anything secret-like (a JWT, a private key, a credential-named `VITE_` variable). Run after `build`; CI does. |
-| `npm run preview` | Serve the production build. |
+| `npm start` | Standalone production server (`server/index.js`, no Vite): serves `dist/` and the API with security headers. Run `build` first. `PORT` (default 4173), `HOST`, `ALLOWED_HOSTS` for a custom domain. |
+| `npm run preview` | Serve the production build through Vite's preview server (same API). |
 | `npm run lint` | ESLint. |
 | `npm test` | Web app tests (Vitest and Testing Library). |
 

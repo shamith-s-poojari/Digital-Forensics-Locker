@@ -9,7 +9,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview --host 0.0.0.0",
-    "start": "vite preview",
+    "start": "node server/index.js",
     "test": "vitest run",
     "check:bundle": "node scripts/check-bundle.mjs"
   },
