@@ -1,11 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Readable } from "node:stream";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createRoleGate } from "./chainRoles.js";
 import { createKeyStore, parseMasterKey } from "./keyStore.js";
+import { readFile, writeFile } from "node:fs/promises";
+import { backends, fileBackend, useBackend } from "./storage/testBackends.js";
 
 const HOST = "localhost:5173";
 const ALICE = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
@@ -36,23 +35,15 @@ function makeRes() {
   };
 }
 
-let dir;
-beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "dfl-keys-"));
-});
-afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
-});
+let harness;
 
 /** roleOf: returns the signed-in wallet's on-chain role flags at the time of each call; omitted = no role checks. */
 function setup({ masterKey = randomBytes(32), masterKeyVersion = 1, roleOf } = {}) {
-  const filePath = join(dir, "keys.json");
-  const accessLogPath = join(dir, "access.log");
+  const storage = harness.newStorage().keys;
   const store = createKeyStore({
     masterKey,
     masterKeyVersion,
-    filePath,
-    accessLogPath,
+    storage,
     getSession: (req) => (req.signedIn ? { address: ALICE } : null),
     // A fresh gate per call, so a role change in the test is seen at once (no cache).
     checkRole: roleOf ? (session, capability) => createRoleGate({ readRoles: async () => roleOf() }).check(session, capability) : undefined,
@@ -65,7 +56,7 @@ function setup({ masterKey = randomBytes(32), masterKeyVersion = 1, roleOf } = {
   }
   const put = (body = { keyId: KEY_ID, sha256: SHA, key: RAW_KEY }, extra = {}) => call({ method: "POST", url: "/api/keys", body, ...extra });
   const get = (keyId = KEY_ID, extra = {}) => call({ url: `/api/keys/${keyId}`, ...extra });
-  return { store, call, put, get, filePath, accessLogPath, masterKey };
+  return { store, storage, call, put, get, masterKey };
 }
 
 describe("parseMasterKey", () => {
@@ -77,10 +68,12 @@ describe("parseMasterKey", () => {
   });
 });
 
-describe("createKeyStore with on-chain roles", () => {
+describe.each(backends)("createKeyStore with on-chain roles ($name)", (backend) => {
+  useBackend(backend, (h) => (harness = h));
+
   it("stores keys only for Investigators and releases them only to wallets that hold a role", async () => {
     let role = {};
-    const { put, get, accessLogPath } = setup({ roleOf: () => role });
+    const { put, get, storage } = setup({ roleOf: () => role });
 
     expect((await put()).status).toBe(403); // no role
     role = { isAuditor: true };
@@ -92,14 +85,16 @@ describe("createKeyStore with on-chain roles", () => {
     const refused = await get();
     expect(refused.status).toBe(403);
     expect(refused.json.key).toBeUndefined();
-    await expect(readFile(accessLogPath, "utf8")).rejects.toThrow(); // nothing released, nothing logged
+    expect(await storage.listReleases()).toEqual([]); // nothing released, nothing logged
 
     role = { isAuditor: true };
     expect((await get()).json.key).toBe(RAW_KEY);
   });
 });
 
-describe("createKeyStore", () => {
+describe.each(backends)("createKeyStore ($name)", (backend) => {
+  useBackend(backend, (h) => (harness = h));
+
   it("ignores other paths", async () => {
     expect((await setup().call({ url: "/api/pin" })).handled).toBe(false);
   });
@@ -132,13 +127,12 @@ describe("createKeyStore", () => {
     expect(result.json).toEqual({ keyId: KEY_ID, sha256: SHA, key: RAW_KEY, createdBy: ALICE, createdAt: "2026-10-26T12:00:00.000Z" });
   });
 
-  it("writes only the wrapped key to disk, never the raw key", async () => {
-    const { put, filePath } = setup();
+  it("stores only the wrapped key, never the raw key", async () => {
+    const { put, storage } = setup();
     await put();
-    const text = await readFile(filePath, "utf8");
-    const entry = JSON.parse(text).keys[KEY_ID];
+    const entry = await storage.get(KEY_ID);
 
-    expect(text).not.toContain(RAW_KEY);
+    expect(JSON.stringify(entry)).not.toContain(RAW_KEY);
     expect(entry).toMatchObject({ keyId: KEY_ID, sha256: SHA, masterKeyVersion: 1, createdBy: ALICE });
     expect(entry.wrapped).not.toBe(RAW_KEY);
   });
@@ -152,12 +146,11 @@ describe("createKeyStore", () => {
   });
 
   it("logs every key release", async () => {
-    const { put, get, accessLogPath } = setup();
+    const { put, get, storage } = setup();
     await put();
     await get();
     await get();
-    const lines = (await readFile(accessLogPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-    expect(lines).toEqual([
+    expect(await storage.listReleases()).toEqual([
       { keyId: KEY_ID, sha256: SHA, address: ALICE, at: "2026-10-26T12:00:00.000Z" },
       { keyId: KEY_ID, sha256: SHA, address: ALICE, at: "2026-10-26T12:00:00.000Z" },
     ]);
@@ -178,17 +171,6 @@ describe("createKeyStore", () => {
     expect(result.json.error).toMatch(/could not be unwrapped/);
   });
 
-  it("detects an entry edited on disk (its file hash changed), because the hash is bound into the wrap", async () => {
-    const first = setup();
-    await first.put();
-    const data = JSON.parse(await readFile(first.filePath, "utf8"));
-    data.keys[KEY_ID].sha256 = "cd".repeat(32);
-    await writeFile(first.filePath, JSON.stringify(data));
-
-    const result = await setup({ masterKey: first.masterKey }).get();
-    expect(result.status).toBe(500);
-  });
-
   it("refuses a key wrapped under a master key version that is not loaded", async () => {
     const first = setup({ masterKeyVersion: 1 });
     await first.put();
@@ -205,5 +187,21 @@ describe("createKeyStore", () => {
     expect((await put("not json")).status).toBe(400);
     expect((await get("../../etc/passwd")).status).toBe(400);
     expect((await get("f".repeat(32))).status).toBe(404);
+  });
+});
+
+describe("createKeyStore on file storage", () => {
+  useBackend(fileBackend, (h) => (harness = h));
+
+  it("detects an entry edited on disk (its file hash changed), because the hash is bound into the wrap", async () => {
+    const first = setup();
+    await first.put();
+    const { keyFile } = harness.paths;
+    const data = JSON.parse(await readFile(keyFile, "utf8"));
+    data.keys[KEY_ID].sha256 = "cd".repeat(32);
+    await writeFile(keyFile, JSON.stringify(data));
+
+    const result = await setup({ masterKey: first.masterKey }).get();
+    expect(result.status).toBe(500);
   });
 });

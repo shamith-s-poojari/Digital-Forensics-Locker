@@ -1,4 +1,5 @@
 import { ArrowRight, CheckCircle2, ExternalLink, Eye, FilePlus2, GitCompareArrows, Loader2, RefreshCcw, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
+import { matchNote } from "../../custody/custodyNote.js";
 import { txUrl } from "../../web3/config.js";
 import { ACTION_META } from "../../web3/caseModel.js";
 import { formatUtc, sameAddress, shorten, timeAgo } from "../../web3/format.js";
@@ -44,11 +45,34 @@ function ChainStatus({ status }) {
   return <Badge tone="warning">Hash chain not checked</Badge>;
 }
 
+/** A custody entry's note: the stored text if it reproduces the hash on chain, a warning if it does not, else the hash. */
+function EntryNote({ entry, evidenceId, notes }) {
+  const { status, note } = matchNote(entry, evidenceId, notes);
+  if (status === "none") return null;
+  if (status === "unavailable") return <p className="mt-0.5 text-xs text-slate-400">Note hash {shorten(entry.noteHash, 8, 6)} (text not available to you)</p>;
+  if (status === "altered")
+    return (
+      <div className="mt-1">
+        <Badge tone="danger" icon={XCircle}>
+          NOTE CHANGED: the stored note does not match the hash on the ledger
+        </Badge>
+      </div>
+    );
+  return (
+    <div className="mt-1 rounded-md border border-slate-700 bg-slate-900/70 p-2">
+      <p className="whitespace-pre-wrap break-words text-xs text-slate-100">{note.note}</p>
+      <p className="mt-1 flex items-center gap-1 text-xs text-emerald-300">
+        <CheckCircle2 className="size-3" aria-hidden="true" /> Matches the hash on the ledger
+      </p>
+    </div>
+  );
+}
+
 /**
- * The chain of custody of one evidence item, newest first, with who did what and when, and a link to the
+ * The chain of custody of one evidence item, newest first, with who did what and when, any note, and a link to the
  * transaction that recorded each step. The header shows the result of the ledger recomputing the hash chain.
  */
-export default function CustodyTimeline({ record, account, txs, chainStatus, config }) {
+export default function CustodyTimeline({ record, account, txs, chainStatus, config, notes }) {
   if (!record) {
     return (
       <Panel title="Chain of custody" titleId="timeline-heading">
@@ -105,7 +129,7 @@ export default function CustodyTimeline({ record, account, txs, chainStatus, con
                   </>
                 ) : null}
               </p>
-              {entry.noteHash ? <p className="mt-0.5 text-xs text-slate-400">Note hash {shorten(entry.noteHash, 8, 6)}</p> : null}
+              <EntryNote entry={entry} evidenceId={record.id} notes={notes} />
               {href ? (
                 <a href={href} target="_blank" rel="noopener noreferrer" className="mt-0.5 inline-flex items-center gap-1 text-xs text-sky-300 underline underline-offset-2 hover:text-sky-200">
                   Transaction {shorten(tx.txHash, 8, 6)} · block {tx.blockNumber}

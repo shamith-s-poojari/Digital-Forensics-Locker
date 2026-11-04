@@ -14,6 +14,7 @@ export const LEDGER_ERROR = Object.freeze({
   INVALID_INPUT: "InvalidInput",
   INSUFFICIENT_FUNDS: "InsufficientFunds",
   NETWORK: "Network",
+  NOTE_NOT_SAVED: "NoteNotSaved",
   UNKNOWN: "Unknown",
 });
 
@@ -142,6 +143,7 @@ const FRIENDLY = {
   [LEDGER_ERROR.INVALID_INPUT]: () => "The request contained an empty or invalid value.",
   [LEDGER_ERROR.INSUFFICIENT_FUNDS]: () => "Your wallet needs a little test ETH to pay the network fee.",
   [LEDGER_ERROR.NETWORK]: () => "Could not reach the blockchain network. Check your connection and the selected network, then retry.",
+  [LEDGER_ERROR.NOTE_NOT_SAVED]: (d) => `Your note could not be saved, so nothing was sent to the ledger. ${d?.reason ?? ""}`.trim(),
   [LEDGER_ERROR.UNKNOWN]: () => "Something went wrong. Please try again.",
 };
 

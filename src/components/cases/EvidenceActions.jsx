@@ -1,13 +1,15 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRightLeft, CloudDownload, Download, Eye, FileSearch, ShieldCheck, ShieldX } from "lucide-react";
+import { useRole } from "../../context/roleContext.js";
 import { useWallet } from "../../context/walletContext.js";
 import { keyClient as defaultKeyClient } from "../../crypto/keyClient.js";
+import { MAX_NOTE_LENGTH } from "../../custody/custodyNote.js";
 import { downloadBytes } from "../../utils/download.js";
 import { formatFileSize } from "../../utils/hash";
 import { MAX_VERIFY_BYTES, openAndHash, verifyStoredCopy } from "../../verify/verifyEvidence.js";
 import { lockerConfig } from "../../web3/config.js";
 import { sameAddress, shorten } from "../../web3/format.js";
-import { friendlyMessage, LedgerError } from "../../web3/ledgerErrors.js";
+import { friendlyMessage, LEDGER_ERROR, LedgerError } from "../../web3/ledgerErrors.js";
 import { CAPABILITIES } from "../../web3/roles.js";
 import Can from "../Can";
 import { Badge, Button, CopyChip, Field, INPUT_CLASS, Panel, Spinner } from "../ui";
@@ -122,7 +124,7 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
                 variant="secondary"
                 icon={FileSearch}
                 disabled={paused}
-                onClick={() => void runWrite("Record verification on the ledger", () => ledger.logVerification(record.id, state.hash))}
+                onClick={() => void runWrite("Record verification on the ledger", (noteHash) => ledger.logVerification(record.id, state.hash, noteHash))}
               >
                 Record this result on the ledger
               </Button>
@@ -169,7 +171,7 @@ function CustodyForm({ record, ledger, account, paused, runWrite, mode }) {
   }
 
   const send = () =>
-    runWrite(reassign ? "Reassign custody" : "Transfer custody", () => (reassign ? ledger.reassignCustody(record.id, recipient) : ledger.transferCustody(record.id, recipient))).then((result) => {
+    runWrite(reassign ? "Reassign custody" : "Transfer custody", (noteHash) => (reassign ? ledger.reassignCustody(record.id, recipient, noteHash) : ledger.transferCustody(record.id, recipient, noteHash))).then((result) => {
       // Keep the form (and the chosen recipient) open when the transaction failed, so the user can retry.
       if (result.ok) {
         setOpen(false);
@@ -207,26 +209,71 @@ function CustodyForm({ record, ledger, account, paused, runWrite, mode }) {
 }
 
 /**
- * Actions on the selected evidence item. Everyone who can view can check a file; writing actions appear only for the
- * roles that may perform them (the contract enforces this regardless of what is shown).
+ * The optional note for the next custody action, and the `runWrite` that sends it: the note is saved first, then its
+ * hash goes into the transaction. Retrying the same text after a rejected transaction reuses the saved note.
  */
-export default function EvidenceActions({ record, ledger, account, paused, runWrite, keyClient = defaultKeyClient, gateways = lockerConfig.ipfsGateways }) {
-  if (!record) return null;
+function useCustodyNote({ record, account, runWrite, noteStore }) {
+  const [note, setNote] = useState("");
+  const saved = useRef(null);
+
+  async function saveNote() {
+    const text = note.trim();
+    if (!text || !noteStore) return undefined;
+    if (saved.current?.text === text) return saved.current.noteHash;
+    try {
+      const { noteHash } = await noteStore.add({ evidenceId: record.id, note: text, branchId: record.branchId }, account);
+      saved.current = { text, noteHash };
+      return noteHash;
+    } catch (err) {
+      throw new LedgerError(LEDGER_ERROR.NOTE_NOT_SAVED, err?.message, { reason: err?.message });
+    }
+  }
+
+  const runWithNote = async (title, send) => {
+    const result = await runWrite(title, async () => send(await saveNote()));
+    if (result?.ok) {
+      setNote("");
+      saved.current = null;
+    }
+    return result;
+  };
+
+  return { note, setNote, runWithNote };
+}
+
+/** The panel for one evidence item (keyed by evidence id by the caller, so a note never carries over to another item). */
+function ActionsPanel({ record, ledger, account, paused, runWrite, keyClient, gateways, noteStore }) {
+  const noteId = useId();
+  const { can } = useRole();
+  const { note, setNote, runWithNote } = useCustodyNote({ record, account, runWrite, noteStore });
   const isCustodian = sameAddress(record.custodian, account);
+  const canNote = noteStore && (can(CAPABILITIES.LOG_CUSTODY) || can(CAPABILITIES.REASSIGN));
 
   return (
     <Panel title="Actions" titleId="actions-heading">
       <div className="space-y-4">
-        <CheckFile key={record.id} record={record} ledger={ledger} paused={paused} runWrite={runWrite} keyClient={keyClient} gateways={gateways} />
+        <CheckFile key={record.id} record={record} ledger={ledger} paused={paused} runWrite={runWithNote} keyClient={keyClient} gateways={gateways} />
+
+        {canNote ? (
+          <div className="border-t border-slate-800 pt-3">
+            <Field
+              label="Custody note (optional)"
+              htmlFor={noteId}
+              hint="Saved with your next action below and cannot be edited afterwards. The text stays on the server, visible to this branch and the Chief; only its hash goes on the public ledger."
+            >
+              <textarea id={noteId} rows={2} maxLength={MAX_NOTE_LENGTH} value={note} onChange={(e) => setNote(e.target.value)} className={INPUT_CLASS} />
+            </Field>
+          </div>
+        ) : null}
 
         <Can capability={CAPABILITIES.LOG_CUSTODY}>
           <div className="flex flex-wrap items-center gap-2 border-t border-slate-800 pt-3">
-            <Button icon={Eye} disabled={paused} onClick={() => void runWrite("Log access", () => ledger.logAccess(record.id))}>
+            <Button icon={Eye} disabled={paused} onClick={() => void runWithNote("Log access", (noteHash) => ledger.logAccess(record.id, noteHash))}>
               Log that I accessed this
             </Button>
             {isCustodian ? (
               <Can capability={CAPABILITIES.TRANSFER}>
-                <CustodyForm key={`transfer-${record.id}`} record={record} ledger={ledger} account={account} paused={paused} runWrite={runWrite} mode="transfer" />
+                <CustodyForm key={`transfer-${record.id}`} record={record} ledger={ledger} account={account} paused={paused} runWrite={runWithNote} mode="transfer" />
               </Can>
             ) : (
               <Badge tone="neutral">Only the custodian can transfer</Badge>
@@ -236,10 +283,19 @@ export default function EvidenceActions({ record, ledger, account, paused, runWr
 
         <Can capability={CAPABILITIES.REASSIGN}>
           <div className="border-t border-slate-800 pt-3">
-            <CustodyForm key={`reassign-${record.id}`} record={record} ledger={ledger} account={account} paused={paused} runWrite={runWrite} mode="reassign" />
+            <CustodyForm key={`reassign-${record.id}`} record={record} ledger={ledger} account={account} paused={paused} runWrite={runWithNote} mode="reassign" />
           </div>
         </Can>
       </div>
     </Panel>
   );
+}
+
+/**
+ * Actions on the selected evidence item. Everyone who can view can check a file; writing actions appear only for the
+ * roles that may perform them (the contract enforces this regardless of what is shown).
+ */
+export default function EvidenceActions({ record, ledger, account, paused, runWrite, keyClient = defaultKeyClient, gateways = lockerConfig.ipfsGateways, noteStore = null }) {
+  if (!record) return null;
+  return <ActionsPanel key={record.id} record={record} ledger={ledger} account={account} paused={paused} runWrite={runWrite} keyClient={keyClient} gateways={gateways} noteStore={noteStore} />;
 }
