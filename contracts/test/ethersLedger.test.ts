@@ -85,6 +85,19 @@ describe("EthersLedger against the real contract", () => {
       await handle.wait();
     });
 
+    it("sends each transaction at the fee the network suggests", async () => {
+      const base = await makeContext();
+      const ledger = base.as("alice") as {
+        registerEvidence: (a: object) => Promise<{ hash: string; wait: () => Promise<unknown> }>;
+      };
+      const before = await ethers.provider.getFeeData();
+      const handle = await ledger.registerEvidence({ caseRef: ethers.id("c4"), sha256: "ba".repeat(32), cid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi", caseDigest: "d1".repeat(32) });
+      await handle.wait();
+      const tx = await ethers.provider.getTransaction(handle.hash);
+      expect(tx?.maxPriorityFeePerGas).to.equal(before.maxPriorityFeePerGas);
+      expect(tx?.maxFeePerGas).to.equal(before.maxFeePerGas);
+    });
+
     it("rejects malformed input before anything is sent", async () => {
       const base = await makeContext();
       const ledger = base.as("chief") as { grantRole: (r: string, a: string) => Promise<unknown> };

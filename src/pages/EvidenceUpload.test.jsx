@@ -46,6 +46,7 @@ function makeLedger(overrides = {}) {
     kind: "chain",
     isPaused: vi.fn().mockResolvedValue(false),
     findEvidence: vi.fn().mockResolvedValue(null),
+    hasFeeFunds: vi.fn().mockResolvedValue(true),
     registerEvidence: vi.fn().mockResolvedValue({ hash: TX_HASH, wait }),
     wait,
     ...overrides,
@@ -424,15 +425,59 @@ describe("EvidenceUpload: case details", () => {
     expect(ledger.registerEvidence).not.toHaveBeenCalled();
   });
 
-  it("does not register while the case store cannot be read (signed out)", async () => {
-    const store = { kind: "demo", list: vi.fn().mockRejectedValue(Object.assign(new Error("Sign in first."), { status: 401 })), create: vi.fn(), addVersion: vi.fn() };
+  it("touches nothing when the wallet cannot pay the fee, and goes ahead once it can", async () => {
+    const ledger = renderUpload(makeLedger({ hasFeeFunds: vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true) }));
+    await fillAndChoose("CASE-NEW-9");
+    await userEvent.type(screen.getByLabelText("Case title"), "A new case");
+
+    await userEvent.click(submit());
+    expect((await screen.findByText(/needs a little test ETH.*Nothing was uploaded/)).closest('[role="alert"]')).toBeTruthy();
+    expect(ledger.hasFeeFunds).toHaveBeenCalledWith(wallet.account);
+    expect(caseStore._cases.has(deriveCaseRef("CASE-NEW-9"))).toBe(false);
+    expect(keyClient.storeKey).not.toHaveBeenCalled();
+    expect(uploadToIPFSWithProgress).not.toHaveBeenCalled();
+    expect(ledger.registerEvidence).not.toHaveBeenCalled();
+
+    await userEvent.click(submit());
+    await waitFor(() => expect(ledger.registerEvidence).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/needs a little test ETH/)).toBeNull();
+  });
+
+  it("carries on when the balance cannot be read", async () => {
+    const ledger = renderUpload(makeLedger({ hasFeeFunds: vi.fn().mockRejectedValue(new Error("RPC down")) }));
+    await fillAndChoose();
+
+    await userEvent.click(submit());
+    await waitFor(() => expect(ledger.registerEvidence).toHaveBeenCalledTimes(1));
+  });
+
+  it("asks for a sign-in instead of registering while the case store says signed out, then re-reads it", async () => {
+    const list = vi.fn().mockRejectedValueOnce(Object.assign(new Error("Sign in first."), { status: 401 })).mockResolvedValue([]);
+    const store = { kind: "demo", list, create: vi.fn(), addVersion: vi.fn() };
     const ledger = renderUpload(makeLedger(), { store });
     await userEvent.type(screen.getByLabelText("Case number"), "CASE-1");
     expect(await screen.findByText("Sign in with your wallet to look up the case details.")).toBeTruthy();
     await fillAndChoose("");
 
     await userEvent.click(submit());
-    expect((await screen.findByText("Sign in first.")).getAttribute("role")).toBe("alert");
+    expect((await screen.findByText("You are signed in. Check the case details, then submit again.")).getAttribute("role")).toBe("alert");
+    expect(ensureSession).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Sign in with your wallet to look up the case details.")).toBeNull();
+    expect(screen.getByLabelText("Case title")).toBeTruthy(); // the store was read again: CASE-1 is a new case
+    expect(ledger.findEvidence).not.toHaveBeenCalled();
+    expect(store.create).not.toHaveBeenCalled();
+  });
+
+  it("shows why when the sign-in is refused, and registers nothing", async () => {
+    ensureSession.mockResolvedValue({ ok: false, error: "Sign-in was rejected in your wallet." });
+    const store = { kind: "demo", list: vi.fn().mockRejectedValue(Object.assign(new Error("Sign in first."), { status: 401 })), create: vi.fn(), addVersion: vi.fn() };
+    const ledger = renderUpload(makeLedger(), { store });
+    await userEvent.type(screen.getByLabelText("Case number"), "CASE-1");
+    await screen.findByText("Sign in with your wallet to look up the case details.");
+    await fillAndChoose("");
+
+    await userEvent.click(submit());
+    expect((await screen.findByText("Sign-in was rejected in your wallet.")).getAttribute("role")).toBe("alert");
     expect(ledger.findEvidence).not.toHaveBeenCalled();
     expect(store.create).not.toHaveBeenCalled();
   });

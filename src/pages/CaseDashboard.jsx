@@ -21,6 +21,9 @@ import { CAPABILITIES } from "../web3/roles.js";
 import { useEvidence } from "../web3/useEvidence.js";
 import { useWriteFlow } from "../web3/useWriteFlow.js";
 
+// Outside the component: the demo ledger outlives this page, so its notes must too, or leaving the page loses their text.
+const demoNoteStore = createDemoCustodyNoteStore();
+
 /**
  * Case Management Dashboard.
  *
@@ -78,7 +81,6 @@ export default function CaseDashboard() {
 
   // The text of the selected item's custody notes, from the store that matches the ledger. The timeline compares each
   // with the hash on chain. A sign-in can change what the store returns, so it is part of the key.
-  const [demoNoteStore] = useState(createDemoCustodyNoteStore);
   const noteStore = mode === "demo" ? demoNoteStore : mode === "chain" ? httpCustodyNoteStore : null;
   const noteKey = noteStore && record ? `${noteStore.kind}:${account}:${isSignedIn}:${record.id}:${version}` : null;
   const [notes, setNotes] = useState({ key: null, list: null });

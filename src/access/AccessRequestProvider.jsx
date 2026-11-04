@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWallet } from "../context/walletContext.js";
 import { useLedger } from "../web3/ledgerContext.js";
 import { branchScope } from "../web3/roles.js";
@@ -41,9 +41,18 @@ export function AccessRequestProvider({ children, store: override }) {
     [store, ledger, account, key]
   );
 
+  // A caller of reload may hold a render from before its own sign-in, so it reads through these and drops a result the
+  // key has since moved past. Stored under an old key, that result would leave the requests "loading" for good.
+  const latest = useRef({ key, read });
+  useEffect(() => {
+    latest.current = { key, read };
+  }, [key, read]);
+
   const reload = useCallback(async () => {
-    if (store && account) setState(await read());
-  }, [store, account, read]);
+    if (!store || !account) return;
+    const next = await latest.current.read();
+    if (next.key === latest.current.key) setState(next);
+  }, [store, account]);
 
   useEffect(() => {
     if (!store || !account) return undefined;

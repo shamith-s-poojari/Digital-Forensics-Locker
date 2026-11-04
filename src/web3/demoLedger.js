@@ -275,6 +275,7 @@ export function createDemoLedger({ store, account, signDelayMs = 700, confirmDel
       return members;
     },
     isPaused: async () => store.paused,
+    hasFeeFunds: async () => true, // the demo charges no fees
 
     registerEvidence: ({ caseRef, sha256, cid, caseDigest }) =>
       transact(() => {

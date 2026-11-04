@@ -13,7 +13,7 @@ import { uploadToIPFSWithProgress } from "../utils/ipfs";
 import { txUrl } from "../web3/config.js";
 import { deriveCaseRef, shorten } from "../web3/format.js";
 import { useLedger } from "../web3/ledgerContext.js";
-import { friendlyMessage } from "../web3/ledgerErrors.js";
+import { friendlyMessage, LedgerError, LEDGER_ERROR } from "../web3/ledgerErrors.js";
 import { useWriteFlow } from "../web3/useWriteFlow.js";
 
 // Module-level so the list is stable across renders.
@@ -45,7 +45,7 @@ const UPLOAD_STEPS = [
  */
 export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
   const { ledger, config } = useLedger();
-  const { ensureSession } = useWallet();
+  const { account, ensureSession } = useWallet();
   const directory = useCaseDirectory();
   const caseId = useId();
   const caseTitleId = useId();
@@ -60,6 +60,7 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
   const [encrypted, setEncrypted] = useState(null); // { hash, keyId, envelope } once the key is stored
   const [pinned, setPinned] = useState(null); // { hash, cid, keyId } for the file that has been pinned
   const [duplicateId, setDuplicateId] = useState(null);
+  const [noFeeFunds, setNoFeeFunds] = useState(false);
   const [caseError, setCaseError] = useState("");
   const [paused, setPaused] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -134,8 +135,17 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
     event.preventDefault();
     setCaseError("");
     setDuplicateId(null);
+    setNoFeeFunds(false);
     if (!caseNumber.trim()) {
       setCaseError("Enter the case number this evidence belongs to.");
+      return;
+    }
+    if (directory.status === "signed-out") {
+      // Sign in here rather than refusing, as the session banner promises. Stop afterwards: the case details can now be
+      // read, and they decide what this form asks for (a new case needs a title).
+      const auth = await ensureSession();
+      if (auth.ok) await directory.reload();
+      setCaseError(auth.ok ? "You are signed in. Check the case details, then submit again." : auth.error);
       return;
     }
     if (directory.status !== "ready") {
@@ -157,6 +167,14 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
       const existing = await ledger.findEvidence(caseRef, hash);
       if (existing) {
         setDuplicateId(existing);
+        return;
+      }
+
+      // Pinning is permanent and public, so do not start on a wallet that cannot pay to record the result. If the balance
+      // cannot be read, carry on: the wallet still checks the fee before it signs.
+      const canPay = await ledger.hasFeeFunds(account).catch(() => true);
+      if (!canPay) {
+        setNoFeeFunds(true);
         return;
       }
 
@@ -374,6 +392,15 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
                 <Link to="/cases" className="underline underline-offset-2">
                   Open the case dashboard
                 </Link>
+              </span>
+            </div>
+          ) : null}
+
+          {noFeeFunds ? (
+            <div role="alert" className="flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <span>
+                {friendlyMessage(new LedgerError(LEDGER_ERROR.INSUFFICIENT_FUNDS))} {shorten(account)} does not have enough on {config.chainName}. Nothing was uploaded. Add some, then try again.
               </span>
             </div>
           ) : null}

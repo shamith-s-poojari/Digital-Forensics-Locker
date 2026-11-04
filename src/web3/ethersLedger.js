@@ -26,6 +26,10 @@ export const CUSTODY_ACTIONS = ["Submitted", "Accessed", "Transferred", "Verifie
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ZERO_HASH = `0x${"0".repeat(64)}`;
 
+// registerEvidence measured about 2.15M gas for a new case on Sepolia (2026-11-04). Deliberately set well below that: a
+// wrong refusal blocks real work, while a wallet that only just passes still gets its own warning before it signs.
+const MIN_REGISTER_GAS = 1_000_000n;
+
 /** Role ids are keccak256 of the role name, exactly as in the contract. "admin" is the Branch Admin. */
 export const ROLE_IDS = Object.freeze({
   admin: keccakId("BRANCH_ADMIN_ROLE"),
@@ -102,11 +106,24 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
     return logs;
   }
 
+  /**
+   * The network's own fee suggestion, passed to the wallet so it does not fall back on a default tip that can be far
+   * higher than the network needs. Without a usable suggestion the wallet chooses, as it would anyway.
+   */
+  async function suggestedFees() {
+    try {
+      const { maxFeePerGas, maxPriorityFeePerGas } = await provider.getFeeData();
+      return maxFeePerGas != null && maxPriorityFeePerGas != null ? { maxFeePerGas, maxPriorityFeePerGas } : {};
+    } catch {
+      return {};
+    }
+  }
+
   /** Sends a state-changing call. Resolves once the wallet has signed; the handle's wait() resolves when mined. */
   function send(method, args) {
     return guard(async () => {
       const writer = new Contract(address, abi, await getSigner());
-      const tx = await writer[method](...args);
+      const tx = await writer[method](...args, await suggestedFees());
       return {
         hash: tx.hash,
         wait: (confirmations = 1) =>
@@ -212,6 +229,13 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
       }),
 
     isPaused: () => guard(() => reader.paused()),
+
+    /** Whether `account` holds enough ETH to attempt registering evidence at current network fees. */
+    hasFeeFunds: (account) =>
+      guard(async () => {
+        const [balance, fees] = await Promise.all([provider.getBalance(account), provider.getFeeData()]);
+        return balance > 0n && balance >= MIN_REGISTER_GAS * (fees.maxFeePerGas ?? fees.gasPrice ?? 0n);
+      }),
 
     // ---- writes (each returns a TxHandle once the wallet has signed) --------------------------------------
     registerEvidence: async ({ caseRef, sha256, cid, caseDigest }) => {

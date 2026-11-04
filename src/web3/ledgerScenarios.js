@@ -41,6 +41,12 @@ async function registerAs(ctx, who, overrides = {}) {
 
 export const scenarios = [
   {
+    name: "reports that a funded investigator can pay the network fee",
+    async run(ctx) {
+      assert.equal(await ctx.as("alice").hasFeeFunds(ctx.address("alice")), true);
+    },
+  },
+  {
     name: "registers evidence, opens the custody trail, and the hash chain verifies",
     async run(ctx) {
       const id = await registerAs(ctx, "alice");
