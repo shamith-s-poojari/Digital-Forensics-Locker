@@ -16,13 +16,10 @@
 // Admin). The Chief sees and decides every branch's requests; a Branch Admin only working-role requests for its own
 // branch (isRequestInScope), and a request for the Branch Admin role needs the Chief, as on the contract.
 //
-// LIMITS (development build): a JSON file for one process.
+// Storage: server/storage/ (JSON files in development, Postgres when DATABASE_URL is set).
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { isRequestInScope, readRequestFields } from "../src/access/accessRequestStores.js";
-import { sameAddress } from "../src/web3/format.js";
 import { CAPABILITIES } from "../src/web3/roles.js";
 import { allowAll, globalScope } from "./chainRoles.js";
 import { isSameSiteRequest } from "./siweAuth.js";
@@ -63,7 +60,7 @@ function readJson(req, limit) {
 
 /**
  * @param {object} options
- * @param {string} options.filePath
+ * @param {object} options.storage  The `accessRequests` part of a storage (server/storage/fileStorage.js).
  * @param {(req) => ({ address: string } | null)} options.getSession
  * @param {(session, capability: string) => Promise<null | { status: number, error: string }>} [options.checkRole]
  *        From server/chainRoles.js. Defaults to no role checks.
@@ -71,31 +68,7 @@ function readJson(req, limit) {
  *        From server/chainRoles.js. Defaults to every branch.
  * @param {() => number} [options.now]
  */
-export function createAccessRequestStore({ filePath, getSession, checkRole = allowAll, readScope = globalScope, now = Date.now }) {
-  let loading = null;
-  let writeChain = Promise.resolve();
-
-  function requests() {
-    loading ??= readFile(filePath, "utf8")
-      .then((text) => JSON.parse(text).requests ?? [])
-      .catch((err) => {
-        if (err?.code === "ENOENT") return [];
-        loading = null; // never replace an unreadable file with an empty store
-        throw err;
-      });
-    return loading;
-  }
-
-  function persist(list) {
-    writeChain = writeChain.then(async () => {
-      await mkdir(dirname(filePath), { recursive: true });
-      const tmp = `${filePath}.${process.pid}.tmp`;
-      await writeFile(tmp, JSON.stringify({ version: 1, requests: list }, null, 2), { mode: 0o600 });
-      await rename(tmp, filePath);
-    });
-    return writeChain;
-  }
-
+export function createAccessRequestStore({ storage, getSession, checkRole = allowAll, readScope = globalScope, now = Date.now }) {
   async function body(req, res) {
     try {
       return await readJson(req, MAX_BODY_BYTES);
@@ -111,18 +84,8 @@ export function createAccessRequestStore({ filePath, getSession, checkRole = all
     const fields = readRequestFields(input);
     if (fields.error) return sendJson(res, 400, { error: fields.error });
 
-    const list = await requests();
-    const previous = list.findIndex((r) => r.status === "pending" && sameAddress(r.address, session.address));
-    const removed = previous >= 0 ? list.splice(previous, 1)[0] : null;
     const request = { id: randomUUID(), address: session.address, ...fields, status: "pending", createdAt: new Date(now()).toISOString(), resolvedBy: null, resolvedAt: null };
-    list.push(request);
-    try {
-      await persist(list);
-    } catch (err) {
-      list.pop();
-      if (removed) list.splice(previous, 0, removed);
-      throw err;
-    }
+    await storage.replacePending(request);
     return sendJson(res, 201, request);
   }
 
@@ -130,22 +93,15 @@ export function createAccessRequestStore({ filePath, getSession, checkRole = all
     const input = await body(req, res);
     if (!input) return;
     if (input.status !== "approved" && input.status !== "rejected") return sendJson(res, 400, { error: "Decision must be approved or rejected." });
-    const request = (await requests()).find((r) => r.id === id);
+    const request = await storage.get(id);
     if (!request) return sendJson(res, 404, { error: "No such request." });
     const denied = await checkRole(session, request.role === "admin" ? CAPABILITIES.MANAGE_ADMINS : CAPABILITIES.MANAGE_ROLES);
     if (denied) return sendJson(res, denied.status, { error: denied.error });
     // Answered like a missing request, so a Branch Admin cannot probe other branches' request ids.
     if (!isRequestInScope(request, await readScope(session))) return sendJson(res, 404, { error: "No such request." });
 
-    const before = { ...request };
-    Object.assign(request, { status: input.status, resolvedBy: session.address, resolvedAt: new Date(now()).toISOString() });
-    try {
-      await persist(await requests());
-    } catch (err) {
-      Object.assign(request, before);
-      throw err;
-    }
-    return sendJson(res, 200, request);
+    const resolved = await storage.resolve(id, { status: input.status, resolvedBy: session.address, resolvedAt: new Date(now()).toISOString() });
+    return sendJson(res, 200, resolved);
   }
 
   /**
@@ -174,10 +130,10 @@ export function createAccessRequestStore({ filePath, getSession, checkRole = all
       if (denied) sendJson(res, denied.status, { error: denied.error });
       else {
         const scope = await readScope(session);
-        sendJson(res, 200, { requests: (await requests()).filter((r) => r.status === "pending" && isRequestInScope(r, scope)) });
+        sendJson(res, 200, { requests: (await storage.listPending()).filter((r) => isRequestInScope(r, scope)) });
       }
     } else if (req.method === "GET" && id === "mine" && !sub) {
-      sendJson(res, 200, { request: (await requests()).findLast((r) => sameAddress(r.address, session.address)) ?? null });
+      sendJson(res, 200, { request: await storage.latestFor(session.address) });
     } else if (req.method === "POST" && !id) {
       await submit(req, res, session);
     } else if (req.method === "POST" && id && sub === "resolve") {

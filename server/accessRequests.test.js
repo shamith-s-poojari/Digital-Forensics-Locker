@@ -1,10 +1,8 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Readable } from "node:stream";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createAccessRequestStore } from "./accessRequests.js";
 import { createRoleGate } from "./chainRoles.js";
+import { backends, useBackend } from "./storage/testBackends.js";
 
 const HOST = "localhost:5173";
 const ALICE = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A";
@@ -30,20 +28,13 @@ function makeRes() {
   };
 }
 
-let dir;
-beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "dfl-requests-"));
-});
-afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
-});
+let harness;
 
 /** @param {{ roles?: Record<string, object> }} [options] roles: on-chain role flags by address; omitted = no role checks */
 function setup({ roles } = {}) {
-  const filePath = join(dir, "access-requests.json");
   const gate = roles ? createRoleGate({ readRoles: async (address) => roles[address] ?? {} }) : undefined;
   const store = createAccessRequestStore({
-    filePath,
+    storage: harness.newStorage().accessRequests,
     getSession: (req) => (req.as ? { address: req.as } : null),
     checkRole: gate?.check,
     readScope: gate?.scope,
@@ -55,10 +46,12 @@ function setup({ roles } = {}) {
     return { handled, status: res.statusCode, json: res.body ? JSON.parse(res.body) : null };
   }
   const submit = (body, as = ALICE) => call({ method: "POST", url: "/api/access-requests", body, as });
-  return { call, submit, filePath };
+  return { call, submit };
 }
 
-describe("createAccessRequestStore", () => {
+describe.each(backends)("createAccessRequestStore ($name)", (backend) => {
+  useBackend(backend, (h) => (harness = h));
+
   it("ignores other paths", async () => {
     expect((await setup().call({ url: "/api/cases" })).handled).toBe(false);
   });
@@ -70,14 +63,13 @@ describe("createAccessRequestStore", () => {
   });
 
   it("records a request under the signed-in address, never one from the body", async () => {
-    const { submit, call, filePath } = setup();
+    const { submit, call } = setup();
     const { status, json } = await submit({ role: "investigator", branchId: 1, reason: "  Cyber   unit  ", address: CHIEF });
     expect(status).toBe(201);
     expect(json).toMatchObject({ address: ALICE, role: "investigator", reason: "Cyber unit", status: "pending" });
 
     expect((await call({ url: "/api/access-requests/mine" })).json.request.id).toBe(json.id);
     expect((await call({ url: "/api/access-requests" })).json.requests).toHaveLength(1);
-    expect(JSON.parse(await readFile(filePath, "utf8")).requests[0].address).toBe(ALICE);
   });
 
   it("refuses the Chief seat, unknown roles, missing or bad branches and over-long reasons", async () => {
@@ -88,6 +80,7 @@ describe("createAccessRequestStore", () => {
     expect((await submit({ role: "auditor", branchId: 0 })).status).toBe(400);
     expect((await submit({ role: "auditor", branchId: "1" })).status).toBe(400);
     expect((await submit({ role: "auditor", branchId: 1, reason: "x".repeat(501) })).status).toBe(400);
+    expect((await submit({ role: "auditor", branchId: 1, reason: "a\0b" })).status).toBe(400); // Postgres text cannot hold a NUL
     expect((await submit("not json")).status).toBe(400);
   });
 
@@ -121,7 +114,9 @@ describe("createAccessRequestStore", () => {
   });
 });
 
-describe("createAccessRequestStore with on-chain roles", () => {
+describe.each(backends)("createAccessRequestStore with on-chain roles ($name)", (backend) => {
+  useBackend(backend, (h) => (harness = h));
+
   const ADMIN = "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65";
   const INVESTIGATOR = "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc";
   const NORTH_ADMIN = "0x976EA74026E726554dB657fA54763abd0C3a0aa9";

@@ -78,6 +78,7 @@ export function readRequestFields(input) {
   const branchId = input?.branchId;
   if (!Number.isSafeInteger(branchId) || branchId < 1 || branchId > MAX_BRANCH_ID) return { error: "Choose your branch location." };
   const reason = String(input?.reason ?? "").replace(/\s+/g, " ").trim();
+  if (reason.includes("\0")) return { error: "The reason contains an invalid character." };
   if (reason.length > MAX_REASON_LENGTH) return { error: `The reason is longer than ${MAX_REASON_LENGTH} characters.` };
   return { role, branchId, reason };
 }

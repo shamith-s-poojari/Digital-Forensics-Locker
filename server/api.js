@@ -9,6 +9,8 @@ import { createKeyStore, parseMasterKey } from "./keyStore.js";
 import { createCaseStore } from "./caseStore.js";
 import { createAccessRequestStore } from "./accessRequests.js";
 import { createChainRoleReader, createRoleGate } from "./chainRoles.js";
+import { createFileStorage } from "./storage/fileStorage.js";
+import { createPostgresStorage } from "./storage/postgresStorage.js";
 import { CAPABILITIES } from "../src/web3/roles.js";
 
 function sendInternalError(res, label, err) {
@@ -36,6 +38,29 @@ export function createGate(env, { production }) {
   return createRoleGate({ readRoles: createChainRoleReader({ rpcUrl: env.RPC_URL, address, chainId }) });
 }
 
+/** Where the JSON-file storage keeps each collection. Also read by scripts/import-data.mjs. */
+export function fileStoragePaths(env) {
+  const dataDir = env.DATA_DIR || ".data";
+  return {
+    caseFile: resolve(env.CASE_STORE || `${dataDir}/cases.json`),
+    accessRequestFile: resolve(env.ACCESS_REQUEST_STORE || `${dataDir}/access-requests.json`),
+    keyFile: resolve(env.EVIDENCE_KEY_STORE || `${dataDir}/evidence-keys.json`),
+    accessLogFile: resolve(env.EVIDENCE_KEY_ACCESS_LOG || `${dataDir}/key-access.log`),
+  };
+}
+
+/** Postgres when DATABASE_URL is set, otherwise JSON files. */
+function createStorage(env, { production }) {
+  if (!env.DATABASE_URL) {
+    if (production) console.warn("[storage] DATABASE_URL is not set: using JSON files, which are lost on a host without a persistent disk.");
+    return createFileStorage(fileStoragePaths(env));
+  }
+  const storage = createPostgresStorage({ connectionString: env.DATABASE_URL });
+  // Report a bad URL or an unreachable database at start-up. Requests retry, as the database may just be waking up.
+  storage.ready().catch((err) => console.error("[storage] could not prepare the database:", err.message));
+  return storage;
+}
+
 /**
  * Builds the API middleware. Requests outside /api/auth/*, /api/cases, /api/access-requests, /api/keys and /api/pin
  * are passed to `next`. Every data endpoint needs a sign-in session and a role on the contract (see createGate).
@@ -51,23 +76,22 @@ export function createApi(env, { production }) {
   const auth = createSiweAuth({ secureCookie: production });
   const authorize = (req) => auth.getSession(req) !== null;
   const gate = createGate(env, { production });
-  const dataDir = env.DATA_DIR || ".data";
+  const storage = createStorage(env, { production });
   const keyStore = createKeyStore({
     masterKey: parseMasterKey(env.EVIDENCE_MASTER_KEY),
     masterKeyVersion: Number(env.EVIDENCE_MASTER_KEY_VERSION) > 0 ? Number(env.EVIDENCE_MASTER_KEY_VERSION) : 1,
-    filePath: resolve(env.EVIDENCE_KEY_STORE || `${dataDir}/evidence-keys.json`),
-    accessLogPath: resolve(env.EVIDENCE_KEY_ACCESS_LOG || `${dataDir}/key-access.log`),
+    storage: storage.keys,
     getSession: auth.getSession,
     checkRole: gate.check,
   });
   const caseStore = createCaseStore({
-    filePath: resolve(env.CASE_STORE || `${dataDir}/cases.json`),
+    storage: storage.cases,
     getSession: auth.getSession,
     checkRole: gate.check,
     readScope: gate.scope,
   });
   const accessRequests = createAccessRequestStore({
-    filePath: resolve(env.ACCESS_REQUEST_STORE || `${dataDir}/access-requests.json`),
+    storage: storage.accessRequests,
     getSession: auth.getSession,
     checkRole: gate.check,
     readScope: gate.scope,

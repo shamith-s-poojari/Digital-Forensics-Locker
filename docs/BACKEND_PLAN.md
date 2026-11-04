@@ -64,7 +64,14 @@ Done as planned: `server/api.js` (moved from `vite.config.js`), `server/app.js` 
 - `npm start` becomes `node server/index.js` (after `npm run build`); `vite preview` stays for local checks.
 - Tests: static serving, SPA fallback, path traversal refused, `/api/*` routed to the existing handlers.
 
-### B2. Storage behind an interface, Postgres in production (medium)
+### B2. Storage behind an interface, Postgres in production (medium) — built 2026-11-04, not yet committed or run against Neon
+
+Built in `server/storage/`, tested against a real Postgres 18. It differs from the list below in four ways:
+
+- `cases` holds only what never changes (reference, number, branch, creator); titles and descriptions live in `case_versions` alone.
+- `key_access_log` records what the key store already logged (key id, file hash, address, time). `capability`, `result` and `ip hash` are not added: refused requests are still not logged.
+- Append-only is enforced by triggers rather than a restricted database role, so it works with Neon's single default role. A database owner can still disable a trigger.
+- `sessions` and `nonces` are left to B3, which will add them as its own migration.
 
 - Each store gets a tiny storage adapter with the operations it already performs (load, upsert, append). Two implementations:
   - **file** (the current JSON code): default in development and in all existing tests, so offline dev keeps working.

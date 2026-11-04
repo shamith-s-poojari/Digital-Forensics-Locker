@@ -125,6 +125,7 @@ To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLO
 | `PINATA_JWT` | **secret, server only** | Pinata key used by the upload proxy. Never prefix it with `VITE_`. |
 | `EVIDENCE_MASTER_KEY` | **secret, server only** | 32 random bytes (base64) that wrap every file's decryption key. Losing it makes every encrypted file unreadable: back it up off this machine. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. |
 | `EVIDENCE_MASTER_KEY_VERSION` | server only | Recorded with each wrapped key, for later rotation (default 1). |
+| `DATABASE_URL` | **secret, server only** | Postgres connection string. When set, the server stores everything below there instead of in JSON files, and creates the schema on start. `npm run import:data` copies an existing `.data/` folder in. |
 | `EVIDENCE_KEY_STORE`, `EVIDENCE_KEY_ACCESS_LOG` | server only | Where wrapped keys and the key-release log are written (default `.data/`, git-ignored). |
 | `CASE_STORE` | server only | Where the case store keeps case titles, descriptions and their version history (default `.data/cases.json`, git-ignored). |
 
@@ -199,7 +200,7 @@ Privacy: a public gateway learns that someone fetched a given CID, and from whic
 - Prototype: not audited, not deployed, not legally reviewed. An external contract audit and a forensics and legal review are required before any real use (roadmap Phases 5 and 6).
 - Public-chain privacy (see above), and the unsalted `caseRef`.
 - Files are encrypted before they are pinned, but the key server releases a key to **any signed-in wallet** (no role check yet), its master key is an environment variable, and the pin proxy likewise checks only for a sign-in.
-- No backend or database yet: sign-in sessions, wrapped keys and case details are kept by the Vite dev server (memory and JSON files under `.data/`), and the server checks only for a sign-in, not for an on-chain role. With the demo ledger, case titles are fictional sample data.
+- Case details, access requests, wrapped keys and the key-release log are kept in Postgres when `DATABASE_URL` is set, otherwise in JSON files under `.data/`. Sign-in sessions are still in memory, so a restart signs everyone out. With the demo ledger, case titles are fictional sample data.
 - In-browser hashing reads the whole file into memory, so it is limited to 10 MB.
 - The PDF custody report still exists only for the development sample pages; the dashboard exports a JSON case record instead.
 - The two sample pages (Evidence Viewer, Chain of Custody) show fictional data and exist in development builds only.

@@ -11,7 +11,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "start": "node server/index.js",
     "test": "vitest run",
-    "check:bundle": "node scripts/check-bundle.mjs"
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "import:data": "node scripts/import-data.mjs"
   },
   "engines": {
     "node": ">=22.12"
@@ -20,6 +21,7 @@
     "ethers": "^6.17.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^1.11.0",
+    "pg": "^8.23.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-router-dom": "^7.18.4"
