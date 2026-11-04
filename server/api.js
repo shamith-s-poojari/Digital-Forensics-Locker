@@ -1,5 +1,5 @@
-// The API: wallet sign-in (/api/auth/*), the case store, access requests, the evidence key store (/api/keys) and
-// POST /api/pin, as one Connect-style middleware `(req, res, next)`. Mounted by the standalone server
+// The API: wallet sign-in (/api/auth/*), the case store, access requests, custody notes, the evidence key store
+// (/api/keys) and POST /api/pin, as one Connect-style middleware `(req, res, next)`. Mounted by the standalone server
 // (server/index.js, `npm start`) and by the Vite dev and preview servers (vite.config.js), so all three behave alike.
 // Every secret (Pinata JWT, master key, RPC URL) is read here, in Node, and never reaches the browser bundle.
 import { resolve } from "node:path";
@@ -8,6 +8,7 @@ import { createSiweAuth } from "./siweAuth.js";
 import { createKeyStore, parseMasterKey } from "./keyStore.js";
 import { createCaseStore } from "./caseStore.js";
 import { createAccessRequestStore } from "./accessRequests.js";
+import { createCustodyNoteStore } from "./custodyNotes.js";
 import { createChainRoleReader, createRoleGate } from "./chainRoles.js";
 import { createFileStorage } from "./storage/fileStorage.js";
 import { createPostgresStorage } from "./storage/postgresStorage.js";
@@ -46,6 +47,7 @@ export function fileStoragePaths(env) {
     accessRequestFile: resolve(env.ACCESS_REQUEST_STORE || `${dataDir}/access-requests.json`),
     keyFile: resolve(env.EVIDENCE_KEY_STORE || `${dataDir}/evidence-keys.json`),
     accessLogFile: resolve(env.EVIDENCE_KEY_ACCESS_LOG || `${dataDir}/key-access.log`),
+    custodyNoteFile: resolve(env.CUSTODY_NOTE_STORE || `${dataDir}/custody-notes.json`),
   };
 }
 
@@ -62,8 +64,8 @@ function createStorage(env, { production }) {
 }
 
 /**
- * Builds the API middleware. Requests outside /api/auth/*, /api/cases, /api/access-requests, /api/keys and /api/pin
- * are passed to `next`. Every data endpoint needs a sign-in session and a role on the contract (see createGate).
+ * Builds the API middleware. Requests outside /api/auth/*, /api/cases, /api/access-requests, /api/custody-notes,
+ * /api/keys and /api/pin are passed to `next`. Every data endpoint needs a sign-in session and a role on the contract (see createGate).
  *
  * @param {Record<string, string | undefined>} env  Server-side environment (process.env, or Vite's loadEnv result).
  * @param {{ production: boolean }} options          production: HTTPS deployment (`Secure` cookie, no demo-ledger bypass).
@@ -96,6 +98,12 @@ export function createApi(env, { production }) {
     checkRole: gate.check,
     readScope: gate.scope,
   });
+  const custodyNotes = createCustodyNoteStore({
+    storage: storage.custodyNotes,
+    getSession: auth.getSession,
+    checkRole: gate.check,
+    readScope: gate.scope,
+  });
   const checkUpload = (req) => gate.check(auth.getSession(req), CAPABILITIES.UPLOAD);
   let warned = false;
   return (req, res, next) => {
@@ -110,6 +118,10 @@ export function createApi(env, { production }) {
     }
     if (path === "/api/access-requests" || path?.startsWith("/api/access-requests/")) {
       accessRequests.handle(req, res).catch((err) => sendInternalError(res, "access-requests", err));
+      return;
+    }
+    if (path === "/api/custody-notes") {
+      custodyNotes.handle(req, res).catch((err) => sendInternalError(res, "custody-notes", err));
       return;
     }
     if (path === "/api/keys" || path?.startsWith("/api/keys/")) {

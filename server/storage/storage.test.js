@@ -18,6 +18,7 @@ const makeCase = (caseRef = "0xcase") => ({ caseRef, caseNumber: "C-1", branchId
 const makeRequest = (id, address = ALICE, status = "pending") => ({ id, address, role: "auditor", branchId: 2 ** 32, reason: "", status, createdAt: AT, resolvedBy: null, resolvedAt: null });
 const makeKey = (keyId = KEY_ID) => ({ keyId, sha256: SHA, masterKeyVersion: 1, iv: "iv", wrapped: "wrapped", tag: "tag", createdBy: ALICE, createdAt: AT });
 const makeRelease = () => ({ keyId: KEY_ID, sha256: SHA, address: ALICE, at: AT });
+const makeNote = (noteHash = "aa".repeat(32), evidenceId = 7) => ({ noteHash, evidenceId, branchId: 1, note: "Sealed bag opened", salt: "s".repeat(64), author: ALICE, createdAt: AT });
 
 let harness;
 
@@ -76,6 +77,18 @@ describe.each(backends)("storage operations ($name)", (backend) => {
     expect((await keys.listReleases()).map((r) => r.address)).toEqual([ALICE, "0x2"]);
   });
 
+  it("never replaces a custody note, and lists an evidence item's notes in order", async () => {
+    const { custodyNotes } = harness.newStorage();
+    expect(await custodyNotes.insert(makeNote("b".repeat(64)))).toBe(true);
+    expect(await custodyNotes.insert(makeNote("a".repeat(64)))).toBe(true);
+    expect(await custodyNotes.insert(makeNote("c".repeat(64), 8))).toBe(true);
+    expect(await custodyNotes.insert({ ...makeNote("a".repeat(64)), note: "Rewritten" })).toBe(false);
+
+    expect(await custodyNotes.listFor(7)).toEqual([makeNote("b".repeat(64)), makeNote("a".repeat(64))]);
+    expect(await harness.newStorage().custodyNotes.listFor(9)).toEqual([]);
+    expect(await custodyNotes.list()).toHaveLength(3);
+  });
+
   it("hands out copies, so changing a record changes nothing stored", async () => {
     const { cases } = harness.newStorage();
     await cases.insert(makeCase());
@@ -93,8 +106,10 @@ describe("file storage", () => {
     await storage.accessRequests.replacePending(makeRequest("1"));
     await storage.keys.insert(makeKey());
     await storage.keys.logRelease(makeRelease());
+    await storage.custodyNotes.insert(makeNote());
 
     const { paths } = harness;
+    expect(JSON.parse(await readFile(paths.custodyNoteFile, "utf8"))).toEqual({ version: 1, notes: [makeNote()] });
     expect(JSON.parse(await readFile(paths.caseFile, "utf8"))).toEqual({ version: 1, cases: { "0xcase": makeCase() } });
     expect(JSON.parse(await readFile(paths.accessRequestFile, "utf8"))).toEqual({ version: 1, requests: [makeRequest("1")] });
     expect(JSON.parse(await readFile(paths.keyFile, "utf8"))).toEqual({ version: 1, keys: { [KEY_ID]: makeKey() } });
@@ -131,8 +146,12 @@ describe.runIf(process.env.TEST_DATABASE_URL)("postgres storage", () => {
     ["key_access_log", "UPDATE key_access_log SET address = 'x'"],
     ["key_access_log", "DELETE FROM key_access_log"],
     ["key_access_log", "TRUNCATE key_access_log"],
+    ["custody_notes", "UPDATE custody_notes SET note = 'x'"],
+    ["custody_notes", "DELETE FROM custody_notes"],
+    ["custody_notes", "TRUNCATE custody_notes"],
   ])("refuses to change %s: %s", async (table, sql) => {
     const storage = harness.newStorage();
+    await storage.custodyNotes.insert(makeNote());
     await storage.cases.insert(makeCase());
     await storage.keys.insert(makeKey());
     await storage.keys.logRelease(makeRelease());
@@ -192,6 +211,7 @@ describe.runIf(process.env.TEST_DATABASE_URL)("postgres storage", () => {
       await source.accessRequests.replacePending(makeRequest("2", "0xBob"));
       await source.keys.insert(makeKey());
       await source.keys.logRelease(makeRelease());
+      await source.custodyNotes.insert(makeNote());
       return { opened, source };
     }
 
@@ -203,8 +223,10 @@ describe.runIf(process.env.TEST_DATABASE_URL)("postgres storage", () => {
           cases: { copied: 2, skipped: 0 },
           accessRequests: { copied: 2, skipped: 0 },
           keys: { copied: 1, skipped: 0 },
+          custodyNotes: { copied: 1, skipped: 0 },
           keyReleases: { copied: 1, skipped: 0 },
         });
+        expect(await target.custodyNotes.list()).toEqual(await source.custodyNotes.list());
         expect(await target.cases.list()).toEqual(await source.cases.list());
         expect(await target.accessRequests.list()).toEqual(await source.accessRequests.list());
         expect(await target.keys.list()).toEqual(await source.keys.list());
@@ -214,6 +236,7 @@ describe.runIf(process.env.TEST_DATABASE_URL)("postgres storage", () => {
           cases: { copied: 0, skipped: 2 },
           accessRequests: { copied: 0, skipped: 2 },
           keys: { copied: 0, skipped: 1 },
+          custodyNotes: { copied: 0, skipped: 1 },
           keyReleases: { copied: 0, skipped: 1 },
         });
         expect(await target.keys.listReleases()).toHaveLength(1);

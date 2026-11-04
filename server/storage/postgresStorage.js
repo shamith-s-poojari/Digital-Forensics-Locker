@@ -54,6 +54,16 @@ const toKey = (row) => ({
 
 const toRelease = (row) => ({ keyId: row.key_id, sha256: row.sha256, address: row.address, at: iso(row.at) });
 
+const toNote = (row) => ({
+  noteHash: row.note_hash,
+  evidenceId: Number(row.evidence_id),
+  branchId: branch(row.branch_id),
+  note: row.note,
+  salt: row.salt,
+  author: row.author,
+  createdAt: iso(row.created_at),
+});
+
 const INSERT_VERSION = `INSERT INTO case_versions (case_ref, version, title, description, salt, digest, edited_by, edited_at)
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING`;
 const versionParams = (caseRef, v) => [caseRef, v.version, v.title, v.description, v.salt, v.digest, v.editedBy, v.editedAt];
@@ -88,6 +98,15 @@ async function insertRequest(db, r) {
 }
 
 const insertRelease = (db, r) => db.query(`INSERT INTO key_access_log (key_id, sha256, address, at) VALUES ($1, $2, $3, $4)`, [r.keyId, r.sha256, r.address, r.at]);
+
+async function insertNote(db, n) {
+  const { rowCount } = await db.query(
+    `INSERT INTO custody_notes (note_hash, evidence_id, branch_id, note, salt, author, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
+    [n.noteHash, n.evidenceId, n.branchId ?? null, n.note, n.salt, n.author, n.createdAt],
+  );
+  return rowCount > 0;
+}
 
 /**
  * @param {import("pg").PoolConfig} config  Usually just { connectionString }.
@@ -212,16 +231,26 @@ export function createPostgresStorage(config) {
     listReleases: async () => (await query("SELECT * FROM key_access_log ORDER BY seq")).rows.map(toRelease),
   };
 
+  const custodyNotes = {
+    list: async () => (await query("SELECT * FROM custody_notes ORDER BY seq")).rows.map(toNote),
+    listFor: async (evidenceId) => (await query("SELECT * FROM custody_notes WHERE evidence_id = $1 ORDER BY seq", [evidenceId])).rows.map(toNote),
+    insert: async (entry) => {
+      await ready();
+      return insertNote(pool, entry);
+    },
+  };
+
   /**
    * Copies another storage's records in, all or nothing. Safe to run again: existing cases, requests and keys are left
    * alone. Log lines have no identity to compare, so they are copied only into an empty log.
    */
   async function importFrom(source) {
-    const [sourceCases, sourceRequests, sourceKeys, sourceReleases] = await Promise.all([
+    const [sourceCases, sourceRequests, sourceKeys, sourceReleases, sourceNotes] = await Promise.all([
       source.cases.list(),
       source.accessRequests.list(),
       source.keys.list(),
       source.keys.listReleases(),
+      source.custodyNotes.list(),
     ]);
     return transaction(async (client) => {
       const count = async (items, insert) => {
@@ -233,6 +262,7 @@ export function createPostgresStorage(config) {
         cases: await count(sourceCases, insertCase),
         accessRequests: await count(sourceRequests, insertRequest),
         keys: await count(sourceKeys, insertKey),
+        custodyNotes: await count(sourceNotes, insertNote),
       };
       const { rows } = await client.query("SELECT EXISTS (SELECT 1 FROM key_access_log) AS used");
       if (rows[0].used) result.keyReleases = { copied: 0, skipped: sourceReleases.length };
@@ -244,5 +274,5 @@ export function createPostgresStorage(config) {
     });
   }
 
-  return { kind: "postgres", cases, accessRequests, keys, ready, importFrom, close: () => pool.end() };
+  return { kind: "postgres", cases, accessRequests, keys, custodyNotes, ready, importFrom, close: () => pool.end() };
 }

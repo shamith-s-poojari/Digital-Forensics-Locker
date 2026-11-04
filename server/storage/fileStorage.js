@@ -4,6 +4,7 @@
 //   cases:          list() | get(caseRef) | insert(entry) -> false if taken | appendVersion(caseRef, version) -> Case | null
 //   accessRequests: list() | listPending() | latestFor(address) | get(id) | replacePending(request) | resolve(id, decision) -> Request
 //   keys:           list() | get(keyId) | insert(entry) -> false if taken | logRelease(row) | listReleases()
+//   custodyNotes:   list() | listFor(evidenceId) | insert(entry) -> false if taken
 //
 // Lists are in the order things were added. Records handed out are copies: changing one changes nothing stored.
 
@@ -147,19 +148,41 @@ function createFileKeys(filePath, accessLogPath) {
   };
 }
 
+function createFileCustodyNotes(filePath) {
+  const file = jsonFile(filePath, "notes", (value) => value ?? [], (list) => list);
+  return {
+    list: async () => copy(await file.load()),
+    listFor: async (evidenceId) => copy((await file.load()).filter((n) => n.evidenceId === evidenceId)),
+    async insert(entry) {
+      const list = await file.load();
+      if (list.some((n) => n.noteHash === entry.noteHash)) return false;
+      list.push(copy(entry));
+      try {
+        await file.persist(list);
+      } catch (err) {
+        list.pop();
+        throw err;
+      }
+      return true;
+    },
+  };
+}
+
 /**
  * @param {object} paths
  * @param {string} paths.caseFile
  * @param {string} paths.accessRequestFile
  * @param {string} paths.keyFile
  * @param {string} paths.accessLogFile  JSON-lines; one line per key release.
+ * @param {string} paths.custodyNoteFile
  */
-export function createFileStorage({ caseFile, accessRequestFile, keyFile, accessLogFile }) {
+export function createFileStorage({ caseFile, accessRequestFile, keyFile, accessLogFile, custodyNoteFile }) {
   return {
     kind: "file",
     cases: createFileCases(caseFile),
     accessRequests: createFileAccessRequests(accessRequestFile),
     keys: createFileKeys(keyFile, accessLogFile),
+    custodyNotes: createFileCustodyNotes(custodyNoteFile),
     ready: async () => {},
     close: async () => {},
   };

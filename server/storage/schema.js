@@ -2,7 +2,7 @@
 // applied migration: add a new one. Kept in JavaScript, not .sql files, so it also works when Vite bundles the server
 // code into its config.
 //
-// Case versions, wrapped keys and the key-release log are append-only, enforced by triggers: the promise "no endpoint
+// Case versions, wrapped keys, the key-release log and custody notes are append-only, enforced by triggers: the promise "no endpoint
 // edits or deletes" then also holds against a bug or a stray query. A database owner can still disable a trigger, so
 // this guards against mistakes and a compromised app query, not against someone holding the owner's password.
 
@@ -87,6 +87,29 @@ export const MIGRATIONS = [
       CREATE TRIGGER key_access_log_append_only BEFORE UPDATE OR DELETE ON key_access_log
         FOR EACH ROW EXECUTE FUNCTION refuse_change();
       CREATE TRIGGER key_access_log_no_truncate BEFORE TRUNCATE ON key_access_log
+        FOR EACH STATEMENT EXECUTE FUNCTION refuse_change();
+    `,
+  },
+  {
+    name: "002_custody_notes",
+    sql: `
+      -- The text behind the noteHash of a custody entry on chain. No foreign key: evidence records live on the chain.
+      -- A row whose hash never reaches the chain (a rejected transaction) is harmless: nothing shows it.
+      CREATE TABLE custody_notes (
+        note_hash   text PRIMARY KEY,
+        evidence_id bigint NOT NULL,
+        branch_id   bigint,
+        note        text NOT NULL,
+        salt        text NOT NULL,
+        author      text NOT NULL,
+        created_at  timestamptz NOT NULL,
+        seq         bigint GENERATED ALWAYS AS IDENTITY
+      );
+      CREATE INDEX custody_notes_by_evidence ON custody_notes (evidence_id, seq);
+
+      CREATE TRIGGER custody_notes_append_only BEFORE UPDATE OR DELETE ON custody_notes
+        FOR EACH ROW EXECUTE FUNCTION refuse_change();
+      CREATE TRIGGER custody_notes_no_truncate BEFORE TRUNCATE ON custody_notes
         FOR EACH STATEMENT EXECUTE FUNCTION refuse_change();
     `,
   },

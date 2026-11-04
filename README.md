@@ -128,6 +128,7 @@ To deploy to Sepolia, store `SEPOLIA_RPC_URL` and a **throwaway testnet** `DEPLO
 | `DATABASE_URL` | **secret, server only** | Postgres connection string. When set, the server stores everything below there instead of in JSON files, and creates the schema on start. `npm run import:data` copies an existing `.data/` folder in. |
 | `EVIDENCE_KEY_STORE`, `EVIDENCE_KEY_ACCESS_LOG` | server only | Where wrapped keys and the key-release log are written (default `.data/`, git-ignored). |
 | `CASE_STORE` | server only | Where the case store keeps case titles, descriptions and their version history (default `.data/cases.json`, git-ignored). |
+| `CUSTODY_NOTE_STORE` | server only | Where the text of custody notes is kept (default `.data/custody-notes.json`, git-ignored). |
 
 After changing the contract, run `npm run abi` in `contracts/` to refresh `src/web3/EvidenceLocker.abi.json`; CI fails if it is stale.
 
@@ -146,6 +147,12 @@ The upload page hashes the **original** file (that SHA-256 is what the ledger re
 The pinned file starts with a 68-byte header (format version, key id, IV, plaintext SHA-256) that is authenticated together with the ciphertext, so it cannot be edited unnoticed. To open evidence, choose the encrypted copy in **Check a file against the ledger** on the dashboard: the app checks your sign-in, fetches the key (`GET /api/keys/:keyId`, logged with your address), decrypts in the browser, hashes the plaintext, compares it with the ledger, and offers the decrypted file.
 
 Development limits: the master key is an environment variable, not a KMS or HSM; **any signed-in wallet can fetch any key** (the server does not check on-chain roles yet); the key store is a JSON file for one process. The encrypted copy on public IPFS is permanent, so its safety rests on AES-256 and on the key store. Do not register real evidence yet (see the [roadmap](docs/ROADMAP.md), D4 and D7).
+
+## Custody notes
+
+An Investigator (or the Chief reassigning custody) can attach a short note to a custody action on the dashboard. The chain is public, so the text stays off chain: `server/custodyNotes.js` (`/api/custody-notes`, needs a wallet sign-in) with a real contract, or an in-memory store with the demo ledger (`src/custody/custodyNoteStores.js`). The note is saved first, then its salted hash (`src/custody/custodyNote.js`) goes into the transaction as the entry's `noteHash`.
+
+No endpoint edits or deletes a note, and in Postgres triggers refuse it too. The custody timeline shows a note only if its fields reproduce the hash on chain and its author made the entry, and warns if a stored note no longer does. A note whose transaction was rejected stays stored but is never shown. Notes are visible to the author's branch and the Chief.
 
 ## Case details
 

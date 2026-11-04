@@ -1,6 +1,6 @@
 // Copies an existing .data/ folder into the Postgres database named by DATABASE_URL. Reads the same variables as the
-// server (DATA_DIR, CASE_STORE, ACCESS_REQUEST_STORE, EVIDENCE_KEY_STORE, EVIDENCE_KEY_ACCESS_LOG) from the environment
-// or .env. All or nothing, and safe to run again: records already in the database are left alone. The files are not
+// server (DATA_DIR, CASE_STORE, ACCESS_REQUEST_STORE, CUSTODY_NOTE_STORE, EVIDENCE_KEY_STORE, EVIDENCE_KEY_ACCESS_LOG)
+// from the environment or .env. All or nothing, and safe to run again: records already in the database are left alone. The files are not
 // changed. Wrapped keys stay wrapped, so the server needs the same EVIDENCE_MASTER_KEY afterwards.
 //
 //   npm run import:data

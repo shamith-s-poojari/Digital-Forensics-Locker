@@ -20,6 +20,7 @@ export const fileBackend = {
       accessRequestFile: join(dir, "access-requests.json"),
       keyFile: join(dir, "keys.json"),
       accessLogFile: join(dir, "access.log"),
+      custodyNoteFile: join(dir, "custody-notes.json"),
     };
     return {
       paths,
