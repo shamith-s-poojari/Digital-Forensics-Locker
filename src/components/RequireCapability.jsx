@@ -8,7 +8,7 @@ import { Button, Spinner } from "./ui";
 
 function Notice({ icon: Icon, title, children, action }) {
   return (
-    <div role="region" aria-label={title} className="mx-auto mt-10 max-w-xl rounded-lg border border-slate-700 bg-slate-950/70 p-6 text-center">
+    <div role="region" aria-label={title} className="mx-auto mt-10 max-w-xl glass rounded-xl p-6 text-center">
       <Icon className="mx-auto size-10 text-sky-300" aria-hidden="true" />
       <h1 className="mt-3 text-xl font-bold text-slate-100">{title}</h1>
       <div className="mt-2 space-y-2 text-sm text-slate-300">{children}</div>

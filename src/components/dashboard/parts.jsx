@@ -13,7 +13,7 @@ import { Badge, CopyChip, Panel } from "../ui";
  */
 
 const TILE_TONES = {
-  neutral: "text-slate-100",
+  neutral: "text-metal",
   info: "text-sky-200",
   success: "text-emerald-200",
   warning: "text-amber-200",
@@ -24,12 +24,12 @@ const TILE_TONES = {
 export function DashboardIntro({ icon: Icon, title, branch, children }) {
   return (
     <header className="flex items-start gap-3">
-      <span className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-sky-500/40 bg-sky-500/10 text-sky-300">
+      <span className="flex size-11 shrink-0 items-center justify-center glass rounded-xl text-slate-100">
         <Icon className="size-5" aria-hidden="true" />
       </span>
       <div>
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-bold text-slate-50">{title}</h1>
+          <h1 className="text-metal text-2xl font-semibold md:text-3xl">{title}</h1>
           {branch ? (
             <Badge tone="info" icon={Building2}>
               {branch}
@@ -51,9 +51,9 @@ export function StatTile({ label, value, tone = "neutral", hint, to }) {
       {hint ? <span className="mt-1 block text-xs text-slate-500">{hint}</span> : null}
     </>
   );
-  const base = "block rounded-lg border border-slate-700/70 bg-slate-950/60 p-4";
+  const base = "block glass rounded-xl p-4";
   return to ? (
-    <Link to={to} className={`${base} transition-colors hover:border-sky-500/60 hover:bg-slate-900`}>
+    <Link to={to} className={`${base} glass-hover`}>
       {body}
     </Link>
   ) : (
@@ -62,7 +62,7 @@ export function StatTile({ label, value, tone = "neutral", hint, to }) {
 }
 
 export function StatGrid({ children }) {
-  return <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{children}</div>;
+  return <div className="stagger grid grid-cols-2 gap-3 lg:grid-cols-4">{children}</div>;
 }
 
 /** Writes are blocked while the ledger is paused; every dashboard says so first. */

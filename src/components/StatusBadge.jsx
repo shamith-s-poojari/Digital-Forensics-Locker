@@ -1,12 +1,12 @@
 // Visual config per label. Background, border and dot colors match the status/event
 // colors previously duplicated in CaseManagement, ChainOfCustody and EvidenceViewer.
 // `color` (the text) is nudged lighter than the dot for red, blue and slate so the
-// 11px label reaches WCAG AA (4.5:1) on the dark theme surfaces (#0f172a / #1e293b).
+// 11px label reaches WCAG AA (4.5:1) on the dark theme surfaces (#0a0a0a / #141414).
 const GREEN = { dot: "#22c55e", color: "#22c55e", bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.3)" };
 const YELLOW = { dot: "#eab308", color: "#eab308", bg: "rgba(234,179,8,0.1)", border: "rgba(234,179,8,0.3)" };
 const RED = { dot: "#ef4444", color: "#f87171", bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.3)" };
-const BLUE = { dot: "#3b82f6", color: "#60a5fa", bg: "rgba(59,130,246,0.1)", border: "rgba(59,130,246,0.3)" };
-const SLATE = { dot: "#64748b", color: "#94a3b8", bg: "rgba(100,116,139,0.1)", border: "rgba(100,116,139,0.3)" };
+const BLUE = { dot: "#fafafa", color: "#e5e5e5", bg: "rgba(255,255,255,0.1)", border: "rgba(255,255,255,0.3)" };
+const SLATE = { dot: "#737373", color: "#a3a3a3", bg: "rgba(115,115,115,0.1)", border: "rgba(115,115,115,0.3)" };
 
 const BADGES = {
   // Evidence statuses
@@ -75,7 +75,7 @@ export default function StatusBadge({ status, size = "md" }) {
         padding: sizing.padding,
         fontSize: sizing.fontSize,
         fontWeight: 600,
-        fontFamily: "'Space Grotesk', sans-serif",
+        fontFamily: "inherit",
         whiteSpace: "nowrap",
         position: "relative",
         background: badge.bg,

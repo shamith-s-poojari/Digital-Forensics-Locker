@@ -21,6 +21,42 @@
 @source "../index.html";
 @source "./**/*.{js,jsx}";
 
+/*
+ * Monochrome "obsidian" theme. Tailwind v4 reads every colour utility from these variables, so
+ * re-pointing the slate (surfaces/text) and sky (accent) scales re-themes every bg-/text-/border-
+ * class in the app at once. Status colours (emerald/amber/rose) are left alone on purpose: in a
+ * chain-of-custody tool "verified" vs "tampered" must stay readable at a glance.
+ */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-slate-50: #fafafa;
+  --color-slate-100: #f5f5f5;
+  --color-slate-200: #e5e5e5;
+  --color-slate-300: #d4d4d4;
+  --color-slate-400: #a3a3a3;
+  --color-slate-500: #808080;
+  --color-slate-600: #3f3f3f;
+  --color-slate-700: #2a2a2a;
+  --color-slate-800: #1c1c1c;
+  --color-slate-900: #111111;
+  --color-slate-950: #070707;
+
+  /* The accent is light: white buttons with black text, silver highlights. */
+  --color-sky-50: #ffffff;
+  --color-sky-100: #ffffff;
+  --color-sky-200: #f2f2f2;
+  --color-sky-300: #ebebeb;
+  --color-sky-400: #ffffff;
+  --color-sky-500: #f0f0f0;
+  --color-sky-600: #d4d4d4;
+  --color-sky-700: #a3a3a3;
+  --color-sky-800: #525252;
+  --color-sky-900: #262626;
+  --color-sky-950: #171717;
+}
+
 /* Kept in the base layer so Tailwind utilities (e.g. px-4) can still override the reset. */
 @layer base {
   * {
@@ -41,9 +77,10 @@ html {
 }
 
 body {
-  font-family: 'Space Grotesk', sans-serif;
-  background-color: #0f172a;
-  color: #f0f6fc;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-color: #070707;
+  color: #fafafa;
   margin: 0;
   padding: 0;
   line-height: 1.6;
@@ -56,13 +93,45 @@ body {
   width: 100%;
   min-height: 100vh;
   display: flex;
+  position: relative;
+  isolation: isolate;
 }
 
-/* Keyboard focus: visible by default on everything focusable (#93c5fd on #0f172a is ~9:1).
+h1, h2, h3 {
+  letter-spacing: -0.02em;
+}
+
+/*
+ * Page backdrop: a faint grid that fades out from the top and a soft spotlight above it.
+ * Fixed and static, painted once behind everything (#root is its own stacking context).
+ */
+#root::before,
+#root::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+#root::before {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+}
+#root::after {
+  background:
+    radial-gradient(ellipse 60% 40% at 50% -10%, rgba(255,255,255,0.09), transparent 70%),
+    radial-gradient(circle at 100% 100%, rgba(255,255,255,0.03), transparent 40%);
+}
+
+/* Keyboard focus: visible by default on everything focusable (#d4d4d4 on #0a0a0a is ~9:1).
  * Components that draw their own focus ring set an inline `outline` (or use a more specific
  * selector such as .evidence-select:focus), which takes precedence over this rule. */
 :focus-visible {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid #d4d4d4;
   outline-offset: 2px;
 }
 
@@ -92,8 +161,8 @@ a.skip-link {
   left: 8px;
   z-index: 10000;
   padding: 10px 16px;
-  background: #f8fafc;
-  color: #0f172a;
+  background: #fafafa;
+  color: #0a0a0a;
   font-size: 14px;
   font-weight: 600;
   line-height: 1.4;
@@ -112,8 +181,8 @@ a.skip-link:focus-visible {
   -webkit-appearance: none;
   -moz-appearance: none;
   background-image:
-    linear-gradient(45deg, transparent 50%, #93c5fd 50%),
-    linear-gradient(135deg, #93c5fd 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, #d4d4d4 50%),
+    linear-gradient(135deg, #d4d4d4 50%, transparent 50%);
   background-position:
     calc(100% - 18px) calc(50% - 2px),
     calc(100% - 12px) calc(50% - 2px);
@@ -123,21 +192,21 @@ a.skip-link:focus-visible {
 }
 
 .evidence-select option {
-  background: #0f172a;
-  color: #e2e8f0;
+  background: #0a0a0a;
+  color: #e5e5e5;
   padding: 12px 14px;
   font-size: 15px;
 }
 
 .evidence-select option:checked,
 .evidence-select option:hover {
-  background: linear-gradient(180deg, rgba(59,130,246,0.32) 0%, rgba(37,99,235,0.22) 100%);
-  color: #f8fafc;
+  background: linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.10) 100%);
+  color: #fafafa;
 }
 
 .evidence-select:focus {
-  border-color: #60a5fa;
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+  border-color: #d4d4d4;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
   outline: none;
 }
 
@@ -148,21 +217,197 @@ a.skip-link:focus-visible {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #0a0a0a;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #2a2a2a;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #404040;
 }
 
 /* Monospace font for code/hashes */
 code, pre, .mono {
   font-family: 'JetBrains Mono', monospace;
+}
+
+/* ───────────────────────── Surfaces ───────────────────────── */
+
+/* Headline text that fades from white to grey, as in the hero. */
+.text-metal {
+  background: linear-gradient(180deg, #ffffff 0%, #d4d4d4 55%, #7a7a7a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.text-metal-soft {
+  background: linear-gradient(90deg, #8a8a8a 0%, #d4d4d4 45%, #8a8a8a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/*
+ * Glass card: dark gradient fill, a hairline border that is brighter at the top (the "lit edge")
+ * and a gentle lift on hover. Only transform/box-shadow/border-color are transitioned.
+ */
+.glass {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0.012) 100%),
+    rgba(12,12,12,0.72);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.07),
+    0 1px 2px rgba(0,0,0,0.5),
+    0 12px 32px -16px rgba(0,0,0,0.8);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.glass-hover:hover {
+  border-color: rgba(255,255,255,0.16);
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.10),
+    0 1px 2px rgba(0,0,0,0.5),
+    0 22px 48px -20px rgba(0,0,0,0.9);
+}
+
+/* Small pill above a heading ("NEW  Chain of custody"). */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  font-size: 12px;
+  font-weight: 500;
+  color: #d4d4d4;
+}
+.eyebrow-tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #fafafa;
+  color: #0a0a0a;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Light sweep across the primary (white) button on hover. */
+.btn-shine {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.2), 0 8px 24px -10px rgba(255,255,255,0.35);
+}
+.btn-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(110deg, transparent 30%, rgba(0,0,0,0.12) 50%, transparent 70%);
+  transform: translateX(-120%);
+  transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.btn-shine:hover::after {
+  transform: translateX(120%);
+}
+
+/* Frosted top bar. */
+.glass-bar {
+  background: rgba(8,8,8,0.72) !important;
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  backdrop-filter: saturate(140%) blur(14px);
+}
+
+/* ───────────────────────── Motion ─────────────────────────
+ * Everything below animates only opacity and transform (compositor-only: no layout or paint
+ * per frame), runs once except the few decorative loops, and is switched off by the
+ * reduced-motion block at the end of this file.
+ */
+@keyframes dfl-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes dfl-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes dfl-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50%      { transform: translate3d(0, -10px, 0) rotate(6deg); }
+}
+@keyframes dfl-twinkle {
+  0%, 100% { opacity: 0.55; transform: scale(0.92); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+@keyframes dfl-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}
+@keyframes dfl-pulse-dot {
+  0%   { box-shadow: 0 0 0 0 rgba(52,211,153,0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(52,211,153,0); }
+  100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+}
+
+.animate-rise {
+  animation: dfl-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.animate-fade {
+  animation: dfl-fade 0.6s ease both;
+}
+
+/* Route change: the page's top-level blocks rise in one after another. */
+.page-enter > * {
+  animation: dfl-rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.page-enter > *:nth-child(2) { animation-delay: 60ms; }
+.page-enter > *:nth-child(3) { animation-delay: 120ms; }
+.page-enter > *:nth-child(4) { animation-delay: 180ms; }
+.page-enter > *:nth-child(5) { animation-delay: 240ms; }
+.page-enter > *:nth-child(n+6) { animation-delay: 300ms; }
+
+/* Generic stagger for lists and grids: put .stagger on the parent. */
+.stagger > * {
+  animation: dfl-rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0.15s; }
+.stagger > *:nth-child(2) { animation-delay: 0.25s; }
+.stagger > *:nth-child(3) { animation-delay: 0.35s; }
+.stagger > *:nth-child(4) { animation-delay: 0.45s; }
+.stagger > *:nth-child(n+5) { animation-delay: 0.55s; }
+
+.sparkle {
+  animation: dfl-float 7s ease-in-out infinite;
+}
+.sparkle > svg {
+  animation: dfl-twinkle 3.5s ease-in-out infinite;
+}
+
+.marquee {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: dfl-marquee 32s linear infinite;
+}
+.marquee:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+.live-dot {
+  animation: dfl-pulse-dot 2s ease-out infinite;
 }
 
 /* Respect the OS "reduce motion" setting: no animations or transitions (inline styles included). */

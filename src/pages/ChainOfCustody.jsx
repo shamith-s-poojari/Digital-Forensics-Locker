@@ -27,17 +27,17 @@ const truncate = (value, length) => (value.length > length ? value.slice(0, leng
 const truncateAddress = (address) =>
   address.length > 12 ? address.slice(0, 6) + ELLIPSIS + address.slice(-4) : address;
 
-// Colors: every text color below has at least 4.5:1 contrast on #0f172a and #1e293b.
+// Colors: every text color below has at least 4.5:1 contrast on #0a0a0a and #141414.
 // Hover/focus states live in this scoped stylesheet because inline styles cannot express them.
 const SCOPED_CSS = `
-.coc-field::placeholder { color: #94a3b8; opacity: 1; }
-.coc-field:focus { border-color: #60a5fa; }
+.coc-field::placeholder { color: #a3a3a3; opacity: 1; }
+.coc-field:focus { border-color: #e5e5e5; }
 .coc-field:focus-visible,
 .coc-copy:focus-visible,
-.coc-scroll:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
-.coc-row:hover { background: rgba(59, 130, 246, 0.08); }
-.coc-copy { color: #60a5fa; }
-.coc-copy:hover { color: #bfdbfe; }
+.coc-scroll:focus-visible { outline: 2px solid #e5e5e5; outline-offset: 2px; }
+.coc-row:hover { background: rgba(255,255,255, 0.08); }
+.coc-copy { color: #e5e5e5; }
+.coc-copy:hover { color: #e5e5e5; }
 .coc-copy[data-copied="true"] { color: #4ade80; }
 `;
 
@@ -45,15 +45,15 @@ const GUTTER = "clamp(16px, 4vw, 32px)";
 const MONO = "'JetBrains Mono', monospace";
 
 const styles = {
-  page: { background: "#0f172a", minHeight: "100%", width: "100%", color: "#e2e8f0" },
+  page: { background: "#0a0a0a", minHeight: "100%", width: "100%", color: "#e5e5e5" },
   header: {
     padding: `32px ${GUTTER} 24px`,
-    background: "#1e293b",
-    borderBottom: "1px solid #334155",
+    background: "#141414",
+    borderBottom: "1px solid #2a2a2a",
     marginBottom: "32px",
   },
-  title: { fontSize: "28px", fontWeight: 700, color: "#e2e8f0", marginBottom: "8px", lineHeight: 1.25 },
-  subtitle: { fontSize: "14px", color: "#cbd5e1", maxWidth: "70ch" },
+  title: { fontSize: "28px", fontWeight: 700, color: "#e5e5e5", marginBottom: "8px", lineHeight: 1.25 },
+  subtitle: { fontSize: "14px", color: "#d4d4d4", maxWidth: "70ch" },
   section: { padding: `0 ${GUTTER}` },
   stats: {
     display: "grid",
@@ -61,16 +61,16 @@ const styles = {
     gap: "16px",
     marginBottom: "32px",
   },
-  statCard: { padding: "16px", background: "#1e293b", border: "1px solid #334155", borderRadius: "8px" },
+  statCard: { padding: "16px", background: "#141414", border: "1px solid #2a2a2a", borderRadius: "8px" },
   statLabel: {
     fontSize: "12px",
-    color: "#cbd5e1",
+    color: "#d4d4d4",
     textTransform: "uppercase",
     letterSpacing: "0.05em",
     fontWeight: 600,
     marginBottom: "8px",
   },
-  statValue: { fontSize: "24px", fontWeight: 700, color: "#e2e8f0" },
+  statValue: { fontSize: "24px", fontWeight: 700, color: "#e5e5e5" },
   controls: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -78,15 +78,15 @@ const styles = {
     marginBottom: "20px",
   },
   fieldWrap: { minWidth: 0 },
-  label: { display: "block", fontSize: "12px", color: "#cbd5e1", marginBottom: "6px", fontWeight: 600 },
+  label: { display: "block", fontSize: "12px", color: "#d4d4d4", marginBottom: "6px", fontWeight: 600 },
   field: {
     width: "100%",
     padding: "10px 14px",
-    background: "#1e293b",
-    // #64748b gives the field boundary 3:1 contrast against the page background.
-    border: "1px solid #64748b",
+    background: "#141414",
+    // #737373 gives the field boundary 3:1 contrast against the page background.
+    border: "1px solid #737373",
     borderRadius: "6px",
-    color: "#e2e8f0",
+    color: "#e5e5e5",
     fontSize: "13px",
     fontFamily: MONO,
     transition: "border-color 0.2s",
@@ -99,29 +99,29 @@ const styles = {
     border: "1px solid rgba(234, 179, 8, 0.35)",
     borderRadius: "6px",
     fontSize: "13px",
-    color: "#e2e8f0",
+    color: "#e5e5e5",
   },
-  status: { minHeight: "24px", margin: "4px 0 8px", fontSize: "13px", color: "#cbd5e1" },
-  scroll: { overflowX: "auto", border: "1px solid #334155", borderRadius: "8px", background: "#0f172a" },
+  status: { minHeight: "24px", margin: "4px 0 8px", fontSize: "13px", color: "#d4d4d4" },
+  scroll: { overflowX: "auto", border: "1px solid #2a2a2a", borderRadius: "8px", background: "#0a0a0a" },
   table: { width: "100%", minWidth: "860px", borderCollapse: "collapse" },
   th: {
     padding: "14px 12px",
     textAlign: "left",
     fontSize: "11px",
     fontWeight: 700,
-    color: "#cbd5e1",
+    color: "#d4d4d4",
     textTransform: "uppercase",
     letterSpacing: "0.05em",
-    background: "#1e293b",
-    borderBottom: "1px solid #334155",
+    background: "#141414",
+    borderBottom: "1px solid #2a2a2a",
     whiteSpace: "nowrap",
   },
-  row: { borderBottom: "1px solid #334155" },
-  td: { padding: "12px", fontSize: "13px", color: "#cbd5e1", fontFamily: MONO, verticalAlign: "middle" },
+  row: { borderBottom: "1px solid #2a2a2a" },
+  td: { padding: "12px", fontSize: "13px", color: "#d4d4d4", fontFamily: MONO, verticalAlign: "middle" },
   valueWithCopy: { display: "inline-flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" },
-  cid: { color: "#60a5fa", fontSize: "12px" },
-  txHash: { color: "#94a3b8", fontSize: "12px" },
-  empty: { padding: "48px 16px", textAlign: "center", color: "#cbd5e1", fontSize: "14px" },
+  cid: { color: "#e5e5e5", fontSize: "12px" },
+  txHash: { color: "#a3a3a3", fontSize: "12px" },
+  empty: { padding: "48px 16px", textAlign: "center", color: "#d4d4d4", fontSize: "14px" },
   copyButton: {
     background: "transparent",
     border: "none",

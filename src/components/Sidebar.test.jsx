@@ -115,7 +115,7 @@ describe("Sidebar", () => {
     const activeBackground = active.style.background;
 
     fireEvent.mouseEnter(other);
-    expect(other.style.background).toContain("rgba(51, 65, 85");
+    expect(other.style.background).toContain("rgba(42, 42, 42");
     fireEvent.mouseLeave(other);
     expect(other.style.background).toBe("transparent");
 

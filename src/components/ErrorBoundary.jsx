@@ -31,11 +31,11 @@ export default class ErrorBoundary extends Component {
           maxWidth: 480,
           padding: 32,
           textAlign: "center",
-          color: "#f0f6fc",
+          color: "#fafafa",
         }}
       >
         <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 12 }}>Something went wrong</h1>
-        <p style={{ color: "#cbd5e1", marginBottom: 24 }}>
+        <p style={{ color: "#d4d4d4", marginBottom: 24 }}>
           The page hit an unexpected error. Reloading usually fixes it. This is a demo, so no data was lost.
         </p>
         <button
@@ -46,8 +46,8 @@ export default class ErrorBoundary extends Component {
             fontSize: 15,
             fontWeight: 600,
             fontFamily: "inherit",
-            color: "#ffffff",
-            background: "#2563eb",
+            color: "#0a0a0a",
+            background: "#f5f5f5",
             border: "none",
             borderRadius: 8,
             cursor: "pointer",

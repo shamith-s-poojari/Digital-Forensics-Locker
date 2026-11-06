@@ -44,7 +44,7 @@ function getPageTitle(pathname) {
 const truncateAddress = (addr) => (addr ? addr.slice(0, 6) + "..." + addr.slice(-4) : "");
 
 // Pseudo-classes can't be written inline, so the few rules that need them live here.
-// #93c5fd on the dark surfaces (#0f172a / #1e293b) is 8-10:1 (WCAG non-text contrast needs 3:1).
+// #f5f5f5 on the dark surfaces (#0a0a0a / #141414) is 8-10:1 (WCAG non-text contrast needs 3:1).
 const SHELL_CSS = `
 .dfl-skip-link {
   position: fixed;
@@ -53,8 +53,8 @@ const SHELL_CSS = `
   z-index: 1000;
   padding: 10px 16px;
   border-radius: 6px;
-  background: #f8fafc;
-  color: #0f172a;
+  background: #fafafa;
+  color: #0a0a0a;
   font-size: 14px;
   font-weight: 700;
   text-decoration: none;
@@ -62,11 +62,11 @@ const SHELL_CSS = `
 }
 .dfl-skip-link:focus {
   transform: translateY(0);
-  outline: 2px solid #93c5fd;
+  outline: 2px solid #f5f5f5;
   outline-offset: 2px;
 }
 .dfl-focusable:focus-visible {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid #f5f5f5;
   outline-offset: 2px;
 }
 #${MAIN_ID}:focus {
@@ -201,7 +201,7 @@ export default function Layout({ children }) {
     display: "flex",
     width: "100%",
     minHeight: "100vh",
-    background: "#0f172a",
+    background: "transparent",
     position: "relative",
   };
 
@@ -218,8 +218,8 @@ export default function Layout({ children }) {
         transition: motion("transform 0.25s ease-in-out"),
         overflowX: "hidden",
         overflowY: "auto",
-        backgroundColor: "#0f172a",
-        borderRight: "1px solid #334155",
+        backgroundColor: "#0a0a0a",
+        borderRight: "1px solid rgba(255,255,255,0.07)",
         boxShadow: drawerOpen ? "0 0 32px rgba(0,0,0,0.6)" : "none",
       }
     : {
@@ -232,8 +232,8 @@ export default function Layout({ children }) {
         transition: motion("width 0.3s ease-in-out"),
         overflowX: "hidden",
         overflowY: "auto",
-        backgroundColor: "#0f172a",
-        borderRight: desktopSidebarOpen ? "1px solid #334155" : "none",
+        backgroundColor: "rgba(8,8,8,0.85)",
+        borderRight: desktopSidebarOpen ? "1px solid rgba(255,255,255,0.07)" : "none",
       };
 
   const backdropStyle = {
@@ -243,7 +243,7 @@ export default function Layout({ children }) {
     bottom: 0,
     left: 0,
     zIndex: 110,
-    background: "rgba(2,6,23,0.65)",
+    background: "rgba(0,0,0,0.65)",
   };
 
   const drawerCloseButtonStyle = {
@@ -259,14 +259,14 @@ export default function Layout({ children }) {
     background: "transparent",
     border: "none",
     borderRadius: "8px",
-    color: "#cbd5e1",
+    color: "#d4d4d4",
     cursor: "pointer",
   };
 
   const mainContainerStyle = {
     marginLeft: sidebarPushesContent ? "240px" : "0",
     minHeight: "100vh",
-    background: "#0f172a",
+    background: "transparent",
     transition: motion("margin-left 0.3s ease-in-out"),
     flex: 1,
     minWidth: 0,
@@ -284,8 +284,8 @@ export default function Layout({ children }) {
 
   const topBarStyle = {
     minHeight: "64px",
-    background: "#1e293b",
-    borderBottom: "1px solid #334155",
+    background: "rgba(8,8,8,0.72)",
+    borderBottom: "1px solid rgba(255,255,255,0.07)",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -303,7 +303,7 @@ export default function Layout({ children }) {
     background: "transparent",
     border: "none",
     borderRadius: "8px",
-    color: "#60a5fa",
+    color: "#e5e5e5",
     cursor: "pointer",
     padding: "8px",
     marginLeft: isMobile ? "-10px" : 0,
@@ -314,7 +314,7 @@ export default function Layout({ children }) {
   const titleStyle = {
     fontSize: "16px",
     fontWeight: 600,
-    color: "#e2e8f0",
+    color: "#e5e5e5",
     flex: 1,
     minWidth: 0,
     overflow: "hidden",
@@ -329,13 +329,13 @@ export default function Layout({ children }) {
     flexShrink: 0,
   };
 
-  // White on #2563eb is 5.2:1 (on the old #3b82f6 it was only 3.7:1, below the 4.5:1 AA minimum).
+  // Near-black on the near-white primary button is ~18:1.
   const connectWalletButtonStyle = {
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    background: "#2563eb",
-    color: "white",
+    background: "#f5f5f5",
+    color: "#0a0a0a",
     padding: "10px 16px",
     borderRadius: "6px",
     fontSize: "13px",
@@ -369,8 +369,8 @@ export default function Layout({ children }) {
     alignItems: "center",
     gap: "6px",
     background: "transparent",
-    border: "1px solid rgba(96,165,250,0.35)",
-    color: "#93c5fd",
+    border: "1px solid rgba(255,255,255,0.35)",
+    color: "#f5f5f5",
     padding: "8px 10px",
     borderRadius: "6px",
     fontSize: "12px",
@@ -380,7 +380,7 @@ export default function Layout({ children }) {
     whiteSpace: "nowrap",
   };
 
-  // Emerald on the #1e293b top bar, matching the connected-wallet button it sits next to.
+  // Emerald on the #141414 top bar, matching the connected-wallet button it sits next to.
   const roleBadgeStyle = {
     display: "flex",
     alignItems: "center",
@@ -397,7 +397,7 @@ export default function Layout({ children }) {
   const contentAreaStyle = {
     flex: 1,
     padding: sidePadding,
-    background: "#0f172a",
+    background: "transparent",
     // "auto" (not "hidden") so a page that is too wide scrolls instead of being silently clipped.
     overflowX: "auto",
   };
@@ -407,7 +407,7 @@ export default function Layout({ children }) {
   // under the sticky header.
   const restrictedStyle = {
     flex: 1,
-    background: "#0f172a",
+    background: "transparent",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -458,7 +458,7 @@ export default function Layout({ children }) {
 
       <div style={mainContainerStyle} inert={drawerVisible}>
         <header style={stickyHeaderStyle}>
-          <div style={topBarStyle}>
+          <div className="glass-bar" style={topBarStyle}>
             {isGranted && (
               <button
                 ref={toggleRef}
@@ -466,8 +466,8 @@ export default function Layout({ children }) {
                 className="dfl-focusable"
                 onClick={handleToggle}
                 style={toggleButtonStyle}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#93c5fd")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#60a5fa")}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#f5f5f5")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "#e5e5e5")}
                 title={sidebarExpanded ? "Close sidebar" : "Open sidebar"}
                 aria-label="Navigation menu"
                 aria-expanded={sidebarExpanded}
@@ -510,7 +510,7 @@ export default function Layout({ children }) {
                       display: "inline-block",
                     }}
                   ></span>
-                  {accountName(account) ? <span style={{ color: "#bae6fd", fontFamily: "inherit" }}>{accountName(account)} ·</span> : null}
+                  {accountName(account) ? <span style={{ color: "#e5e5e5", fontFamily: "inherit" }}>{accountName(account)} ·</span> : null}
                   {truncateAddress(account)}
                 </button>
               ) : (
@@ -521,10 +521,10 @@ export default function Layout({ children }) {
                   disabled={isConnecting}
                   style={connectWalletButtonStyle}
                   onMouseEnter={(e) => {
-                    if (!isConnecting) e.currentTarget.style.background = "#1d4ed8";
+                    if (!isConnecting) e.currentTarget.style.background = "#ffffff";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "#2563eb";
+                    e.currentTarget.style.background = "#f5f5f5";
                   }}
                 >
                   <Wallet size={16} aria-hidden="true" /> {connectLabel ?? (isMobile ? "Connect wallet" : "Connect MetaMask")}
@@ -554,7 +554,10 @@ export default function Layout({ children }) {
           </main>
         ) : (
           <main id={MAIN_ID} ref={mainRef} tabIndex={-1} style={contentAreaStyle}>
-            {children}
+            {/* Keyed by route so each page plays its entrance once when you navigate to it. */}
+            <div key={location.pathname} className="page-enter">
+              {children}
+            </div>
           </main>
         )}
       </div>

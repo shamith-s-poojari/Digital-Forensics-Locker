@@ -26,8 +26,8 @@ export default function WalletConnect() {
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    background: "#2563eb",
-    color: "white",
+    background: "#f5f5f5",
+    color: "#0a0a0a",
     padding: "8px 12px",
     borderRadius: "8px",
     fontSize: "12px",
@@ -36,7 +36,7 @@ export default function WalletConnect() {
     cursor: isConnecting ? "not-allowed" : "pointer",
     opacity: isConnecting ? 0.7 : 1,
     transition: "all 0.2s",
-    boxShadow: "0 0 16px rgba(59,130,246,0.4)",
+    boxShadow: "0 0 16px rgba(255,255,255,0.4)",
   };
 
   if (account) {
@@ -77,10 +77,10 @@ export default function WalletConnect() {
         disabled={isConnecting}
         style={disconnectedButtonStyle}
         onMouseEnter={(e) => {
-          if (!isConnecting) e.currentTarget.style.background = "#1d4ed8";
+          if (!isConnecting) e.currentTarget.style.background = "#ffffff";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.background = "#2563eb";
+          e.currentTarget.style.background = "#f5f5f5";
         }}
       >
         <Wallet size={14} aria-hidden="true" /> {isConnecting ? "Connecting…" : "Connect"}

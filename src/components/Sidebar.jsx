@@ -5,12 +5,12 @@ import WalletConnect from "./WalletConnect";
 import { useNavLinks } from "./navLinks.js";
 import { useAccessRequests } from "../access/accessRequestContext.js";
 
-// Keyboard-only focus ring. #93c5fd on the #0f172a sidebar is about 9.9:1 (WCAG non-text
+// Keyboard-only focus ring. #f5f5f5 on the #0a0a0a sidebar is about 9.9:1 (WCAG non-text
 // contrast needs 3:1). Styles are inline everywhere else, but pseudo-classes can't be inline,
 // so this one rule lives in a <style> element and targets a class name.
 const FOCUS_CSS = `
 .dfl-nav-link:focus-visible {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid #f5f5f5;
   outline-offset: 2px;
 }
 `;
@@ -33,7 +33,7 @@ export default function Sidebar({ onNavigate }) {
     width: "100%",
     minWidth: "240px",
     minHeight: "100%",
-    background: "#0f172a",
+    background: "transparent",
     display: "flex",
     flexDirection: "column",
     padding: "24px 16px",
@@ -46,17 +46,17 @@ export default function Sidebar({ onNavigate }) {
   const logoTitleStyle = {
     fontSize: "16px",
     fontWeight: 700,
-    color: "#f0f6fc",
+    color: "#fafafa",
     marginBottom: "2px",
     display: "flex",
     alignItems: "center",
     gap: "8px",
   };
 
-  // #94a3b8 on #0f172a is about 7:1 (the old #484f58 was about 2.2:1).
+  // #a3a3a3 on #0a0a0a is about 7:1 (the old #484f58 was about 2.2:1).
   const logoSubtitleStyle = {
     fontSize: "11px",
-    color: "#94a3b8",
+    color: "#a3a3a3",
   };
 
   const navStyle = {
@@ -77,25 +77,26 @@ export default function Sidebar({ onNavigate }) {
       borderRadius: "8px",
       textDecoration: "none",
       fontSize: "14px",
-      transition: "background 0.15s, color 0.15s",
+      transition: "background 0.2s, color 0.2s, border-color 0.2s, transform 0.2s",
+      transform: highlighted ? "translateX(2px)" : "none",
       marginBottom: "2px",
-      color: isActive ? "#ffffff" : highlighted ? "#f1f5f9" : "#94a3b8",
+      color: isActive ? "#ffffff" : highlighted ? "#f5f5f5" : "#a3a3a3",
       fontWeight: isActive ? 700 : 500,
-      background: isActive ? "rgba(59,130,246,0.18)" : highlighted ? "rgba(51,65,85,0.7)" : "transparent",
-      borderLeft: isActive ? "3px solid #3b82f6" : highlighted ? "3px solid #475569" : "3px solid transparent",
+      background: isActive ? "linear-gradient(90deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02))" : highlighted ? "rgba(42,42,42,0.7)" : "transparent",
+      borderLeft: isActive ? "3px solid #fafafa" : highlighted ? "3px solid #404040" : "3px solid transparent",
       cursor: "pointer",
     };
   };
 
   const bottomStyle = {
-    borderTop: "1px solid #334155",
+    borderTop: "1px solid #2a2a2a",
     marginTop: "16px",
     paddingTop: "16px",
   };
 
   const versionStyle = {
     fontSize: "11px",
-    color: "#94a3b8",
+    color: "#a3a3a3",
     textAlign: "center",
     marginBottom: "12px",
   };
@@ -106,7 +107,9 @@ export default function Sidebar({ onNavigate }) {
 
       <div style={logoStyle}>
         <div style={logoTitleStyle}>
-          <Lock size={20} color="#60a5fa" aria-hidden="true" focusable="false" />
+          <span aria-hidden="true" className="glass" style={{ display: "inline-flex", width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
+            <Lock size={16} color="#fafafa" aria-hidden="true" focusable="false" />
+          </span>
           ForensicsLocker
         </div>
         <div style={logoSubtitleStyle}>Chain of Custody</div>
@@ -128,7 +131,7 @@ export default function Sidebar({ onNavigate }) {
             {label}
             {to === "/admin" && pendingRequests > 0 ? (
               <span
-                style={{ marginLeft: "auto", minWidth: "20px", padding: "0 6px", borderRadius: "999px", background: "#f59e0b", color: "#0f172a", fontSize: "11px", fontWeight: 700, textAlign: "center" }}
+                style={{ marginLeft: "auto", minWidth: "20px", padding: "0 6px", borderRadius: "999px", background: "#f59e0b", color: "#0a0a0a", fontSize: "11px", fontWeight: 700, textAlign: "center" }}
               >
                 {pendingRequests}
                 <span className="sr-only"> pending access requests</span>

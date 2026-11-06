@@ -16,9 +16,9 @@ const SWITCH_BUTTON_STYLE = {
   display: "flex",
   alignItems: "center",
   gap: "6px",
-  background: "#2563eb",
-  border: "1px solid #3b82f6",
-  color: "#fff",
+  background: "#f5f5f5",
+  border: "1px solid #fafafa",
+  color: "#0a0a0a",
   padding: "8px 14px",
   borderRadius: "6px",
   fontSize: "14px",
@@ -222,7 +222,7 @@ export default function AccessDenied() {
       <p className="text-slate-300">
         The wallet <span className="font-mono text-sky-200">{shorten(account ?? "", 6, 4)}</span> holds no role on the evidence ledger.
       </p>
-      <div className="w-full rounded-lg border border-slate-700 bg-slate-900/70 p-4">{body}</div>
+      <div className="glass w-full rounded-xl p-4">{body}</div>
       {isDemo ? <ClaimChief /> : null}
       <p className="text-xs text-slate-400">Holding a role on another of your accounts? Switch to it; your wallet will ask which accounts to share with this site.</p>
       <div className="flex flex-wrap justify-center gap-2">

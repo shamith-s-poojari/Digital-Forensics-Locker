@@ -21,20 +21,20 @@ const NO_ON_CHAIN_NOTICE =
   "No on-chain record exists in this demo, so this check cannot confirm authenticity or integrity of the evidence.";
 
 // -- Design tokens (mirrors CaseManagement) -----------------------------------------------------
-// Text tokens are kept at >= 4.5:1 contrast on the page (#0f172a) and card (#1e293b) backgrounds.
+// Text tokens are kept at >= 4.5:1 contrast on the page (#0a0a0a) and card (#141414) backgrounds.
 const T = {
-  pageBg: "#0f172a",
-  cardBg: "#1e293b",
-  tableBg: "#0f172a",
-  border: "#334155",
-  inputBorder: "#64748b", // >= 3:1 against both backgrounds so form controls stay visible
-  textHigh: "#f1f5f9",
-  textMid: "#e2e8f0",
-  textLow: "#cbd5e1",
-  textMuted: "#94a3b8",
-  blue: "#3b82f6",
-  blueDark: "#2563eb",
-  blueText: "#60a5fa", // blue for text on dark surfaces
+  pageBg: "#0a0a0a",
+  cardBg: "#141414",
+  tableBg: "#0a0a0a",
+  border: "#2a2a2a",
+  inputBorder: "#737373", // >= 3:1 against both backgrounds so form controls stay visible
+  textHigh: "#f5f5f5",
+  textMid: "#e5e5e5",
+  textLow: "#d4d4d4",
+  textMuted: "#a3a3a3",
+  blue: "#fafafa",
+  blueDark: "#f5f5f5",
+  blueText: "#e5e5e5", // blue for text on dark surfaces
   errorText: "#fca5a5",
 };
 
@@ -66,7 +66,7 @@ const inputStyle = {
 const primaryBtn = {
   flex: 1,
   backgroundColor: T.blueDark,
-  color: "#fff",
+  color: "#0a0a0a",
   padding: "10px 16px",
   borderRadius: 8,
   fontSize: 13,
@@ -164,8 +164,8 @@ function FilterPill({ active, dot, onClick, children }) {
         alignItems: "center",
         gap: 6,
         border: `1px solid ${active ? T.blue : T.border}`,
-        backgroundColor: active ? T.blueDark : hovered ? "#334155" : T.cardBg,
-        color: active ? "#fff" : hovered ? T.textMid : T.textLow,
+        backgroundColor: active ? T.blueDark : hovered ? "#2a2a2a" : T.cardBg,
+        color: active ? "#0a0a0a" : hovered ? T.textMid : T.textLow,
         transition: "all 0.2s",
       }}
     >
@@ -466,12 +466,12 @@ function DetailsPanel({ evidence, copiedKey, copyFailed, onCopy, onClose }) {
             disabled={isExporting}
             aria-busy={isExporting}
             style={{ ...primaryBtn, cursor: isExporting ? "progress" : "pointer", opacity: isExporting ? 0.75 : 1 }}
-            onMouseEnter={hoverOn("#1d4ed8")}
+            onMouseEnter={hoverOn("#ffffff")}
             onMouseLeave={hoverOn(T.blueDark)}
           >
             {isExporting ? "Exporting…" : "Export PDF"}
           </button>
-          <button type="button" onClick={onClose} style={ghostBtn} onMouseEnter={hoverOn("#334155", T.textHigh)} onMouseLeave={hoverOn("transparent", T.textLow)}>
+          <button type="button" onClick={onClose} style={ghostBtn} onMouseEnter={hoverOn("#2a2a2a", T.textHigh)} onMouseLeave={hoverOn("transparent", T.textLow)}>
             Close
           </button>
         </div>
@@ -624,7 +624,7 @@ function VerifyDialog({ evidence, onClose }) {
           role="region"
           aria-labelledby={resultTitleId}
           tabIndex={-1}
-          style={{ backgroundColor: "rgba(148,163,184,0.08)", border: `1px solid ${T.inputBorder}`, borderRadius: 8, padding: 16, outline: "none" }}
+          style={{ backgroundColor: "rgba(163,163,163,0.08)", border: `1px solid ${T.inputBorder}`, borderRadius: 8, padding: 16, outline: "none" }}
         >
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
             {equal ? (
@@ -660,13 +660,13 @@ function VerifyDialog({ evidence, onClose }) {
             type="button"
             onClick={() => setResult(null)}
             style={{ ...ghostBtn, minWidth: 140 }}
-            onMouseEnter={hoverOn("#334155", T.textHigh)}
+            onMouseEnter={hoverOn("#2a2a2a", T.textHigh)}
             onMouseLeave={hoverOn("transparent", T.textLow)}
           >
             Check another file
           </button>
         )}
-        <button type="button" onClick={onClose} style={{ ...primaryBtn, minWidth: 140 }} onMouseEnter={hoverOn("#1d4ed8")} onMouseLeave={hoverOn(T.blueDark)}>
+        <button type="button" onClick={onClose} style={{ ...primaryBtn, minWidth: 140 }} onMouseEnter={hoverOn("#ffffff")} onMouseLeave={hoverOn(T.blueDark)}>
           Close
         </button>
       </div>
@@ -765,7 +765,7 @@ export default function EvidenceViewer() {
           style={{ ...inputStyle, padding: "10px 16px 10px 40px" }}
           onFocus={(e) => {
             e.target.style.borderColor = T.blue;
-            e.target.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.45)";
+            e.target.style.boxShadow = "0 0 0 3px rgba(255,255,255,0.45)";
           }}
           onBlur={(e) => {
             e.target.style.borderColor = T.inputBorder;
@@ -868,14 +868,14 @@ export default function EvidenceViewer() {
                           type="button"
                           aria-label={`Details for ${ev.fileName}`}
                           onClick={() => openDialog("details", ev)}
-                          style={{ padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", backgroundColor: "rgba(59,130,246,0.12)", color: T.blueText, border: "1px solid rgba(59,130,246,0.35)", transition: "all 0.15s" }}
+                          style={{ padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", backgroundColor: "rgba(255,255,255,0.12)", color: T.blueText, border: "1px solid rgba(255,255,255,0.35)", transition: "all 0.15s" }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = "rgba(59,130,246,0.22)";
-                            e.currentTarget.style.borderColor = "rgba(59,130,246,0.6)";
+                            e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.22)";
+                            e.currentTarget.style.borderColor = "rgba(255,255,255,0.6)";
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = "rgba(59,130,246,0.12)";
-                            e.currentTarget.style.borderColor = "rgba(59,130,246,0.35)";
+                            e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.12)";
+                            e.currentTarget.style.borderColor = "rgba(255,255,255,0.35)";
                           }}
                         >
                           Details
@@ -884,14 +884,14 @@ export default function EvidenceViewer() {
                           type="button"
                           aria-label={`Verify hash for ${ev.fileName}`}
                           onClick={() => openDialog("verify", ev)}
-                          style={{ padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", backgroundColor: "rgba(148,163,184,0.1)", color: T.textLow, border: "1px solid rgba(148,163,184,0.4)", display: "inline-flex", alignItems: "center", gap: 4, transition: "all 0.15s" }}
+                          style={{ padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", backgroundColor: "rgba(163,163,163,0.1)", color: T.textLow, border: "1px solid rgba(163,163,163,0.4)", display: "inline-flex", alignItems: "center", gap: 4, transition: "all 0.15s" }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = "rgba(148,163,184,0.2)";
-                            e.currentTarget.style.borderColor = "rgba(148,163,184,0.6)";
+                            e.currentTarget.style.backgroundColor = "rgba(163,163,163,0.2)";
+                            e.currentTarget.style.borderColor = "rgba(163,163,163,0.6)";
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = "rgba(148,163,184,0.1)";
-                            e.currentTarget.style.borderColor = "rgba(148,163,184,0.4)";
+                            e.currentTarget.style.backgroundColor = "rgba(163,163,163,0.1)";
+                            e.currentTarget.style.borderColor = "rgba(163,163,163,0.4)";
                           }}
                         >
                           <Hash size={11} aria-hidden="true" /> Verify
@@ -934,7 +934,7 @@ export default function EvidenceViewer() {
       <style>{`
         @keyframes ev-spin { to { transform: rotate(360deg); } }
         .ev-spinner { animation: ev-spin 0.8s linear infinite; }
-        .ev-row:hover { background-color: rgba(59,130,246,0.05); }
+        .ev-row:hover { background-color: rgba(255,255,255,0.05); }
         .ev-search::placeholder { color: ${T.textMuted}; opacity: 1; }
         @media (prefers-reduced-motion: reduce) { .ev-spinner { animation: none; } }
       `}</style>
