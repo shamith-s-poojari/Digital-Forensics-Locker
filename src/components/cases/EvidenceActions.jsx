@@ -7,6 +7,7 @@ import { MAX_NOTE_LENGTH } from "../../custody/custodyNote.js";
 import { downloadBytes } from "../../utils/download.js";
 import { formatFileSize } from "../../utils/hash";
 import { MAX_VERIFY_BYTES, openAndHash, verifyStoredCopy } from "../../verify/verifyEvidence.js";
+import { accountLabel } from "../../web3/accountNames.js";
 import { lockerConfig } from "../../web3/config.js";
 import { sameAddress, shorten } from "../../web3/format.js";
 import { friendlyMessage, LEDGER_ERROR, LedgerError } from "../../web3/ledgerErrors.js";
@@ -190,8 +191,8 @@ function CustodyForm({ record, ledger, account, paused, runWrite, mode }) {
         <select id={selectId} value={recipient} onChange={(e) => setRecipient(e.target.value)} className={INPUT_CLASS}>
           <option value="">Choose an investigator…</option>
           {recipients.map((address) => (
-            <option key={address} value={address}>
-              {address}
+            <option key={address} value={address} title={address}>
+              {accountLabel(address)}
             </option>
           ))}
         </select>

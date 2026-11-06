@@ -1,4 +1,4 @@
-import { ExternalLink, Fingerprint, LayoutDashboard, ShieldCheck, Wallet } from "lucide-react";
+import { ArrowRightLeft, BadgeCheck, ExternalLink, FileLock2, Fingerprint, LayoutDashboard, ShieldCheck, Wallet } from "lucide-react";
 import { useAuth } from "../context/authContext.js";
 import { Button } from "./ui";
 
@@ -24,26 +24,42 @@ const STEPS = [
 /** What the ledger is built on, shown in the scrolling strip under the hero. */
 const STACK = ["SHA-256 in the browser", "Ethereum Sepolia", "IPFS / Pinata", "Sign-In with Ethereum", "On-chain roles", "AES-GCM encryption", "Custody PDF reports"];
 
-/** Four-point star used as the floating sparkles in the hero (decorative). */
-function Sparkle({ size, className = "", style }) {
+/** The three custody events the hero visual walks through. Sample hashes, for decoration only. */
+const CHAIN = [
+  { icon: FileLock2, label: "Collected", hash: "9f86…0a08" },
+  { icon: ArrowRightLeft, label: "Transferred", hash: "3c2e…b71d" },
+  { icon: BadgeCheck, label: "Verified", hash: "9f86…0a08" },
+];
+
+/**
+ * Decorative custody chain: a light pulse runs along the links and each block lights up as it arrives,
+ * ending on a green "verified" block whose hash matches the first. CSS only (see .custody-chain in index.css).
+ */
+function CustodyChain() {
   return (
-    <span aria-hidden="true" className={`sparkle pointer-events-none absolute ${className}`} style={style}>
-      <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
-        <defs>
-          <linearGradient id={`sparkle-${size}`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#ffffff" />
-            <stop offset="55%" stopColor="#8a8a8a" />
-            <stop offset="100%" stopColor="#1a1a1a" />
-          </linearGradient>
-        </defs>
-        <path
-          d="M50 0 C54 30 70 46 100 50 C70 54 54 70 50 100 C46 70 30 54 0 50 C30 46 46 30 50 0 Z"
-          style={{ fill: "var(--color-slate-950)" }}
-          stroke={`url(#sparkle-${size})`}
-          strokeWidth="2.5"
-        />
-      </svg>
-    </span>
+    <div aria-hidden="true" className="glass custody-chain animate-rise rounded-xl p-4">
+      <div className="mb-4 flex items-center justify-between text-xs">
+        <span className="font-semibold uppercase tracking-wide text-slate-400">Evidence #A-1027</span>
+        <span className="flex items-center gap-1.5 font-medium text-emerald-300">
+          <span className="live-dot size-1.5 rounded-full bg-emerald-400" />
+          Hash match
+        </span>
+      </div>
+      <div className="chain-row">
+        {CHAIN.map(({ icon: Icon, label, hash }, i) => (
+          <div key={label} className="contents">
+            {i > 0 ? <span className={`chain-link chain-link-${i}`} /> : null}
+            <div className={`chain-node chain-node-${i + 1}`}>
+              <span className="chain-node-icon">
+                <Icon className="size-[18px]" />
+              </span>
+              <span className="text-xs font-medium text-slate-200">{label}</span>
+              <span className="font-mono text-[10px] text-slate-500">{hash}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -67,10 +83,6 @@ export default function Login() {
     <div className="mx-auto w-full max-w-5xl">
     <div className="grid w-full items-center gap-10 md:grid-cols-[1.15fr_1fr] md:gap-14">
       <section className="relative text-left">
-        <Sparkle size={110} className="-top-20 right-0 hidden md:block" />
-        <Sparkle size={44} className="top-6 right-28 hidden md:block" style={{ animationDelay: "-2.5s" }} />
-        <Sparkle size={30} className="top-40 -right-4 hidden md:block" style={{ animationDelay: "-4s" }} />
-
         <p className="eyebrow animate-rise">
           <span className="eyebrow-tag">Live</span>
           <Fingerprint className="size-3.5" aria-hidden="true" />
@@ -131,6 +143,8 @@ export default function Login() {
         </div>
       </section>
 
+      <div className="space-y-3">
+      <CustodyChain />
       <ol className="stagger space-y-3" aria-label="How sign-in works">
         {STEPS.map(({ icon: Icon, title, body }, index) => (
           <li key={title} className="glass glass-hover flex gap-4 rounded-xl p-4">
@@ -147,6 +161,7 @@ export default function Login() {
           </li>
         ))}
       </ol>
+      </div>
     </div>
 
       {/* Decorative: the same items twice so the strip can loop seamlessly. */}

@@ -417,14 +417,6 @@ code, pre, .mono {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-@keyframes dfl-float {
-  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
-  50%      { transform: translate3d(0, -10px, 0) rotate(6deg); }
-}
-@keyframes dfl-twinkle {
-  0%, 100% { opacity: 0.55; transform: scale(0.92); }
-  50%      { opacity: 1;    transform: scale(1); }
-}
 @keyframes dfl-marquee {
   from { transform: translate3d(0, 0, 0); }
   to   { transform: translate3d(-50%, 0, 0); }
@@ -462,11 +454,93 @@ code, pre, .mono {
 .stagger > *:nth-child(4) { animation-delay: 0.45s; }
 .stagger > *:nth-child(n+5) { animation-delay: 0.55s; }
 
-.sparkle {
-  animation: dfl-float 7s ease-in-out infinite;
+/*
+ * Custody chain (sign-in hero). One 4s cycle: block 1 lights, a pulse runs down link 1, block 2 lights,
+ * a pulse runs down link 2, block 3 lights green. Each part uses the same keyframes with its own delay,
+ * and only opacity/transform are animated.
+ */
+.custody-chain {
+  --chain-cycle: 4s;
 }
-.sparkle > svg {
-  animation: dfl-twinkle 3.5s ease-in-out infinite;
+.chain-row {
+  display: flex;
+  align-items: flex-start;
+}
+.chain-node {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 84px;
+  text-align: center;
+}
+.chain-node-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--ink-rgb), 0.10);
+  background: rgba(var(--ink-rgb), 0.04);
+  color: var(--color-slate-300);
+}
+/* The "lit" state is a ring drawn on top and faded in, so nothing repaints the block itself. */
+.chain-node-icon::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(var(--ink-rgb), 0.55);
+  box-shadow: 0 0 18px rgba(var(--ink-rgb), 0.22), inset 0 0 12px rgba(var(--ink-rgb), 0.08);
+  opacity: 0;
+  animation: dfl-chain-glow var(--chain-cycle) ease-out infinite;
+}
+.chain-node-2 .chain-node-icon::after { animation-delay: 1.2s; }
+.chain-node-3 .chain-node-icon {
+  color: var(--color-emerald-300);
+}
+.chain-node-3 .chain-node-icon::after {
+  border-color: color-mix(in srgb, var(--color-emerald-400) 70%, transparent);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--color-emerald-400) 35%, transparent);
+  animation-delay: 2.4s;
+}
+.chain-link {
+  position: relative;
+  flex: 1;
+  height: 1px;
+  margin-top: 21px;
+  overflow: hidden;
+  background: repeating-linear-gradient(90deg, rgba(var(--ink-rgb), 0.18) 0 4px, transparent 4px 8px);
+}
+.chain-link::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(var(--ink-rgb), 0.95), transparent);
+  transform: translateX(-100%);
+  animation: dfl-chain-pulse var(--chain-cycle) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.chain-link-1::after { animation-delay: 0.3s; }
+.chain-link-2::after { animation-delay: 1.5s; }
+
+@keyframes dfl-chain-glow {
+  0%   { opacity: 0; }
+  6%   { opacity: 1; }
+  35%  { opacity: 0.35; }
+  80%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+@keyframes dfl-chain-pulse {
+  0%   { transform: translateX(-100%); }
+  25%  { transform: translateX(250%); }
+  100% { transform: translateX(250%); }
 }
 
 .marquee {

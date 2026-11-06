@@ -1,5 +1,6 @@
 import { ArrowRight, CheckCircle2, ExternalLink, Eye, FilePlus2, GitCompareArrows, Loader2, RefreshCcw, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
 import { matchNote } from "../../custody/custodyNote.js";
+import { accountName } from "../../web3/accountNames.js";
 import { txUrl } from "../../web3/config.js";
 import { ACTION_META } from "../../web3/caseModel.js";
 import { formatUtc, sameAddress, shorten, timeAgo } from "../../web3/format.js";
@@ -87,7 +88,8 @@ export default function CustodyTimeline({ record, account, txs, chainStatus, con
     <Panel title={`Chain of custody · #${record.id}`} titleId="timeline-heading" actions={<ChainStatus status={chainStatus} />}>
       <dl className="mb-4 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5 text-xs">
         <dt className="text-slate-400">Current custodian</dt>
-        <dd className="flex items-center gap-1.5 font-mono text-slate-100">
+        <dd className="flex items-center gap-1.5 font-mono text-slate-100" title={record.custodian}>
+          {accountName(record.custodian) ? <span className="font-sans font-semibold">{accountName(record.custodian)}</span> : null}
           {shorten(record.custodian, 8, 6)}
           {sameAddress(record.custodian, account) ? <Badge tone="info">you</Badge> : null}
         </dd>

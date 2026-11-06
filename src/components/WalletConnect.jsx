@@ -1,10 +1,21 @@
 import { useWallet } from "../context/walletContext.js";
+import { useContext } from "react";
 import { Wallet } from "lucide-react";
+import { RoleContext } from "../context/roleContext.js";
+import { accountName } from "../web3/accountNames.js";
+import { ROLE_LABELS, ROLES } from "../web3/roles.js";
 
 export default function WalletConnect() {
   const { account, connect, disconnect, error, isConnecting } = useWallet();
+  // Read directly (not useRole) so the badge still renders, address only, outside a <RoleProvider>.
+  const roleState = useContext(RoleContext);
 
   const truncate = (addr) => (addr ? addr.slice(0, 6) + "..." + addr.slice(-4) : "");
+
+  // The display name (VITE_ACCOUNT_NAMES), else the on-chain role, else the shortened address.
+  const roleLabel =
+    roleState?.status === "ready" && roleState.role && roleState.role !== ROLES.NONE ? ROLE_LABELS[roleState.role] : null;
+  const badgeText = accountName(account) ?? roleLabel ?? truncate(account);
 
   const connectedButtonStyle = {
     display: "flex",
@@ -16,7 +27,7 @@ export default function WalletConnect() {
     padding: "8px 12px",
     borderRadius: "8px",
     fontSize: "12px",
-    fontFamily: "'JetBrains Mono', monospace",
+    fontFamily: badgeText === truncate(account) ? "'JetBrains Mono', monospace" : "inherit",
     cursor: "pointer",
     transition: "all 0.2s",
     fontWeight: 500,
@@ -45,8 +56,8 @@ export default function WalletConnect() {
         type="button"
         onClick={disconnect}
         style={connectedButtonStyle}
-        title="Disconnect (clears this session; your wallet itself is not changed)"
-        aria-label={`Disconnect wallet ${truncate(account)}`}
+        title={`${account}\nDisconnect (clears this session; your wallet itself is not changed)`}
+        aria-label={`Disconnect wallet ${badgeText === truncate(account) ? badgeText : `${badgeText} (${truncate(account)})`}`}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "rgba(16,185,129,0.2)";
         }}
@@ -64,7 +75,7 @@ export default function WalletConnect() {
             display: "inline-block",
           }}
         ></span>
-        {truncate(account)}
+        {badgeText}
       </button>
     );
   }
