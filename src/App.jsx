@@ -20,10 +20,10 @@ import RoleHome from "./pages/RoleHome";
 
 function NotFound() {
   return (
-    <div style={{ color: "#e5e5e5" }}>
+    <div style={{ color: "var(--color-slate-200)" }}>
       <h1 style={{ fontSize: "24px", fontWeight: 700, marginBottom: "8px" }}>Page not found</h1>
-      <p style={{ color: "#a3a3a3", marginBottom: "16px" }}>That address does not exist.</p>
-      <Link to="/cases" style={{ color: "#f5f5f5" }}>Back to the case dashboard</Link>
+      <p style={{ color: "var(--color-slate-400)", marginBottom: "16px" }}>That address does not exist.</p>
+      <Link to="/cases" style={{ color: "var(--color-slate-100)" }}>Back to the case dashboard</Link>
     </div>
   );
 }

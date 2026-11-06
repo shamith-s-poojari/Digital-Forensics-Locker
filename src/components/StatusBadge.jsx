@@ -1,12 +1,12 @@
 // Visual config per label. Background, border and dot colors match the status/event
 // colors previously duplicated in CaseManagement, ChainOfCustody and EvidenceViewer.
 // `color` (the text) is nudged lighter than the dot for red, blue and slate so the
-// 11px label reaches WCAG AA (4.5:1) on the dark theme surfaces (#0a0a0a / #141414).
+// 11px label reaches WCAG AA (4.5:1) on the dark theme surfaces (var(--color-slate-950) / var(--color-slate-900)).
 const GREEN = { dot: "#22c55e", color: "#22c55e", bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.3)" };
 const YELLOW = { dot: "#eab308", color: "#eab308", bg: "rgba(234,179,8,0.1)", border: "rgba(234,179,8,0.3)" };
 const RED = { dot: "#ef4444", color: "#f87171", bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.3)" };
-const BLUE = { dot: "#fafafa", color: "#e5e5e5", bg: "rgba(255,255,255,0.1)", border: "rgba(255,255,255,0.3)" };
-const SLATE = { dot: "#737373", color: "#a3a3a3", bg: "rgba(115,115,115,0.1)", border: "rgba(115,115,115,0.3)" };
+const BLUE = { dot: "var(--color-slate-50)", color: "var(--color-slate-200)", bg: "rgba(var(--ink-rgb), 0.1)", border: "rgba(var(--ink-rgb), 0.3)" };
+const SLATE = { dot: "var(--color-slate-500)", color: "var(--color-slate-400)", bg: "rgba(115,115,115,0.1)", border: "rgba(115,115,115,0.3)" };
 
 const BADGES = {
   // Evidence statuses

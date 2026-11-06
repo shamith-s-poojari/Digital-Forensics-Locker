@@ -15,7 +15,7 @@ const formatTime = (date) => date.toLocaleString("en-US", FORMAT_OPTIONS);
 
 const baseStyle = {
   fontSize: "12px",
-  color: "#a3a3a3",
+  color: "var(--color-slate-400)",
   fontFamily: "'JetBrains Mono', monospace",
   whiteSpace: "nowrap",
 };

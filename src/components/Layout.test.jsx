@@ -413,3 +413,48 @@ describe("Layout motion preference", () => {
     expect(getSidebar().style.transition).toBe("none");
   });
 });
+
+describe("Layout log out and night mode", () => {
+  let stored;
+  beforeEach(() => {
+    installMatchMedia({ mobile: false });
+    stored = new Map();
+    vi.stubGlobal("localStorage", {
+      getItem: (key) => (stored.has(key) ? stored.get(key) : null),
+      setItem: (key, value) => stored.set(key, String(value)),
+      removeItem: (key) => stored.delete(key),
+    });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("offers a Log out button that ends the session", () => {
+    const { wallet } = renderLayout({ roles: { isInvestigator: true } });
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+    expect(wallet.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("has no Log out button while signed out", () => {
+    renderLayout({ account: null });
+    expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
+  });
+
+  it("toggles night mode on and off, even before sign-in, and remembers the choice", () => {
+    renderLayout({ account: null });
+    const toggle = screen.getByRole("button", { name: "Night mode" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(toggle);
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem("dfl-theme")).toBe("light");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(document.documentElement.dataset.theme).toBeUndefined();
+    expect(localStorage.getItem("dfl-theme")).toBe("dark");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+});

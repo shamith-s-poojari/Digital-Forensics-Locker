@@ -5,12 +5,12 @@ import WalletConnect from "./WalletConnect";
 import { useNavLinks } from "./navLinks.js";
 import { useAccessRequests } from "../access/accessRequestContext.js";
 
-// Keyboard-only focus ring. #f5f5f5 on the #0a0a0a sidebar is about 9.9:1 (WCAG non-text
+// Keyboard-only focus ring. var(--color-slate-100) on the var(--color-slate-950) sidebar is about 9.9:1 (WCAG non-text
 // contrast needs 3:1). Styles are inline everywhere else, but pseudo-classes can't be inline,
 // so this one rule lives in a <style> element and targets a class name.
 const FOCUS_CSS = `
 .dfl-nav-link:focus-visible {
-  outline: 2px solid #f5f5f5;
+  outline: 2px solid var(--color-slate-100);
   outline-offset: 2px;
 }
 `;
@@ -46,17 +46,17 @@ export default function Sidebar({ onNavigate }) {
   const logoTitleStyle = {
     fontSize: "16px",
     fontWeight: 700,
-    color: "#fafafa",
+    color: "var(--color-slate-50)",
     marginBottom: "2px",
     display: "flex",
     alignItems: "center",
     gap: "8px",
   };
 
-  // #a3a3a3 on #0a0a0a is about 7:1 (the old #484f58 was about 2.2:1).
+  // var(--color-slate-400) on var(--color-slate-950) is about 7:1 (the old #484f58 was about 2.2:1).
   const logoSubtitleStyle = {
     fontSize: "11px",
-    color: "#a3a3a3",
+    color: "var(--color-slate-400)",
   };
 
   const navStyle = {
@@ -80,23 +80,23 @@ export default function Sidebar({ onNavigate }) {
       transition: "background 0.2s, color 0.2s, border-color 0.2s, transform 0.2s",
       transform: highlighted ? "translateX(2px)" : "none",
       marginBottom: "2px",
-      color: isActive ? "#ffffff" : highlighted ? "#f5f5f5" : "#a3a3a3",
+      color: isActive ? "var(--color-slate-50)" : highlighted ? "var(--color-slate-100)" : "var(--color-slate-400)",
       fontWeight: isActive ? 700 : 500,
-      background: isActive ? "linear-gradient(90deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02))" : highlighted ? "rgba(42,42,42,0.7)" : "transparent",
-      borderLeft: isActive ? "3px solid #fafafa" : highlighted ? "3px solid #404040" : "3px solid transparent",
+      background: isActive ? "linear-gradient(90deg, rgba(var(--ink-rgb), 0.10), rgba(var(--ink-rgb), 0.02))" : highlighted ? "rgba(var(--surface-rgb), 0.7)" : "transparent",
+      borderLeft: isActive ? "3px solid var(--color-slate-50)" : highlighted ? "3px solid var(--color-slate-600)" : "3px solid transparent",
       cursor: "pointer",
     };
   };
 
   const bottomStyle = {
-    borderTop: "1px solid #2a2a2a",
+    borderTop: "1px solid var(--color-slate-700)",
     marginTop: "16px",
     paddingTop: "16px",
   };
 
   const versionStyle = {
     fontSize: "11px",
-    color: "#a3a3a3",
+    color: "var(--color-slate-400)",
     textAlign: "center",
     marginBottom: "12px",
   };
@@ -108,7 +108,7 @@ export default function Sidebar({ onNavigate }) {
       <div style={logoStyle}>
         <div style={logoTitleStyle}>
           <span aria-hidden="true" className="glass" style={{ display: "inline-flex", width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
-            <Lock size={16} color="#fafafa" aria-hidden="true" focusable="false" />
+            <Lock size={16} color="currentColor" aria-hidden="true" focusable="false" />
           </span>
           ForensicsLocker
         </div>
@@ -131,7 +131,7 @@ export default function Sidebar({ onNavigate }) {
             {label}
             {to === "/admin" && pendingRequests > 0 ? (
               <span
-                style={{ marginLeft: "auto", minWidth: "20px", padding: "0 6px", borderRadius: "999px", background: "#f59e0b", color: "#0a0a0a", fontSize: "11px", fontWeight: 700, textAlign: "center" }}
+                style={{ marginLeft: "auto", minWidth: "20px", padding: "0 6px", borderRadius: "999px", background: "#f59e0b", color: "var(--color-slate-950)", fontSize: "11px", fontWeight: 700, textAlign: "center" }}
               >
                 {pendingRequests}
                 <span className="sr-only"> pending access requests</span>

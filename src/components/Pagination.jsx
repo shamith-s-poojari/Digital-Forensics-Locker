@@ -32,7 +32,7 @@ export default function Pagination({ page, totalPages, onPageChange, showingFrom
     flexWrap: "wrap",
     gap: "12px",
     padding: "12px 0",
-    color: "#e5e5e5",
+    color: "var(--color-slate-200)",
     fontSize: "13px",
     fontFamily: "inherit",
   };
@@ -44,9 +44,9 @@ export default function Pagination({ page, totalPages, onPageChange, showingFrom
     alignItems: "center",
     gap: "4px",
     background: "transparent",
-    border: "1px solid #2a2a2a",
+    border: "1px solid var(--color-slate-700)",
     borderRadius: "6px",
-    color: "#e5e5e5",
+    color: "var(--color-slate-200)",
     padding: "6px 12px",
     fontSize: "13px",
     fontFamily: "inherit",
@@ -59,12 +59,12 @@ export default function Pagination({ page, totalPages, onPageChange, showingFrom
   const highlight = (enabled) => ({
     onMouseEnter: (e) => {
       if (enabled) {
-        e.currentTarget.style.borderColor = "#fafafa";
-        e.currentTarget.style.background = "rgba(255,255,255,0.1)";
+        e.currentTarget.style.borderColor = "var(--color-slate-50)";
+        e.currentTarget.style.background = "rgba(var(--ink-rgb), 0.1)";
       }
     },
     onMouseLeave: (e) => {
-      e.currentTarget.style.borderColor = "#2a2a2a";
+      e.currentTarget.style.borderColor = "var(--color-slate-700)";
       e.currentTarget.style.background = "transparent";
     },
   });
@@ -89,7 +89,7 @@ export default function Pagination({ page, totalPages, onPageChange, showingFrom
         >
           <ChevronLeft size={16} aria-hidden="true" /> Previous
         </button>
-        <span style={{ color: "#e5e5e5", fontWeight: 600, minWidth: "88px", textAlign: "center" }}>
+        <span style={{ color: "var(--color-slate-200)", fontWeight: 600, minWidth: "88px", textAlign: "center" }}>
           Page {page} of {totalPages}
         </span>
         <button

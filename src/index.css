@@ -27,7 +27,7 @@
  * class in the app at once. Status colours (emerald/amber/rose) are left alone on purpose: in a
  * chain-of-custody tool "verified" vs "tampered" must stay readable at a glance.
  */
-@theme {
+@theme static {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
@@ -57,6 +57,86 @@
   --color-sky-950: #171717;
 }
 
+/*
+ * Night (default) and day themes. <html data-theme="light"> flips the whole monochrome scale, so a class
+ * or inline style written for night mode ("text-slate-100", "var(--color-slate-950)") reads correctly
+ * in day mode too: light text on dark becomes dark text on light. The *-rgb triplets feed the translucent
+ * overlays (rgba(var(--ink-rgb), 0.08) is a faint white veil at night and a faint black one by day).
+ * The choice is stored by src/theme/theme.js and applied before first paint by the script in index.html.
+ */
+:root {
+  color-scheme: dark;
+  --ink-rgb: 255, 255, 255;
+  --surface-rgb: 42, 42, 42;
+  --bg-rgb: 8, 8, 8;
+  --glass-rgb: 12, 12, 12;
+  --shadow-strong: rgba(0, 0, 0, 0.8);
+  --shadow-soft: rgba(0, 0, 0, 0.5);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ink-rgb: 0, 0, 0;
+  --surface-rgb: 228, 228, 228;
+  --bg-rgb: 250, 250, 250;
+  --glass-rgb: 255, 255, 255;
+  --shadow-strong: rgba(0, 0, 0, 0.12);
+  --shadow-soft: rgba(0, 0, 0, 0.06);
+
+  --color-slate-50: #0a0a0a;
+  --color-slate-100: #141414;
+  --color-slate-200: #262626;
+  --color-slate-300: #3a3a3a;
+  --color-slate-400: #555555;
+  --color-slate-500: #6b6b6b;
+  --color-slate-600: #c2c2c2;
+  --color-slate-700: #d9d9d9;
+  --color-slate-800: #e6e6e6;
+  --color-slate-900: #f1f1f1;
+  --color-slate-950: #fafafa;
+
+  --color-sky-50: #000000;
+  --color-sky-100: #000000;
+  --color-sky-200: #111111;
+  --color-sky-300: #1a1a1a;
+  --color-sky-400: #000000;
+  --color-sky-500: #141414;
+  --color-sky-600: #2a2a2a;
+  --color-sky-700: #555555;
+  --color-sky-800: #a3a3a3;
+  --color-sky-900: #e0e0e0;
+  --color-sky-950: #f0f0f0;
+
+  /* Status tints are designed for dark backgrounds; by day use the deep end of each scale. */
+  --color-emerald-100: #064e3b;
+  --color-emerald-200: #065f46;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-amber-100: #78350f;
+  --color-amber-200: #92400e;
+  --color-amber-300: #b45309;
+  --color-amber-400: #d97706;
+  --color-rose-100: #881337;
+  --color-rose-200: #9f1239;
+  --color-rose-300: #be123c;
+  --color-rose-400: #e11d48;
+}
+
+/* Theme switch: a circle grows out of the toggle button (View Transitions; one composited snapshot). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  animation: dfl-theme-reveal 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes dfl-theme-reveal {
+  from { clip-path: circle(0 at var(--reveal-x, 100%) var(--reveal-y, 0%)); }
+  to   { clip-path: circle(var(--reveal-r, 150vmax) at var(--reveal-x, 100%) var(--reveal-y, 0%)); }
+}
+
+
 /* Kept in the base layer so Tailwind utilities (e.g. px-4) can still override the reset. */
 @layer base {
   * {
@@ -66,9 +146,6 @@
   }
 }
 
-:root {
-  color-scheme: dark;
-}
 
 html {
   width: 100%;
@@ -79,8 +156,8 @@ html {
 body {
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background-color: #070707;
-  color: #fafafa;
+  background-color: var(--color-slate-950);
+  color: var(--color-slate-50);
   margin: 0;
   padding: 0;
   line-height: 1.6;
@@ -115,23 +192,23 @@ h1, h2, h3 {
 }
 #root::before {
   background-image:
-    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    linear-gradient(rgba(var(--ink-rgb), 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--ink-rgb), 0.035) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
   -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
 }
 #root::after {
   background:
-    radial-gradient(ellipse 60% 40% at 50% -10%, rgba(255,255,255,0.09), transparent 70%),
-    radial-gradient(circle at 100% 100%, rgba(255,255,255,0.03), transparent 40%);
+    radial-gradient(ellipse 60% 40% at 50% -10%, rgba(var(--ink-rgb), 0.09), transparent 70%),
+    radial-gradient(circle at 100% 100%, rgba(var(--ink-rgb), 0.03), transparent 40%);
 }
 
-/* Keyboard focus: visible by default on everything focusable (#d4d4d4 on #0a0a0a is ~9:1).
+/* Keyboard focus: visible by default on everything focusable (var(--color-slate-300) on var(--color-slate-950) is ~9:1).
  * Components that draw their own focus ring set an inline `outline` (or use a more specific
  * selector such as .evidence-select:focus), which takes precedence over this rule. */
 :focus-visible {
-  outline: 2px solid #d4d4d4;
+  outline: 2px solid var(--color-slate-300);
   outline-offset: 2px;
 }
 
@@ -161,8 +238,8 @@ a.skip-link {
   left: 8px;
   z-index: 10000;
   padding: 10px 16px;
-  background: #fafafa;
-  color: #0a0a0a;
+  background: var(--color-slate-50);
+  color: var(--color-slate-950);
   font-size: 14px;
   font-weight: 600;
   line-height: 1.4;
@@ -181,8 +258,8 @@ a.skip-link:focus-visible {
   -webkit-appearance: none;
   -moz-appearance: none;
   background-image:
-    linear-gradient(45deg, transparent 50%, #d4d4d4 50%),
-    linear-gradient(135deg, #d4d4d4 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--color-slate-300) 50%),
+    linear-gradient(135deg, var(--color-slate-300) 50%, transparent 50%);
   background-position:
     calc(100% - 18px) calc(50% - 2px),
     calc(100% - 12px) calc(50% - 2px);
@@ -192,21 +269,21 @@ a.skip-link:focus-visible {
 }
 
 .evidence-select option {
-  background: #0a0a0a;
-  color: #e5e5e5;
+  background: var(--color-slate-950);
+  color: var(--color-slate-200);
   padding: 12px 14px;
   font-size: 15px;
 }
 
 .evidence-select option:checked,
 .evidence-select option:hover {
-  background: linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.10) 100%);
-  color: #fafafa;
+  background: linear-gradient(180deg, rgba(var(--ink-rgb), 0.16) 0%, rgba(var(--ink-rgb), 0.10) 100%);
+  color: var(--color-slate-50);
 }
 
 .evidence-select:focus {
-  border-color: #d4d4d4;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
+  border-color: var(--color-slate-300);
+  box-shadow: 0 0 0 3px rgba(var(--ink-rgb), 0.12);
   outline: none;
 }
 
@@ -217,16 +294,16 @@ a.skip-link:focus-visible {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0a0a0a;
+  background: var(--color-slate-950);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2a2a2a;
+  background: var(--color-slate-700);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #404040;
+  background: var(--color-slate-600);
 }
 
 /* Monospace font for code/hashes */
@@ -238,13 +315,13 @@ code, pre, .mono {
 
 /* Headline text that fades from white to grey, as in the hero. */
 .text-metal {
-  background: linear-gradient(180deg, #ffffff 0%, #d4d4d4 55%, #7a7a7a 100%);
+  background: linear-gradient(180deg, var(--color-slate-50) 0%, var(--color-slate-300) 55%, #7a7a7a 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 .text-metal-soft {
-  background: linear-gradient(90deg, #8a8a8a 0%, #d4d4d4 45%, #8a8a8a 100%);
+  background: linear-gradient(90deg, #8a8a8a 0%, var(--color-slate-300) 45%, #8a8a8a 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -257,22 +334,22 @@ code, pre, .mono {
 .glass {
   position: relative;
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0.012) 100%),
-    rgba(12,12,12,0.72);
-  border: 1px solid rgba(255,255,255,0.08);
+    linear-gradient(180deg, rgba(var(--ink-rgb), 0.045) 0%, rgba(var(--ink-rgb), 0.012) 100%),
+    rgba(var(--glass-rgb), 0.72);
+  border: 1px solid rgba(var(--ink-rgb), 0.08);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.07),
-    0 1px 2px rgba(0,0,0,0.5),
-    0 12px 32px -16px rgba(0,0,0,0.8);
+    inset 0 1px 0 rgba(var(--ink-rgb), 0.07),
+    0 1px 2px var(--shadow-soft),
+    0 12px 32px -16px var(--shadow-strong);
   transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .glass-hover:hover {
-  border-color: rgba(255,255,255,0.16);
+  border-color: rgba(var(--ink-rgb), 0.16);
   transform: translateY(-2px);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.10),
-    0 1px 2px rgba(0,0,0,0.5),
-    0 22px 48px -20px rgba(0,0,0,0.9);
+    inset 0 1px 0 rgba(var(--ink-rgb), 0.10),
+    0 1px 2px var(--shadow-soft),
+    0 22px 48px -20px var(--shadow-strong);
 }
 
 /* Small pill above a heading ("NEW  Chain of custody"). */
@@ -282,18 +359,18 @@ code, pre, .mono {
   gap: 8px;
   padding: 4px 12px 4px 4px;
   border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.04);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  border: 1px solid rgba(var(--ink-rgb), 0.10);
+  background: rgba(var(--ink-rgb), 0.04);
+  box-shadow: inset 0 1px 0 rgba(var(--ink-rgb), 0.06);
   font-size: 12px;
   font-weight: 500;
-  color: #d4d4d4;
+  color: var(--color-slate-300);
 }
 .eyebrow-tag {
   padding: 1px 8px;
   border-radius: 999px;
-  background: #fafafa;
-  color: #0a0a0a;
+  background: var(--color-slate-50);
+  color: var(--color-slate-950);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -305,7 +382,7 @@ code, pre, .mono {
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.2), 0 8px 24px -10px rgba(255,255,255,0.35);
+  box-shadow: 0 0 0 1px rgba(var(--ink-rgb), 0.2), 0 8px 24px -10px rgba(var(--ink-rgb), 0.35);
 }
 .btn-shine::after {
   content: "";
@@ -322,7 +399,7 @@ code, pre, .mono {
 
 /* Frosted top bar. */
 .glass-bar {
-  background: rgba(8,8,8,0.72) !important;
+  background: rgba(var(--bg-rgb), 0.72) !important;
   -webkit-backdrop-filter: saturate(140%) blur(14px);
   backdrop-filter: saturate(140%) blur(14px);
 }
@@ -422,4 +499,49 @@ code, pre, .mono {
     transition-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Night/day toggle and log-out button in the top bar. */
+.theme-toggle,
+.topbar-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--ink-rgb), 0.10);
+  background: rgba(var(--ink-rgb), 0.04);
+  color: var(--color-slate-200);
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
+}
+.theme-toggle:hover,
+.topbar-icon-btn:hover {
+  background: rgba(var(--ink-rgb), 0.08);
+  border-color: rgba(var(--ink-rgb), 0.18);
+  color: var(--color-slate-50);
+}
+.theme-toggle:active,
+.topbar-icon-btn:active {
+  transform: scale(0.94);
+}
+.topbar-icon-btn.is-danger:hover {
+  color: var(--color-rose-300);
+  border-color: color-mix(in srgb, var(--color-rose-400) 45%, transparent);
+  background: color-mix(in srgb, var(--color-rose-500) 10%, transparent);
+}
+/* The moon and sun swap with a quick spin-and-fade (transform + opacity only). */
+.theme-toggle-icon {
+  position: absolute;
+  display: inline-flex;
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.6);
+  transition: opacity 0.3s ease, transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.theme-toggle-icon[data-visible] {
+  opacity: 1;
+  transform: none;
 }

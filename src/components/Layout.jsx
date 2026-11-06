@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Menu, X, Wallet } from "lucide-react";
+import { LogOut, Menu, X, Wallet } from "lucide-react";
 import AccessDenied from "./AccessDenied";
 import AccountSwitcher from "./AccountSwitcher";
 import Login from "./Login";
 import Sidebar from "./Sidebar";
 import Clock from "./Clock";
 import SessionBanner from "./SessionBanner";
+import ThemeToggle from "./ThemeToggle";
 import { AccessState } from "./RequireCapability";
 import { Spinner } from "./ui";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
@@ -44,7 +45,7 @@ function getPageTitle(pathname) {
 const truncateAddress = (addr) => (addr ? addr.slice(0, 6) + "..." + addr.slice(-4) : "");
 
 // Pseudo-classes can't be written inline, so the few rules that need them live here.
-// #f5f5f5 on the dark surfaces (#0a0a0a / #141414) is 8-10:1 (WCAG non-text contrast needs 3:1).
+// var(--color-slate-100) on the dark surfaces (var(--color-slate-950) / var(--color-slate-900)) is 8-10:1 (WCAG non-text contrast needs 3:1).
 const SHELL_CSS = `
 .dfl-skip-link {
   position: fixed;
@@ -53,8 +54,8 @@ const SHELL_CSS = `
   z-index: 1000;
   padding: 10px 16px;
   border-radius: 6px;
-  background: #fafafa;
-  color: #0a0a0a;
+  background: var(--color-slate-50);
+  color: var(--color-slate-950);
   font-size: 14px;
   font-weight: 700;
   text-decoration: none;
@@ -62,11 +63,11 @@ const SHELL_CSS = `
 }
 .dfl-skip-link:focus {
   transform: translateY(0);
-  outline: 2px solid #f5f5f5;
+  outline: 2px solid var(--color-slate-100);
   outline-offset: 2px;
 }
 .dfl-focusable:focus-visible {
-  outline: 2px solid #f5f5f5;
+  outline: 2px solid var(--color-slate-100);
   outline-offset: 2px;
 }
 #${MAIN_ID}:focus {
@@ -218,8 +219,8 @@ export default function Layout({ children }) {
         transition: motion("transform 0.25s ease-in-out"),
         overflowX: "hidden",
         overflowY: "auto",
-        backgroundColor: "#0a0a0a",
-        borderRight: "1px solid rgba(255,255,255,0.07)",
+        backgroundColor: "var(--color-slate-950)",
+        borderRight: "1px solid rgba(var(--ink-rgb), 0.07)",
         boxShadow: drawerOpen ? "0 0 32px rgba(0,0,0,0.6)" : "none",
       }
     : {
@@ -232,8 +233,8 @@ export default function Layout({ children }) {
         transition: motion("width 0.3s ease-in-out"),
         overflowX: "hidden",
         overflowY: "auto",
-        backgroundColor: "rgba(8,8,8,0.85)",
-        borderRight: desktopSidebarOpen ? "1px solid rgba(255,255,255,0.07)" : "none",
+        backgroundColor: "rgba(var(--bg-rgb), 0.85)",
+        borderRight: desktopSidebarOpen ? "1px solid rgba(var(--ink-rgb), 0.07)" : "none",
       };
 
   const backdropStyle = {
@@ -259,7 +260,7 @@ export default function Layout({ children }) {
     background: "transparent",
     border: "none",
     borderRadius: "8px",
-    color: "#d4d4d4",
+    color: "var(--color-slate-300)",
     cursor: "pointer",
   };
 
@@ -284,8 +285,8 @@ export default function Layout({ children }) {
 
   const topBarStyle = {
     minHeight: "64px",
-    background: "rgba(8,8,8,0.72)",
-    borderBottom: "1px solid rgba(255,255,255,0.07)",
+    background: "rgba(var(--bg-rgb), 0.72)",
+    borderBottom: "1px solid rgba(var(--ink-rgb), 0.07)",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -303,7 +304,7 @@ export default function Layout({ children }) {
     background: "transparent",
     border: "none",
     borderRadius: "8px",
-    color: "#e5e5e5",
+    color: "var(--color-slate-200)",
     cursor: "pointer",
     padding: "8px",
     marginLeft: isMobile ? "-10px" : 0,
@@ -314,7 +315,7 @@ export default function Layout({ children }) {
   const titleStyle = {
     fontSize: "16px",
     fontWeight: 600,
-    color: "#e5e5e5",
+    color: "var(--color-slate-200)",
     flex: 1,
     minWidth: 0,
     overflow: "hidden",
@@ -325,7 +326,7 @@ export default function Layout({ children }) {
   const rightSectionStyle = {
     display: "flex",
     alignItems: "center",
-    gap: isMobile ? "12px" : "24px",
+    gap: isMobile ? "8px" : "12px",
     flexShrink: 0,
   };
 
@@ -334,8 +335,8 @@ export default function Layout({ children }) {
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    background: "#f5f5f5",
-    color: "#0a0a0a",
+    background: "var(--color-slate-100)",
+    color: "var(--color-slate-950)",
     padding: "10px 16px",
     borderRadius: "6px",
     fontSize: "13px",
@@ -369,8 +370,8 @@ export default function Layout({ children }) {
     alignItems: "center",
     gap: "6px",
     background: "transparent",
-    border: "1px solid rgba(255,255,255,0.35)",
-    color: "#f5f5f5",
+    border: "1px solid rgba(var(--ink-rgb), 0.35)",
+    color: "var(--color-slate-100)",
     padding: "8px 10px",
     borderRadius: "6px",
     fontSize: "12px",
@@ -380,7 +381,7 @@ export default function Layout({ children }) {
     whiteSpace: "nowrap",
   };
 
-  // Emerald on the #141414 top bar, matching the connected-wallet button it sits next to.
+  // Emerald on the var(--color-slate-900) top bar, matching the connected-wallet button it sits next to.
   const roleBadgeStyle = {
     display: "flex",
     alignItems: "center",
@@ -466,8 +467,8 @@ export default function Layout({ children }) {
                 className="dfl-focusable"
                 onClick={handleToggle}
                 style={toggleButtonStyle}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#f5f5f5")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#e5e5e5")}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--color-slate-100)")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--color-slate-200)")}
                 title={sidebarExpanded ? "Close sidebar" : "Open sidebar"}
                 aria-label="Navigation menu"
                 aria-expanded={sidebarExpanded}
@@ -485,7 +486,9 @@ export default function Layout({ children }) {
                   {roleLabel}
                 </span>
               )}
-              {isConnected ? (
+              {/* Phones: the address chip is left out to make room for Log out and the night toggle; the
+                  address and a disconnect button are still in the navigation drawer. */}
+              {isConnected && isMobile ? null : isConnected ? (
                 <button
                   type="button"
                   className="dfl-focusable"
@@ -510,7 +513,7 @@ export default function Layout({ children }) {
                       display: "inline-block",
                     }}
                   ></span>
-                  {accountName(account) ? <span style={{ color: "#e5e5e5", fontFamily: "inherit" }}>{accountName(account)} ·</span> : null}
+                  {accountName(account) ? <span style={{ color: "var(--color-slate-200)", fontFamily: "inherit" }}>{accountName(account)} ·</span> : null}
                   {truncateAddress(account)}
                 </button>
               ) : (
@@ -521,16 +524,28 @@ export default function Layout({ children }) {
                   disabled={isConnecting}
                   style={connectWalletButtonStyle}
                   onMouseEnter={(e) => {
-                    if (!isConnecting) e.currentTarget.style.background = "#ffffff";
+                    if (!isConnecting) e.currentTarget.style.background = "var(--color-slate-50)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "#f5f5f5";
+                    e.currentTarget.style.background = "var(--color-slate-100)";
                   }}
                 >
                   <Wallet size={16} aria-hidden="true" /> {connectLabel ?? (isMobile ? "Connect wallet" : "Connect MetaMask")}
                 </button>
               )}
               {isConnected && <AccountSwitcher buttonStyle={switchAccountButtonStyle} compact={isMobile} />}
+              <ThemeToggle />
+              {isConnected && (
+                <button
+                  type="button"
+                  className="dfl-focusable topbar-icon-btn is-danger"
+                  onClick={disconnect}
+                  aria-label="Log out"
+                  title="Log out (ends this session and disconnects the wallet; your wallet itself is not changed)"
+                >
+                  <LogOut size={16} aria-hidden="true" />
+                </button>
+              )}
             </div>
           </div>
           {isGranted ? <SessionBanner /> : null}
