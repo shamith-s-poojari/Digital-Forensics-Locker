@@ -14,6 +14,7 @@ import { useMediaQuery } from "../hooks/useMediaQuery.js";
 import { useAuth } from "../context/authContext.js";
 import { accountName } from "../web3/accountNames.js";
 import PinLock from "./PinLock";
+import BrandMark from "./BrandMark";
 
 const APP_NAME = "Digital Forensics Locker";
 const SIDEBAR_ID = "app-sidebar";
@@ -480,7 +481,16 @@ export default function Layout({ children }) {
                 {sidebarExpanded ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
               </button>
             )}
-            <div style={titleStyle}>{isGranted ? pageTitle : isMobile ? "Forensics Locker" : APP_NAME}</div>
+            <div style={titleStyle}>
+              {isGranted ? (
+                pageTitle
+              ) : (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", verticalAlign: "middle" }}>
+                  <BrandMark size={20} />
+                  {isMobile ? "Forensics Locker" : APP_NAME}
+                </span>
+              )}
+            </div>
             <div style={rightSectionStyle}>
               {isGranted && !isMobile && <Clock />}
               {isGranted && (

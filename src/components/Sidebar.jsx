@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Lock } from "lucide-react";
+import BrandMark from "./BrandMark";
 import WalletConnect from "./WalletConnect";
 import { useNavLinks } from "./navLinks.js";
 import { useAccessRequests } from "../access/accessRequestContext.js";
@@ -108,7 +108,7 @@ export default function Sidebar({ onNavigate }) {
       <div style={logoStyle}>
         <div style={logoTitleStyle}>
           <span aria-hidden="true" className="glass" style={{ display: "inline-flex", width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
-            <Lock size={16} color="currentColor" aria-hidden="true" focusable="false" />
+            <BrandMark size={18} />
           </span>
           ForensicsLocker
         </div>
