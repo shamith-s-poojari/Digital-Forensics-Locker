@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Routes, Route, Link } from "react-router-dom";
 // Explicit extension on purpose: "WalletContext.jsx" (provider) and "walletContext.js" (context + hook)
 // differ only by case/extension, which is ambiguous on case-insensitive file systems (Windows/macOS).
@@ -11,18 +12,22 @@ import { AccessRequestProvider } from "./access/AccessRequestProvider.jsx";
 import { landingRoute, ROUTE_CAPABILITY } from "./web3/roles.js";
 import Layout from "./components/Layout";
 import RequireCapability from "./components/RequireCapability";
-import AdminRoles from "./pages/AdminRoles";
-import CaseDashboard from "./pages/CaseDashboard";
-import ChainOfCustody from "./pages/ChainOfCustody";
-import EvidenceUpload from "./pages/EvidenceUpload";
-import EvidenceViewer from "./pages/EvidenceViewer";
+import { Spinner } from "./components/ui";
+
+// Each page is its own chunk, downloaded the first time its route is opened, so the sign-in screen stays small.
+const AdminRoles = lazy(() => import("./pages/AdminRoles"));
+const CaseDashboard = lazy(() => import("./pages/CaseDashboard"));
+const ChainOfCustody = lazy(() => import("./pages/ChainOfCustody"));
+const EvidenceUpload = lazy(() => import("./pages/EvidenceUpload"));
+const EvidenceViewer = lazy(() => import("./pages/EvidenceViewer"));
+const RoleHome = lazy(() => import("./pages/RoleHome"));
 
 function NotFound() {
   return (
-    <div style={{ color: "#e2e8f0" }}>
+    <div style={{ color: "var(--color-slate-200)" }}>
       <h1 style={{ fontSize: "24px", fontWeight: 700, marginBottom: "8px" }}>Page not found</h1>
-      <p style={{ color: "#94a3b8", marginBottom: "16px" }}>That address does not exist.</p>
-      <Link to="/cases" style={{ color: "#93c5fd" }}>Back to the case dashboard</Link>
+      <p style={{ color: "var(--color-slate-400)", marginBottom: "16px" }}>That address does not exist.</p>
+      <Link to="/cases" style={{ color: "var(--color-slate-100)" }}>Back to the case dashboard</Link>
     </div>
   );
 }
@@ -40,6 +45,7 @@ function AppRoutes() {
     <Routes>
       {/* Layout only renders the routes once the gate is "granted", so `roles` here are the ones read from the contract. */}
       <Route path="/" element={<Navigate to={landingRoute(roles) ?? "/cases"} replace />} />
+      <Route path="/home" element={guarded("/home", <RoleHome />)} />
       <Route path="/cases" element={guarded("/cases", <CaseDashboard />)} />
       <Route path="/upload" element={guarded("/upload", <EvidenceUpload />)} />
       <Route path="/admin" element={guarded("/admin", <AdminRoles />)} />
@@ -61,7 +67,9 @@ export default function App() {
               <AuthProvider>
                 <BrowserRouter>
                   <Layout>
-                    <AppRoutes />
+                    <Suspense fallback={<Spinner label="Loading page…" />}>
+                      <AppRoutes />
+                    </Suspense>
                   </Layout>
                 </BrowserRouter>
               </AuthProvider>

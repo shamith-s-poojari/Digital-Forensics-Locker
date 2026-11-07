@@ -2,14 +2,21 @@
 
 `EvidenceLocker.sol` is the on-chain evidence register with role-based access control. Hardhat 3, OpenZeppelin 5, Solidity 0.8.28.
 
-## Roles
+## Roles and branches
+
+The roles form a hierarchy set with OpenZeppelin's `_setRoleAdmin` in the constructor: `DEFAULT_ADMIN_ROLE` (Chief) administers `BRANCH_ADMIN_ROLE`, which administers `INVESTIGATOR_ROLE` and `AUDITOR_ROLE`.
 
 | Role | Holder | Can |
 | --- | --- | --- |
-| Chief | `DEFAULT_ADMIN_ROLE`, one address, two-step delayed transfer | Appoint and remove Admins, grant and revoke Investigator and Auditor, pause and unpause, reassign stranded custody. **Cannot** register or log evidence unless also made an Investigator. |
-| Admin | `ADMIN_ROLE`, any number, appointed only by the Chief | Grant and revoke Investigator and Auditor, pause and unpause. Cannot appoint Admins, reassign custody, or write evidence. |
-| Investigator | `INVESTIGATOR_ROLE` | Register evidence, log access, log verification, transfer custody (only if current custodian, only to another Investigator). |
-| Auditor | `AUDITOR_ROLE` | No write permission. Reads and verifies like everyone else. |
+| Chief (headquarters) | `DEFAULT_ADMIN_ROLE`, one address, two-step delayed transfer | Create branches, appoint and remove Branch Admins in any branch, grant and revoke Investigator and Auditor in any branch, pause and unpause, reassign stranded custody. **Cannot** register or log evidence unless also made an Investigator. |
+| Branch Admin | `BRANCH_ADMIN_ROLE`, any number, appointed only by the Chief, bound to one branch | Grant and revoke Investigator and Auditor **in its own branch only**, pause and unpause. Cannot appoint Branch Admins, reassign custody, or write evidence. |
+| Investigator | `INVESTIGATOR_ROLE`, bound to one branch | Register evidence, log access, log verification, transfer custody (only if current custodian, only to another Investigator of the same branch), all only for its own branch's cases. |
+| Auditor | `AUDITOR_ROLE`, bound to one branch | No write permission. Reads and verifies like everyone else. |
+
+- **Branches** are created by the Chief with `createBranch(name)` (ids from 1; `branchCount`, `branchName`). Names are public.
+- **Identity:** every branch-role holder has a `UserIdentity { role, branchId }` (`identityOf`). An address holds at most one branch role, in one branch. Branch roles are granted only with `grantBranchRole(role, account, branchId)`; plain `grantRole` refuses them (`BranchRequired`). Revoking or renouncing clears the identity.
+- **Cases:** the first registration of a case tags it with the investigator's branch (`caseBranch`, event `CaseOpened`). Every later registration, access log, verification and custody transfer for that case must come from the same branch (`OutsideBranch`), and custody can only move to an Investigator of that branch. `getEvidence` returns the record's `branchId`.
+- Branch scoping of **reads** is not possible on a public chain; the web app filters what it shows and the API (case titles, access requests) enforces it server-side.
 
 ## What is on chain, and what is not
 
@@ -31,10 +38,12 @@ npm test                     # contract tests plus the web app's ledger scenario
 npm run abi                  # copies the ABI into ../src/web3/EvidenceLocker.abi.json
 npx hardhat run scripts/deploy.ts          # deploy to an in-memory chain
 npx hardhat node                           # persistent local chain for MetaMask (chain id 31337), then:
-ADMINS=0x... INVESTIGATORS=0x... AUDITORS=0x... npx hardhat run scripts/deploy.ts --network localhost
+BRANCHES="Central Lab,North Branch" ADMINS=0x...@2 INVESTIGATORS=0x...,0x...@2 AUDITORS=0x... npx hardhat run scripts/deploy.ts --network localhost
 ```
 
-`getUserRole(address)` returns the highest role an address holds as a string (`"Chief"`, `"Admin"`, `"Investigator"`, `"Auditor"` or `"None"`), for display. Use `rolesOf` or `hasRole` for decisions, since an address can hold several roles.
+`0xAddress@2` puts that address in branch 2; a bare address goes to branch 1.
+
+`getUserRole(address)` returns the highest role an address holds as a string (`"Chief"`, `"Branch Admin"`, `"Investigator"`, `"Auditor"` or `"None"`), for display. Use `rolesOf` or `hasRole` for decisions, since the Chief can also hold a branch role.
 
 Deploying to Sepolia: store `SEPOLIA_RPC_URL` and a throwaway `DEPLOYER_PRIVATE_KEY` in Hardhat's encrypted keystore (`npx hardhat keystore set ...`), then `npx hardhat run scripts/deploy.ts --network sepolia`. The script prints the `VITE_LOCKER_*` values for the web app. Never commit keys.
 

@@ -18,9 +18,11 @@ async function makeContext() {
   const [chief, alice, bob, carol, dave] = await ethers.getSigners();
   const locker = await ethers.deployContract("EvidenceLocker", [3 * 24 * 60 * 60, chief.address]);
   const address = await locker.getAddress();
-  await locker.connect(chief).grantRole(await locker.INVESTIGATOR_ROLE(), alice.address);
-  await locker.connect(chief).grantRole(await locker.INVESTIGATOR_ROLE(), bob.address);
-  await locker.connect(chief).grantRole(await locker.AUDITOR_ROLE(), carol.address);
+  await locker.connect(chief).createBranch("Central Lab");
+  await locker.connect(chief).createBranch("North Branch");
+  await locker.connect(chief).grantBranchRole(await locker.INVESTIGATOR_ROLE(), alice.address, 1);
+  await locker.connect(chief).grantBranchRole(await locker.INVESTIGATOR_ROLE(), bob.address, 1);
+  await locker.connect(chief).grantBranchRole(await locker.AUDITOR_ROLE(), carol.address, 1);
 
   const signers = { chief, alice, bob, carol, dave } as const;
   type Name = keyof typeof signers;
@@ -81,6 +83,19 @@ describe("EthersLedger against the real contract", () => {
       const handle = await ledger.registerEvidence({ caseRef: ethers.id("c2"), sha256: "cd".repeat(32), cid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi", caseDigest: "d1".repeat(32) });
       expect(handle.hash).to.match(/^0x[0-9a-f]{64}$/);
       await handle.wait();
+    });
+
+    it("sends each transaction at the fee the network suggests", async () => {
+      const base = await makeContext();
+      const ledger = base.as("alice") as {
+        registerEvidence: (a: object) => Promise<{ hash: string; wait: () => Promise<unknown> }>;
+      };
+      const before = await ethers.provider.getFeeData();
+      const handle = await ledger.registerEvidence({ caseRef: ethers.id("c4"), sha256: "ba".repeat(32), cid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi", caseDigest: "d1".repeat(32) });
+      await handle.wait();
+      const tx = await ethers.provider.getTransaction(handle.hash);
+      expect(tx?.maxPriorityFeePerGas).to.equal(before.maxPriorityFeePerGas);
+      expect(tx?.maxFeePerGas).to.equal(before.maxFeePerGas);
     });
 
     it("rejects malformed input before anything is sent", async () => {

@@ -22,7 +22,7 @@ const STATUS_TEXT = {
  */
 export default function TxProgress({ steps, title = "Progress" }) {
   return (
-    <div aria-live="polite" aria-label={title} className="rounded-lg border border-slate-700/70 bg-slate-950/60 p-4">
+    <div aria-live="polite" aria-label={title} className="glass rounded-xl p-4">
       <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-300">{title}</h3>
       <ol className="space-y-3">
         {steps.map((step) => (

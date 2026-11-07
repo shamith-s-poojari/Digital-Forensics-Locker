@@ -26,14 +26,42 @@ export const authClient = {
     return body.nonce;
   },
 
-  /** @returns {Promise<Session>} */
-  async verify(message, signature) {
+  /**
+   * @param {string} [pin]  The account's PIN, when it has one (see getPinStatus).
+   * @returns {Promise<Session>} Throws an Error with `code: "BAD_PIN"` when the PIN was missing or wrong.
+   */
+  async verify(message, signature, pin) {
     const { status, body } = await call("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, signature }),
+      body: JSON.stringify(pin === undefined ? { message, signature } : { message, signature, pin }),
     });
-    if (status !== 200 || typeof body?.address !== "string") throw new Error(body?.error || `Sign-in failed (HTTP ${status}).`);
+    if (status !== 200 || typeof body?.address !== "string") {
+      throw Object.assign(new Error(body?.error || `Sign-in failed (HTTP ${status}).`), { code: body?.code });
+    }
+    return body;
+  },
+
+  /** @returns {Promise<boolean>} Whether the account has a sign-in PIN (and so must enter it to sign in). */
+  async getPinStatus(address) {
+    const { status, body } = await call(`/api/auth/pin-status?address=${encodeURIComponent(address)}`);
+    if (status !== 200 || typeof body?.hasPin !== "boolean") throw new Error(body?.error || `Could not check the account's password (HTTP ${status}).`);
+    return body.hasPin;
+  },
+
+  /**
+   * Sets the signed-in account's PIN. Changing an existing one needs `currentPin`.
+   * @returns {Promise<Session>}
+   */
+  async setPin(pin, currentPin) {
+    const { status, body } = await call("/api/auth/pin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(currentPin === undefined ? { pin } : { pin, currentPin }),
+    });
+    if (status !== 200 || typeof body?.address !== "string") {
+      throw Object.assign(new Error(body?.error || `Could not save the password (HTTP ${status}).`), { code: body?.code });
+    }
     return body;
   },
 

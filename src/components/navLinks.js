@@ -1,9 +1,10 @@
-import { FolderOpen, GitBranch, Search, ShieldCheck, Upload } from "lucide-react";
+import { FolderOpen, GitBranch, LayoutDashboard, Search, ShieldCheck, Upload } from "lucide-react";
 import { useRole } from "../context/roleContext.js";
 import { ROUTE_CAPABILITY } from "../web3/roles.js";
 
 /** Every possible link. `demoOnly` links point at pages that still show sample data and exist in development only. */
 const ALL_LINKS = [
+  { to: "/home", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/cases", icon: FolderOpen, label: "Case Management" },
   { to: "/upload", icon: Upload, label: "Evidence Upload" },
   { to: "/admin", icon: ShieldCheck, label: "Role Management" },

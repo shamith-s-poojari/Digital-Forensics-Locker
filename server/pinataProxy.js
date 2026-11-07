@@ -58,11 +58,13 @@ function originMatchesHost(req) {
 /**
  * @param {import("node:http").IncomingMessage} req
  * @param {import("node:http").ServerResponse} res
- * @param {{ jwt?: string, fetchImpl?: typeof fetch, authorize?: (req: import("node:http").IncomingMessage) => boolean }} options
+ * @param {{ jwt?: string, fetchImpl?: typeof fetch, authorize?: (req: import("node:http").IncomingMessage) => boolean, checkRole?: (req: import("node:http").IncomingMessage) => Promise<null | { status: number, error: string }> }} options
  *        authorize: when given, requests it returns false for are refused with 401 (vite.config.js passes the
  *        wallet sign-in check from server/siweAuth.js).
+ *        checkRole: when given, a non-null result refuses the request with its status (vite.config.js passes the
+ *        on-chain upload check from server/chainRoles.js, so only Investigators can spend the Pinata quota).
  */
-export async function handlePinRequest(req, res, { jwt, fetchImpl = fetch, authorize } = {}) {
+export async function handlePinRequest(req, res, { jwt, fetchImpl = fetch, authorize, checkRole } = {}) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return sendJson(res, 405, { error: "Method not allowed." });
@@ -81,6 +83,8 @@ export async function handlePinRequest(req, res, { jwt, fetchImpl = fetch, autho
   if (authorize && !authorize(req)) {
     return sendJson(res, 401, { error: "Sign in with your wallet before uploading evidence." });
   }
+  const denied = checkRole ? await checkRole(req) : null;
+  if (denied) return sendJson(res, denied.status, { error: denied.error });
 
   const contentType = req.headers["content-type"] || "";
   if (!contentType.toLowerCase().startsWith("multipart/form-data")) {

@@ -10,7 +10,7 @@ const ROLE_TONE = { [ROLES.CHIEF]: "warning", [ROLES.ADMIN]: "warning", [ROLES.I
 
 function Kpi({ icon: Icon, label, value, tone = "text-slate-100", hint, valueClass = "text-2xl" }) {
   return (
-    <div className="rounded-lg border border-slate-700/70 bg-slate-950/60 px-4 py-3">
+    <div className="glass rounded-xl px-4 py-3">
       <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
         <Icon className="size-3.5" aria-hidden="true" />
         {label}

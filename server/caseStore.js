@@ -6,7 +6,9 @@
 //   POST /api/cases                 { caseNumber, title, description } -> 201 Case      (creates version 1)
 //   POST /api/cases/:caseRef/versions { title, description } -> 201 Case               (appends a version)
 //
-//   Case    = { caseRef, caseNumber, createdBy, createdAt, versions: Version[] }   oldest version first
+//   Case    = { caseRef, caseNumber, branchId, createdBy, createdAt, versions: Version[] }   oldest version first
+//             branchId: the creating investigator's branch (the contract's identityOf); null on a server without a
+//             contract. On chain, the case's first evidence record tags it with the same branch (EvidenceLocker).
 //   Version = { version, title, description, salt, digest, editedBy, editedAt }
 //
 // No endpoint edits or deletes a version. Each version's digest (src/cases/caseDigest.js) is what evidence records
@@ -14,14 +16,18 @@
 // digests that no version reproduces any more, and the dashboard reports it. Clients recompute digests from the
 // fields; the stored `digest` is a convenience, not trusted.
 //
-// LIMITS (development build): any signed-in wallet may read, create and edit (no on-chain role check yet); a JSON
-// file for one process.
+// Roles (server/chainRoles.js, via `checkRole`): reading needs the view capability (any role); creating and editing
+// need the upload capability (Investigator), matching the UI. Branches (via `readScope`): the Chief reads every case;
+// anyone else reads and edits only its own branch's cases, and another branch's case is answered as missing (404).
+// A case stored before branches existed has no branchId and is visible to the Chief alone.
+//
+// Storage: server/storage/ (JSON files in development, Postgres when DATABASE_URL is set).
 
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { computeCaseDigest, normaliseText } from "../src/cases/caseDigest.js";
 import { deriveCaseRef } from "../src/web3/format.js";
+import { CAPABILITIES, inBranchScope } from "../src/web3/roles.js";
+import { allowAll, globalScope } from "./chainRoles.js";
 import { isSameSiteRequest } from "./siweAuth.js";
 
 const CASE_REF = /^0x[0-9a-f]{64}$/;
@@ -64,6 +70,7 @@ function readFields(body) {
   const title = normaliseText(body?.title);
   const description = normaliseText(body?.description);
   if (!title) return { error: "A case title is required." };
+  if (title.includes("\0") || description.includes("\0")) return { error: "The title or description contains an invalid character." };
   if (title.length > LIMITS.title) return { error: `The title is longer than ${LIMITS.title} characters.` };
   if (description.length > LIMITS.description) return { error: `The description is longer than ${LIMITS.description} characters.` };
   return { title, description };
@@ -71,35 +78,15 @@ function readFields(body) {
 
 /**
  * @param {object} options
- * @param {string} options.filePath
+ * @param {object} options.storage  The `cases` part of a storage (server/storage/fileStorage.js).
  * @param {(req) => ({ address: string } | null)} options.getSession
+ * @param {(session, capability: string) => Promise<null | { status: number, error: string }>} [options.checkRole]
+ *        From server/chainRoles.js. Defaults to no role checks.
+ * @param {(session) => Promise<{ global: boolean, branchId: number | null }>} [options.readScope]
+ *        From server/chainRoles.js. Defaults to every branch.
  * @param {() => number} [options.now]
  */
-export function createCaseStore({ filePath, getSession, now = Date.now }) {
-  let loading = null;
-  let writeChain = Promise.resolve();
-
-  function cases() {
-    loading ??= readFile(filePath, "utf8")
-      .then((text) => new Map(Object.entries(JSON.parse(text).cases ?? {})))
-      .catch((err) => {
-        if (err?.code === "ENOENT") return new Map();
-        loading = null; // never replace an unreadable file with an empty store
-        throw err;
-      });
-    return loading;
-  }
-
-  function persist(map) {
-    writeChain = writeChain.then(async () => {
-      await mkdir(dirname(filePath), { recursive: true });
-      const tmp = `${filePath}.${process.pid}.tmp`;
-      await writeFile(tmp, JSON.stringify({ version: 1, cases: Object.fromEntries(map) }, null, 2), { mode: 0o600 });
-      await rename(tmp, filePath);
-    });
-    return writeChain;
-  }
-
+export function createCaseStore({ storage, getSession, checkRole = allowAll, readScope = globalScope, now = Date.now }) {
   function makeVersion(entry, number, { title, description }, address) {
     const salt = randomBytes(32).toString("hex");
     return {
@@ -113,7 +100,9 @@ export function createCaseStore({ filePath, getSession, now = Date.now }) {
     };
   }
 
-  async function create(req, res, session) {
+  const visible = (entry, scope) => inBranchScope(scope, entry.branchId ?? null);
+
+  async function create(req, res, session, scope) {
     let body;
     try {
       body = await readJson(req, MAX_BODY_BYTES);
@@ -121,27 +110,18 @@ export function createCaseStore({ filePath, getSession, now = Date.now }) {
       return sendJson(res, err?.code === "TOO_LARGE" ? 413 : 400, { error: "Expected a JSON body." });
     }
     const caseNumber = normaliseText(body?.caseNumber).toUpperCase();
-    if (!caseNumber || caseNumber.length > LIMITS.caseNumber) return sendJson(res, 400, { error: "A case number (up to 64 characters) is required." });
+    if (!caseNumber || caseNumber.length > LIMITS.caseNumber || caseNumber.includes("\0")) return sendJson(res, 400, { error: "A case number (up to 64 characters) is required." });
     const fields = readFields(body);
     if (fields.error) return sendJson(res, 400, { error: fields.error });
 
-    const map = await cases();
     const caseRef = deriveCaseRef(caseNumber);
-    if (map.has(caseRef)) return sendJson(res, 409, { error: "This case already exists. Edit it instead." });
-
-    const entry = { caseRef, caseNumber, createdBy: session.address, createdAt: new Date(now()).toISOString(), versions: [] };
+    const entry = { caseRef, caseNumber, branchId: scope.branchId, createdBy: session.address, createdAt: new Date(now()).toISOString(), versions: [] };
     entry.versions.push(makeVersion(entry, 1, fields, session.address));
-    map.set(caseRef, entry);
-    try {
-      await persist(map);
-    } catch (err) {
-      map.delete(caseRef);
-      throw err;
-    }
+    if (!(await storage.insert(entry))) return sendJson(res, 409, { error: "This case already exists. Edit it instead." });
     return sendJson(res, 201, entry);
   }
 
-  async function appendVersion(req, res, session, caseRef) {
+  async function appendVersion(req, res, session, caseRef, scope) {
     let body;
     try {
       body = await readJson(req, MAX_BODY_BYTES);
@@ -150,21 +130,15 @@ export function createCaseStore({ filePath, getSession, now = Date.now }) {
     }
     const fields = readFields(body);
     if (fields.error) return sendJson(res, 400, { error: fields.error });
-    const entry = (await cases()).get(caseRef);
-    if (!entry) return sendJson(res, 404, { error: "No such case." });
+    const entry = await storage.get(caseRef);
+    if (!entry || !visible(entry, scope)) return sendJson(res, 404, { error: "No such case." });
 
     const current = entry.versions[entry.versions.length - 1];
     if (current.title === fields.title && current.description === fields.description) return sendJson(res, 200, entry); // nothing changed
 
-    const version = makeVersion(entry, current.version + 1, fields, session.address);
-    entry.versions.push(version);
-    try {
-      await persist(await cases());
-    } catch (err) {
-      entry.versions.pop();
-      throw err;
-    }
-    return sendJson(res, 201, entry);
+    const updated = await storage.appendVersion(caseRef, makeVersion(entry, current.version + 1, fields, session.address));
+    if (!updated) return sendJson(res, 409, { error: "Someone else edited this case just now. Reload it and try again." });
+    return sendJson(res, 201, updated);
   }
 
   /**
@@ -192,14 +166,22 @@ export function createCaseStore({ filePath, getSession, now = Date.now }) {
       sendJson(res, 400, { error: "Malformed case reference." });
       return true;
     }
+    if (req.method === "GET" || req.method === "POST") {
+      const denied = await checkRole(session, req.method === "GET" ? CAPABILITIES.VIEW : CAPABILITIES.UPLOAD);
+      if (denied) {
+        sendJson(res, denied.status, { error: denied.error });
+        return true;
+      }
+    }
 
-    if (req.method === "GET" && !caseRef) sendJson(res, 200, { cases: [...(await cases()).values()] });
-    else if (req.method === "POST" && !caseRef) await create(req, res, session);
+    const scope = req.method === "GET" || req.method === "POST" ? await readScope(session) : null;
+    if (req.method === "GET" && !caseRef) sendJson(res, 200, { cases: (await storage.list()).filter((entry) => visible(entry, scope)) });
+    else if (req.method === "POST" && !caseRef) await create(req, res, session, scope);
     else if (req.method === "GET" && caseRef && !sub) {
-      const entry = (await cases()).get(caseRef);
-      if (entry) sendJson(res, 200, entry);
+      const entry = await storage.get(caseRef);
+      if (entry && visible(entry, scope)) sendJson(res, 200, entry);
       else sendJson(res, 404, { error: "No such case." });
-    } else if (req.method === "POST" && caseRef && sub === "versions") await appendVersion(req, res, session, caseRef);
+    } else if (req.method === "POST" && caseRef && sub === "versions") await appendVersion(req, res, session, caseRef, scope);
     else sendJson(res, 405, { error: "Method not allowed." });
     return true;
   }

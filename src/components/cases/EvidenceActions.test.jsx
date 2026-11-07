@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { webcrypto } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { WalletContext } from "../../context/walletContext.js";
 import { encryptEvidence, sha256Hex } from "../../crypto/evidenceCrypto.js";
 import { makeFile } from "../../test/demoHarness.jsx";
 import { RoleTestProvider } from "../../test/RoleTestProvider.jsx";
+import { friendlyMessage } from "../../web3/ledgerErrors.js";
 import EvidenceActions from "./EvidenceActions";
 
 const ACCOUNT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
@@ -64,7 +65,7 @@ describe("EvidenceActions: checking a file", () => {
 
     await screen.findByText(/hash equals the hash registered/);
     expect(ensureSession).toHaveBeenCalledTimes(1);
-    expect(keyClient.fetchKey).toHaveBeenCalledWith(keyId);
+    expect(keyClient.fetchKey).toHaveBeenCalledWith(keyId, { evidenceId: 3 });
     expect(ledger.verifyHash).toHaveBeenCalledWith(3, originalSha);
     expect(screen.getByText(/encrypted copy, decrypted in your browser/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save the decrypted file" })).toBeTruthy();
@@ -124,6 +125,17 @@ describe("EvidenceActions: checking a file", () => {
     expect((await screen.findByRole("alert")).textContent).toMatch(/Could not fetch the stored copy from IPFS \(gw\.example: HTTP 504\)/);
   });
 
+  it("offers no note field to a role that cannot write custody entries", () => {
+    render(
+      <WalletContext.Provider value={{ account: ACCOUNT, ensureSession }}>
+        <RoleTestProvider roles={{ isAuditor: true }}>
+          <EvidenceActions record={record} ledger={ledger} account={ACCOUNT} paused={false} runWrite={vi.fn()} keyClient={keyClient} gateways={GATEWAYS} noteStore={{ add: vi.fn() }} />
+        </RoleTestProvider>
+      </WalletContext.Provider>
+    );
+    expect(screen.queryByLabelText("Custody note (optional)")).toBeNull();
+  });
+
   it("reports a key-server refusal in its own words", async () => {
     const { envelope, keyId } = await encryptEvidence(ORIGINAL, originalSha);
     keyClient.fetchKey.mockRejectedValue(new Error("No key is stored for this file."));
@@ -131,5 +143,84 @@ describe("EvidenceActions: checking a file", () => {
     choose(makeFile(envelope, `${keyId}.dfl`));
 
     expect((await screen.findByRole("alert")).textContent).toBe("No key is stored for this file.");
+  });
+});
+
+describe("EvidenceActions: custody notes", () => {
+  const HASH = "cd".repeat(32);
+  let noteStore;
+  let runWrite;
+  let outcome;
+
+  beforeEach(() => {
+    outcome = { ok: true };
+    noteStore = { add: vi.fn(async () => ({ noteHash: HASH })) };
+    // Like useWriteFlow: runs `send`, and reports a failure instead of throwing.
+    runWrite = vi.fn(async (_title, send) => {
+      try {
+        await send();
+        return outcome;
+      } catch (err) {
+        runWrite.error = err;
+        return { ok: false };
+      }
+    });
+    ledger = { logAccess: vi.fn(async () => ({})) };
+  });
+
+  function renderInvestigator() {
+    render(
+      <WalletContext.Provider value={{ account: ACCOUNT, ensureSession }}>
+        <RoleTestProvider roles={{ isInvestigator: true }}>
+          <EvidenceActions record={{ ...record, branchId: 2 }} ledger={ledger} account={ACCOUNT} paused={false} runWrite={runWrite} keyClient={keyClient} gateways={GATEWAYS} noteStore={noteStore} />
+        </RoleTestProvider>
+      </WalletContext.Provider>
+    );
+  }
+  const noteField = () => screen.getByLabelText("Custody note (optional)");
+  const logAccess = () => fireEvent.click(screen.getByRole("button", { name: "Log that I accessed this" }));
+
+  it("saves the note first and sends its hash to the ledger, then clears the field", async () => {
+    renderInvestigator();
+    fireEvent.change(noteField(), { target: { value: " Opened the bag " } });
+    logAccess();
+
+    await waitFor(() => expect(ledger.logAccess).toHaveBeenCalledWith(3, HASH));
+    expect(noteStore.add).toHaveBeenCalledWith({ evidenceId: 3, note: "Opened the bag", branchId: 2 }, ACCOUNT);
+    await waitFor(() => expect(noteField().value).toBe(""));
+  });
+
+  it("sends no note and saves nothing when the field is empty", async () => {
+    renderInvestigator();
+    logAccess();
+
+    await waitFor(() => expect(ledger.logAccess).toHaveBeenCalledWith(3, undefined));
+    expect(noteStore.add).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing to the ledger when the note cannot be saved, and keeps the text", async () => {
+    noteStore.add.mockRejectedValue(new Error("Your wallet's role does not allow this."));
+    renderInvestigator();
+    fireEvent.change(noteField(), { target: { value: "Opened the bag" } });
+    logAccess();
+
+    await waitFor(() => expect(runWrite.error).toBeTruthy());
+    expect(ledger.logAccess).not.toHaveBeenCalled();
+    expect(friendlyMessage(runWrite.error)).toBe("Your note could not be saved, so nothing was sent to the ledger. Your wallet's role does not allow this.");
+    expect(noteField().value).toBe("Opened the bag");
+  });
+
+  it("reuses the saved note when a rejected transaction is retried", async () => {
+    outcome = { ok: false };
+    renderInvestigator();
+    fireEvent.change(noteField(), { target: { value: "Opened the bag" } });
+    logAccess();
+    await waitFor(() => expect(ledger.logAccess).toHaveBeenCalledTimes(1));
+    logAccess();
+    await waitFor(() => expect(ledger.logAccess).toHaveBeenCalledTimes(2));
+
+    expect(noteStore.add).toHaveBeenCalledTimes(1);
+    expect(ledger.logAccess).toHaveBeenLastCalledWith(3, HASH);
+    expect(noteField().value).toBe("Opened the bag");
   });
 });

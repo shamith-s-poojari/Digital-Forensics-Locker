@@ -65,6 +65,16 @@ describe("handlePinRequest", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("refuses signed-in wallets whose on-chain role cannot upload, without contacting Pinata", async () => {
+    const fetchImpl = vi.fn();
+    const res = makeRes();
+    const checkRole = async () => ({ status: 403, error: "Your wallet's role does not allow this. Required: Investigator." });
+    await handlePinRequest(makeReq(), res, { jwt: SECRET, fetchImpl, authorize: () => true, checkRole });
+    expect(res.statusCode).toBe(403);
+    expect(json(res).error).toMatch(/Required: Investigator/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("rejects a foreign Origin", async () => {
     const fetchImpl = vi.fn();
     const res = makeRes();

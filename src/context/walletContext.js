@@ -10,6 +10,14 @@ import { createContext, useContext } from "react";
  *   chainId: number | null      Chain the wallet is on (null until known, or when disconnected).
  *   switchChain: (id) => Promise<boolean>  Asks the wallet to switch network; sets `error` on failure.
  *   connect: () => Promise<void> Requests account access; never throws, sets `error` on failure.
+ *   switchAccount: () => Promise<void>  Opens the wallet's account picker to connect more accounts to this site;
+ *                               switches when exactly one new account was connected. Never throws.
+ *   selectAccount: (address) => Promise<void>  Acts as another shared account: signs out the current one and asks
+ *                               the chosen one for a fresh sign-in signature. Nothing is disconnected.
+ *   permittedAccounts: string[] Every account the wallet shares with this site, the wallet's active one first.
+ *   accountChoices: string[] | null  Set when the wallet's picker approved several accounts at once; the page asks
+ *                               which one to use instead of guessing.
+ *   chooseAccount: (address) => Promise<void>  Same as `selectAccount`, for the sign-in page's choice.
  *   disconnect: () => void      Ends the session here and on the server, and asks the wallet to drop this site's
  *                               account permission (best effort), so the next connect starts from scratch.
  *   error: string | null        Human-readable message for the last failed connect attempt.
@@ -34,6 +42,11 @@ export const WalletContext = createContext(null);
  *   chainId: number | null,
  *   switchChain: (chainId: number) => Promise<boolean>,
  *   connect: () => Promise<void>,
+ *   switchAccount: () => Promise<void>,
+ *   permittedAccounts: string[],
+ *   accountChoices: string[] | null,
+ *   chooseAccount: (address: string) => Promise<void>,
+ *   selectAccount: (address: string) => Promise<void>,
  *   disconnect: () => void,
  *   error: string | null,
  *   isConnecting: boolean,

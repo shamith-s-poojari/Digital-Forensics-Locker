@@ -7,6 +7,7 @@ import { createContext, useContext } from "react";
  *   mode     "chain" | "demo" | ... (see ledgerContext.js)
  *   roles    { isChief, isAdmin, isInvestigator, isAuditor }; all false unless status is "ready"
  *   role     the single most privileged role, for badges ("none" | "auditor" | "investigator" | "admin" | "chief")
+ *   branchId the wallet's branch (the contract's identityOf), or null for none; the Chief sees every branch
  *   can(cap) true only when status is "ready" AND the role grants the capability (fails closed)
  *   error    message when status is "error"
  *   refresh  re-reads the roles from the ledger

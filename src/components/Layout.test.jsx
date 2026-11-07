@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Layout from "./Layout";
@@ -124,7 +124,7 @@ describe("Layout without a connected wallet", () => {
   it("shows the restricted screen, hides the page and offers a connect button", () => {
     const { wallet } = renderLayout({ account: null });
 
-    expect(screen.getByRole("heading", { level: 1, name: "Wallet Required" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Sign in to the evidence ledger" })).toBeTruthy();
     expect(screen.queryByText("PAGE-BODY")).toBeNull();
     expect(getSidebar()).toBeNull();
     expect(screen.queryByRole("button", { name: "Navigation menu" })).toBeNull();
@@ -132,7 +132,7 @@ describe("Layout without a connected wallet", () => {
     // The skip link still has a target.
     expect(getMain().id).toBe("main-content");
 
-    fireEvent.click(screen.getByRole("button", { name: /Connect Wallet to Proceed/ }));
+    fireEvent.click(within(getMain()).getByRole("button", { name: "Connect MetaMask" }));
     expect(wallet.connect).toHaveBeenCalledTimes(1);
   });
 
@@ -199,7 +199,8 @@ describe("Layout document title", () => {
   });
 
   it.each([
-    ["/", "Case Management"],
+    ["/", "Dashboard"],
+    ["/home", "Dashboard"],
     ["/upload", "Evidence Upload"],
     ["/evidence", "Evidence Viewer"],
     ["/custody", "Chain of Custody"],
@@ -218,7 +219,7 @@ describe("Layout document title", () => {
   it("restores the previous title on unmount", () => {
     document.title = "Before";
     const { unmount } = renderLayout();
-    expect(document.title).toBe(`Case Management — ${SUFFIX}`);
+    expect(document.title).toBe(`Dashboard — ${SUFFIX}`);
     unmount();
     expect(document.title).toBe("Before");
   });
@@ -410,5 +411,50 @@ describe("Layout motion preference", () => {
     installMatchMedia({ mobile: false, reducedMotion: true });
     renderLayout();
     expect(getSidebar().style.transition).toBe("none");
+  });
+});
+
+describe("Layout log out and night mode", () => {
+  let stored;
+  beforeEach(() => {
+    installMatchMedia({ mobile: false });
+    stored = new Map();
+    vi.stubGlobal("localStorage", {
+      getItem: (key) => (stored.has(key) ? stored.get(key) : null),
+      setItem: (key, value) => stored.set(key, String(value)),
+      removeItem: (key) => stored.delete(key),
+    });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("offers a Log out button that ends the session", () => {
+    const { wallet } = renderLayout({ roles: { isInvestigator: true } });
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+    expect(wallet.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("has no Log out button while signed out", () => {
+    renderLayout({ account: null });
+    expect(screen.queryByRole("button", { name: "Log out" })).toBeNull();
+  });
+
+  it("toggles night mode on and off, even before sign-in, and remembers the choice", () => {
+    renderLayout({ account: null });
+    const toggle = screen.getByRole("button", { name: "Night mode" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(toggle);
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem("dfl-theme")).toBe("light");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(document.documentElement.dataset.theme).toBeUndefined();
+    expect(localStorage.getItem("dfl-theme")).toBe("dark");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
   });
 });

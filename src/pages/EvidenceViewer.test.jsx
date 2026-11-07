@@ -146,8 +146,8 @@ describe("EvidenceViewer (demo)", () => {
       // Never presents the outcome as a verification, and nothing is marked as an error.
       expect(outcomeText(dialog)).not.toMatch(OVERCLAIM);
       expect(within(dialog).queryByRole("alert")).toBeNull();
-      // Focus follows the content to the result region.
-      expect(document.activeElement).toBe(within(dialog).getByRole("region"));
+      // Focus follows the content to the result region (moved in an effect, so it can land a tick after the text).
+      await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole("region")));
     });
 
     it("says the hash equals the stored value without claiming anything more", async () => {

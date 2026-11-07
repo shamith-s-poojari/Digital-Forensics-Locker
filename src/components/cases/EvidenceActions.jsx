@@ -1,13 +1,17 @@
-import { useEffect, useId, useState } from "react";
-import { ArrowRightLeft, CloudDownload, Download, Eye, FileSearch, ShieldCheck, ShieldX } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ArrowRightLeft, CloudDownload, Download, Eye, FileSearch, KeyRound, ShieldCheck, ShieldX } from "lucide-react";
+import { useRole } from "../../context/roleContext.js";
 import { useWallet } from "../../context/walletContext.js";
 import { keyClient as defaultKeyClient } from "../../crypto/keyClient.js";
+import { MAX_NOTE_LENGTH } from "../../custody/custodyNote.js";
 import { downloadBytes } from "../../utils/download.js";
+import { detectFileType } from "../../utils/fileType.js";
 import { formatFileSize } from "../../utils/hash";
 import { MAX_VERIFY_BYTES, openAndHash, verifyStoredCopy } from "../../verify/verifyEvidence.js";
+import { accountLabel } from "../../web3/accountNames.js";
 import { lockerConfig } from "../../web3/config.js";
-import { sameAddress, shorten } from "../../web3/format.js";
-import { friendlyMessage, LedgerError } from "../../web3/ledgerErrors.js";
+import { formatUtc, sameAddress, shorten, timeAgo } from "../../web3/format.js";
+import { friendlyMessage, LEDGER_ERROR, LedgerError } from "../../web3/ledgerErrors.js";
 import { CAPABILITIES } from "../../web3/roles.js";
 import Can from "../Can";
 import { Badge, Button, CopyChip, Field, INPUT_CLASS, Panel, Spinner } from "../ui";
@@ -28,10 +32,12 @@ const describe = (err) => (err instanceof LedgerError || !err?.message ? friendl
  *
  * Opening an encrypted copy needs a current sign-in to fetch its key, and the key server logs that.
  */
-function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
+function CheckFile({ record, ledger, paused, runWrite, keyClient: baseKeyClient, gateways, onDecrypted }) {
   const inputId = useId();
   const { ensureSession } = useWallet();
   const [state, setState] = useState(IDLE);
+  // Every key request names this record, so the server can check the record's hash and branch on the ledger.
+  const keyClient = { fetchKey: (keyId) => baseKeyClient.fetchKey(keyId, { evidenceId: record.id }) };
   const onStage = (detail) => setState((s) => ({ ...s, detail }));
 
   async function onFile(event) {
@@ -48,6 +54,7 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
       onStage("Comparing with the hash on the ledger…");
       const matches = await ledger.verifyHash(record.id, opened.sha256);
       setState({ ...IDLE, phase: "done", source: file.name, hash: opened.sha256, matches, decrypted: opened.plaintext, encrypted: opened.encrypted });
+      if (opened.encrypted) onDecrypted?.();
     } catch (err) {
       setState({ ...IDLE, phase: "error", source: file.name, error: describe(err) });
     }
@@ -59,6 +66,7 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
       const result = await verifyStoredCopy({ record, ledger, gateways, ensureSession, keyClient, onStage });
       const source = `Stored copy ${shorten(record.cid, 10, 6)} via ${new URL(result.gateway).host}`;
       setState({ ...IDLE, phase: "done", source, hash: result.sha256, matches: result.matches, decrypted: result.plaintext, encrypted: result.encrypted });
+      if (result.encrypted) onDecrypted?.();
     } catch (err) {
       setState({ ...IDLE, phase: "error", source: "IPFS", error: describe(err) });
     }
@@ -111,7 +119,17 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
               A match shows only that this file equals what was registered. It cannot show the evidence was genuine before registration.
             </p>
             {state.decrypted && state.matches ? (
-              <Button className="mt-3 mr-2" size="sm" variant="secondary" icon={Download} onClick={() => downloadBytes(`evidence-${record.id}-decrypted.bin`, state.decrypted)}>
+              <Button
+                className="mt-3 mr-2"
+                size="sm"
+                variant="secondary"
+                icon={Download}
+                onClick={() => {
+                  // The original name is never stored, so the extension comes from the file's contents.
+                  const { ext, mime } = detectFileType(state.decrypted);
+                  downloadBytes(`evidence-${record.id}-decrypted.${ext}`, state.decrypted, mime);
+                }}
+              >
                 Save the decrypted file
               </Button>
             ) : null}
@@ -122,7 +140,7 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
                 variant="secondary"
                 icon={FileSearch}
                 disabled={paused}
-                onClick={() => void runWrite("Record verification on the ledger", () => ledger.logVerification(record.id, state.hash))}
+                onClick={() => void runWrite("Record verification on the ledger", (noteHash) => ledger.logVerification(record.id, state.hash, noteHash))}
               >
                 Record this result on the ledger
               </Button>
@@ -134,6 +152,75 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
   );
 }
 
+/**
+ * Everyone who has been given this evidence's decryption key, from the key server's release log. Opening a file is an
+ * access to the evidence, so it is shown next to the ledger's custody entries. The list is the server's record,
+ * not the ledger's: see README, "Known limitations".
+ */
+function DecryptionLog({ record, keyClient, account, refresh }) {
+  const { ensureSession } = useWallet();
+  const [state, setState] = useState({ phase: "idle", releases: [], error: "" });
+  const opened = useRef(false);
+
+  async function load() {
+    opened.current = true;
+    setState((s) => ({ ...s, phase: "loading", error: "" }));
+    try {
+      await ensureSession();
+      const releases = await keyClient.listReleases(record.id, record.sha256);
+      setState({ phase: "done", releases, error: "" });
+    } catch (err) {
+      setState({ phase: "error", releases: [], error: describe(err) });
+    }
+  }
+
+  // Reload after this user decrypted the file, once the list has been opened.
+  useEffect(() => {
+    if (refresh > 0 && opened.current) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refresh]);
+
+  if (state.phase === "idle") {
+    return (
+      <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => void load()}>
+        Show who has decrypted this file
+      </Button>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <p className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+        <KeyRound className="size-4" aria-hidden="true" /> Decryption log
+      </p>
+      {state.phase === "loading" ? <Spinner label="Loading the decryption log…" /> : null}
+      {state.phase === "error" ? (
+        <p role="alert" className="text-sm text-rose-300">
+          {state.error}
+        </p>
+      ) : null}
+      {state.phase === "done" && state.releases.length === 0 ? <p className="text-xs text-slate-400">Nobody has decrypted this file yet.</p> : null}
+      {state.phase === "done" && state.releases.length > 0 ? (
+        <ol aria-label="Decryptions, oldest first" className="space-y-1 text-xs text-slate-300">
+          {state.releases.map((r, i) => {
+            const seconds = Math.floor(Date.parse(r.at) / 1000);
+            return (
+              <li key={`${r.at}-${i}`} className="flex flex-wrap items-center gap-1.5">
+                <span className="font-mono text-slate-100" title={r.address}>
+                  {accountLabel(r.address)}
+                </span>
+                {sameAddress(r.address, account) ? <Badge tone="info">you</Badge> : null}
+                <time dateTime={r.at} title={formatUtc(seconds)}>
+                  {formatUtc(seconds)} <span className="text-slate-400">({timeAgo(seconds)})</span>
+                </time>
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
+      <p className="text-xs text-slate-400">Kept by the key server each time it hands out this file's key. It is not written to the ledger.</p>
+    </div>
+  );
+}
 
 /** Investigator-only form that moves custody; the Chief uses the same form for emergency reassignment. */
 function CustodyForm({ record, ledger, account, paused, runWrite, mode }) {
@@ -169,7 +256,7 @@ function CustodyForm({ record, ledger, account, paused, runWrite, mode }) {
   }
 
   const send = () =>
-    runWrite(reassign ? "Reassign custody" : "Transfer custody", () => (reassign ? ledger.reassignCustody(record.id, recipient) : ledger.transferCustody(record.id, recipient))).then((result) => {
+    runWrite(reassign ? "Reassign custody" : "Transfer custody", (noteHash) => (reassign ? ledger.reassignCustody(record.id, recipient, noteHash) : ledger.transferCustody(record.id, recipient, noteHash))).then((result) => {
       // Keep the form (and the chosen recipient) open when the transaction failed, so the user can retry.
       if (result.ok) {
         setOpen(false);
@@ -188,8 +275,8 @@ function CustodyForm({ record, ledger, account, paused, runWrite, mode }) {
         <select id={selectId} value={recipient} onChange={(e) => setRecipient(e.target.value)} className={INPUT_CLASS}>
           <option value="">Choose an investigator…</option>
           {recipients.map((address) => (
-            <option key={address} value={address}>
-              {address}
+            <option key={address} value={address} title={address}>
+              {accountLabel(address)}
             </option>
           ))}
         </select>
@@ -207,26 +294,78 @@ function CustodyForm({ record, ledger, account, paused, runWrite, mode }) {
 }
 
 /**
- * Actions on the selected evidence item. Everyone who can view can check a file; writing actions appear only for the
- * roles that may perform them (the contract enforces this regardless of what is shown).
+ * The optional note for the next custody action, and the `runWrite` that sends it: the note is saved first, then its
+ * hash goes into the transaction. Retrying the same text after a rejected transaction reuses the saved note.
  */
-export default function EvidenceActions({ record, ledger, account, paused, runWrite, keyClient = defaultKeyClient, gateways = lockerConfig.ipfsGateways }) {
-  if (!record) return null;
+function useCustodyNote({ record, account, runWrite, noteStore }) {
+  const [note, setNote] = useState("");
+  const saved = useRef(null);
+
+  async function saveNote() {
+    const text = note.trim();
+    if (!text || !noteStore) return undefined;
+    if (saved.current?.text === text) return saved.current.noteHash;
+    try {
+      const { noteHash } = await noteStore.add({ evidenceId: record.id, note: text, branchId: record.branchId }, account);
+      saved.current = { text, noteHash };
+      return noteHash;
+    } catch (err) {
+      throw new LedgerError(LEDGER_ERROR.NOTE_NOT_SAVED, err?.message, { reason: err?.message });
+    }
+  }
+
+  const runWithNote = async (title, send) => {
+    const result = await runWrite(title, async () => send(await saveNote()));
+    if (result?.ok) {
+      setNote("");
+      saved.current = null;
+    }
+    return result;
+  };
+
+  return { note, setNote, runWithNote };
+}
+
+/** The panel for one evidence item (keyed by evidence id by the caller, so a note never carries over to another item). */
+function ActionsPanel({ record, ledger, account, paused, runWrite, keyClient, gateways, noteStore }) {
+  const noteId = useId();
+  const { can } = useRole();
+  const { note, setNote, runWithNote } = useCustodyNote({ record, account, runWrite, noteStore });
   const isCustodian = sameAddress(record.custodian, account);
+  const canNote = noteStore && (can(CAPABILITIES.LOG_CUSTODY) || can(CAPABILITIES.REASSIGN));
+  const [decryptions, setDecryptions] = useState(0);
 
   return (
     <Panel title="Actions" titleId="actions-heading">
       <div className="space-y-4">
-        <CheckFile key={record.id} record={record} ledger={ledger} paused={paused} runWrite={runWrite} keyClient={keyClient} gateways={gateways} />
+        <CheckFile key={record.id} record={record} ledger={ledger} paused={paused} runWrite={runWithNote} keyClient={keyClient} gateways={gateways} onDecrypted={() => setDecryptions((n) => n + 1)} />
+
+        {keyClient.listReleases ? (
+          <div className="border-t border-slate-800 pt-3">
+            <DecryptionLog key={record.id} record={record} keyClient={keyClient} account={account} refresh={decryptions} />
+          </div>
+        ) : null}
+
+        {canNote ? (
+          <div className="border-t border-slate-800 pt-3">
+            <Field
+              label="Custody note (optional)"
+              htmlFor={noteId}
+              hint="Saved with your next action below and cannot be edited afterwards. The text stays on the server, visible to this branch and the Chief; only its hash goes on the public ledger."
+            >
+              <textarea id={noteId} rows={2} maxLength={MAX_NOTE_LENGTH} value={note} onChange={(e) => setNote(e.target.value)} className={INPUT_CLASS} />
+            </Field>
+          </div>
+        ) : null}
 
         <Can capability={CAPABILITIES.LOG_CUSTODY}>
           <div className="flex flex-wrap items-center gap-2 border-t border-slate-800 pt-3">
-            <Button icon={Eye} disabled={paused} onClick={() => void runWrite("Log access", () => ledger.logAccess(record.id))}>
+            <Button icon={Eye} disabled={paused} onClick={() => void runWithNote("Log access", (noteHash) => ledger.logAccess(record.id, noteHash))}>
               Log that I accessed this
             </Button>
             {isCustodian ? (
               <Can capability={CAPABILITIES.TRANSFER}>
-                <CustodyForm key={`transfer-${record.id}`} record={record} ledger={ledger} account={account} paused={paused} runWrite={runWrite} mode="transfer" />
+                <CustodyForm key={`transfer-${record.id}`} record={record} ledger={ledger} account={account} paused={paused} runWrite={runWithNote} mode="transfer" />
               </Can>
             ) : (
               <Badge tone="neutral">Only the custodian can transfer</Badge>
@@ -236,10 +375,19 @@ export default function EvidenceActions({ record, ledger, account, paused, runWr
 
         <Can capability={CAPABILITIES.REASSIGN}>
           <div className="border-t border-slate-800 pt-3">
-            <CustodyForm key={`reassign-${record.id}`} record={record} ledger={ledger} account={account} paused={paused} runWrite={runWrite} mode="reassign" />
+            <CustodyForm key={`reassign-${record.id}`} record={record} ledger={ledger} account={account} paused={paused} runWrite={runWithNote} mode="reassign" />
           </div>
         </Can>
       </div>
     </Panel>
   );
+}
+
+/**
+ * Actions on the selected evidence item. Everyone who can view can check a file; writing actions appear only for the
+ * roles that may perform them (the contract enforces this regardless of what is shown).
+ */
+export default function EvidenceActions({ record, ledger, account, paused, runWrite, keyClient = defaultKeyClient, gateways = lockerConfig.ipfsGateways, noteStore = null }) {
+  if (!record) return null;
+  return <ActionsPanel key={record.id} record={record} ledger={ledger} account={account} paused={paused} runWrite={runWrite} keyClient={keyClient} gateways={gateways} noteStore={noteStore} />;
 }
