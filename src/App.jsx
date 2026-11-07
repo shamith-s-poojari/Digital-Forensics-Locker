@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Routes, Route, Link } from "react-router-dom";
 // Explicit extension on purpose: "WalletContext.jsx" (provider) and "walletContext.js" (context + hook)
 // differ only by case/extension, which is ambiguous on case-insensitive file systems (Windows/macOS).
@@ -11,12 +12,15 @@ import { AccessRequestProvider } from "./access/AccessRequestProvider.jsx";
 import { landingRoute, ROUTE_CAPABILITY } from "./web3/roles.js";
 import Layout from "./components/Layout";
 import RequireCapability from "./components/RequireCapability";
-import AdminRoles from "./pages/AdminRoles";
-import CaseDashboard from "./pages/CaseDashboard";
-import ChainOfCustody from "./pages/ChainOfCustody";
-import EvidenceUpload from "./pages/EvidenceUpload";
-import EvidenceViewer from "./pages/EvidenceViewer";
-import RoleHome from "./pages/RoleHome";
+import { Spinner } from "./components/ui";
+
+// Each page is its own chunk, downloaded the first time its route is opened, so the sign-in screen stays small.
+const AdminRoles = lazy(() => import("./pages/AdminRoles"));
+const CaseDashboard = lazy(() => import("./pages/CaseDashboard"));
+const ChainOfCustody = lazy(() => import("./pages/ChainOfCustody"));
+const EvidenceUpload = lazy(() => import("./pages/EvidenceUpload"));
+const EvidenceViewer = lazy(() => import("./pages/EvidenceViewer"));
+const RoleHome = lazy(() => import("./pages/RoleHome"));
 
 function NotFound() {
   return (
@@ -63,7 +67,9 @@ export default function App() {
               <AuthProvider>
                 <BrowserRouter>
                   <Layout>
-                    <AppRoutes />
+                    <Suspense fallback={<Spinner label="Loading page…" />}>
+                      <AppRoutes />
+                    </Suspense>
                   </Layout>
                 </BrowserRouter>
               </AuthProvider>
