@@ -33,25 +33,24 @@ function applyTheme(theme) {
 }
 
 /**
- * Switches theme. With `origin` (the toggle's centre, in viewport px) and View Transitions support, the new
- * theme is revealed as a circle growing from that point; otherwise it switches instantly.
+ * Switches theme with a short cross-fade where View Transitions are supported (see index.css); otherwise, or with
+ * reduced motion, it switches instantly.
  */
-export function setTheme(theme, origin) {
+export function setTheme(theme) {
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  if (!origin || reduceMotion || typeof document.startViewTransition !== "function") {
+  if (reduceMotion || typeof document.startViewTransition !== "function") {
     applyTheme(theme);
     return;
   }
-  const root = document.documentElement;
-  const radius = Math.hypot(Math.max(origin.x, window.innerWidth - origin.x), Math.max(origin.y, window.innerHeight - origin.y));
-  root.style.setProperty("--reveal-x", `${origin.x}px`);
-  root.style.setProperty("--reveal-y", `${origin.y}px`);
-  root.style.setProperty("--reveal-r", `${radius}px`);
-  document.startViewTransition(() => applyTheme(theme));
+  const transition = document.startViewTransition(() => applyTheme(theme));
+  // A skipped or timed-out fade (e.g. a background tab) still applies the theme; don't report it as an error.
+  transition.updateCallbackDone?.catch(() => {});
+  transition.ready?.catch(() => {});
+  transition.finished?.catch(() => {});
 }
 
 export function useTheme() {
   const theme = useSyncExternalStore(subscribe, readTheme, () => "dark");
-  const toggle = useCallback((origin) => setTheme(theme === "light" ? "dark" : "light", origin), [theme]);
+  const toggle = useCallback(() => setTheme(theme === "light" ? "dark" : "light"), [theme]);
   return { theme, toggle };
 }

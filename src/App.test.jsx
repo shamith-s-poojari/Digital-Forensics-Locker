@@ -88,8 +88,10 @@ describe("App: wallet gate and routing by role (development build, demo ledger)"
     expect(await screen.findByText(/Waiting for the branch's Admin or the Chief/)).toBeTruthy();
     expect(screen.getByText("Central Lab")).toBeTruthy();
 
-    // The Chief switches MetaMask to their account and finds the request waiting.
+    // The Chief switches MetaMask to their account: the site is disconnected, so they connect again and find the
+    // request waiting.
     window.ethereum.switchTo(CHIEF);
+    await userEvent.click((await screen.findAllByRole("button", { name: /Connect/ }))[0]);
     await screen.findByText("Chief", { selector: "[data-role]" });
     expect(await screen.findByText("pending access requests")).toBeTruthy(); // sidebar count on Role Management
     goTo("/admin");

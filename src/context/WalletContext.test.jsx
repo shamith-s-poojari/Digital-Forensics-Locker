@@ -47,17 +47,23 @@ function Probe() {
 
 /**
  * Minimal EIP-1193 wallet with a listener registry. `state.selected` is the account the wallet has selected
- * (null = locked); `personal_sign` signs with the real key of the requested address.
+ * (null = locked); `personal_sign` signs with the real key of the requested address. `wallet_revokePermissions`
+ * disconnects the site until the next `eth_requestAccounts`, which stands for the user picking `state.selected`.
  */
 function createFakeEthereum({ selected = ADDRESS_A, overrides = {} } = {}) {
   const listeners = new Map();
-  const state = { selected, unlocked: true };
+  const state = { selected, unlocked: true, connected: true };
   const request = vi.fn(async ({ method, params }) => {
     if (overrides[method]) return overrides[method](params);
     switch (method) {
       case "eth_requestAccounts":
-      case "eth_accounts":
+        state.connected = true;
         return state.selected ? [state.selected] : [];
+      case "eth_accounts":
+        return state.connected && state.selected ? [state.selected] : [];
+      case "wallet_revokePermissions":
+        state.connected = false;
+        return null;
       case "eth_chainId":
         return "0xaa36a7";
       case "personal_sign": {
@@ -233,13 +239,16 @@ describe("WalletProvider", () => {
       });
     });
 
-    describe("switching to another of the wallet's accounts", () => {
-      it("opens the wallet's account picker and moves to the account chosen there, signed in as it", async () => {
+    describe("switching role", () => {
+      const methods = () => window.ethereum.request.mock.calls.map(([arg]) => arg.method);
+
+      it("signs out, disconnects the site from every account, then connects and signs in as the account picked", async () => {
         window.ethereum = createFakeEthereum({
           overrides: {
-            wallet_requestPermissions: async () => {
-              window.ethereum.state.selected = ADDRESS_B; // the user connects account B in MetaMask
-              return [{ parentCapability: "eth_accounts" }];
+            wallet_revokePermissions: async () => {
+              window.ethereum.state.connected = false;
+              window.ethereum.state.selected = ADDRESS_B; // the user picks B in MetaMask's account picker next
+              return null;
             },
           },
         });
@@ -253,103 +262,80 @@ describe("WalletProvider", () => {
         await waitFor(() => expect(text("account")).toBe(ADDRESS_B));
         await waitFor(() => expect(auth.session?.address).toBe(ADDRESS_B));
         expect(text("signed-in")).toBe("true");
-        expect(window.ethereum.request).toHaveBeenCalledWith({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+        expect(auth.logout).toHaveBeenCalledTimes(1); // A's session ended
+        const calls = methods();
+        const revokeAt = calls.indexOf("wallet_revokePermissions");
+        expect(revokeAt).toBeGreaterThan(-1);
+        expect(calls.indexOf("eth_requestAccounts", revokeAt)).toBeGreaterThan(revokeAt); // picker only after revoking
+        expect(window.ethereum.signCount()).toBe(2);
       });
 
-      it("keeps the current account and session when the same account is chosen again", async () => {
-        window.ethereum = createFakeEthereum({ overrides: { wallet_requestPermissions: async () => [] } });
+      it("asks for a fresh signature even when the same account is picked again", async () => {
+        window.ethereum = createFakeEthereum();
         const user = userEvent.setup();
         renderProbe();
         await user.click(screen.getByText("connect"));
         await waitFor(() => expect(text("signed-in")).toBe("true"));
-        const signatures = window.ethereum.signCount();
 
         await user.click(screen.getByText("switch account"));
 
+        await waitFor(() => expect(window.ethereum.signCount()).toBe(2));
         expect(text("account")).toBe(ADDRESS_A);
         expect(text("signed-in")).toBe("true");
-        expect(window.ethereum.signCount()).toBe(signatures);
       });
 
-      it("stays on the current account when the picker is closed, and says why", async () => {
-        window.ethereum = createFakeEthereum({
-          overrides: { wallet_requestPermissions: () => Promise.reject(Object.assign(new Error("User rejected"), { code: 4001 })) },
-        });
+      it("stays disconnected when the picker is closed, and says why", async () => {
+        window.ethereum = createFakeEthereum();
         const user = userEvent.setup();
         renderProbe();
         await user.click(screen.getByText("connect"));
+        await waitFor(() => expect(text("signed-in")).toBe("true"));
+        window.ethereum.request.mockImplementationOnce(async () => {
+          window.ethereum.state.connected = false; // revoke
+          return null;
+        });
+        window.ethereum.request.mockImplementationOnce(() => Promise.reject(Object.assign(new Error("User rejected"), { code: 4001 })));
 
         await user.click(screen.getByText("switch account"));
 
-        expect(text("account")).toBe(ADDRESS_A);
-        expect(screen.getByRole("alert").textContent).toMatch(/rejected/i);
+        await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/rejected/i));
+        expect(text("account")).toBe("none");
+        expect(text("signed-in")).toBe("false");
         expect(text("connecting")).toBe("false");
       });
 
-      // Real MetaMask: connecting more accounts leaves its active account (reported first) unchanged.
-      function metaMaskLike() {
-        const shared = [ADDRESS_A];
-        const wallet = createFakeEthereum({
-          overrides: {
-            eth_accounts: async () => [...shared],
-            eth_requestAccounts: async () => [...shared],
-            wallet_requestPermissions: async () => {
-              shared.push(ADDRESS_B); // ticked in MetaMask's window; A stays the active account
-              return [{ parentCapability: "eth_accounts" }];
-            },
-          },
+      it("stays signed out and disconnected when the wallet cannot drop the site's access, instead of reusing the account", async () => {
+        window.ethereum = createFakeEthereum({
+          overrides: { wallet_revokePermissions: () => Promise.reject(Object.assign(new Error("Method not found"), { code: -32601 })) },
         });
-        return { wallet, shared };
-      }
-
-      it("moves to a newly connected account even though the wallet still reports the old one first, and stays there", async () => {
-        const { wallet } = metaMaskLike();
-        window.ethereum = wallet;
         const user = userEvent.setup();
         renderProbe();
         await user.click(screen.getByText("connect"));
         await waitFor(() => expect(text("signed-in")).toBe("true"));
 
         await user.click(screen.getByText("switch account"));
-        await waitFor(() => expect(text("account")).toBe(ADDRESS_B));
-        await waitFor(() => expect(auth.session?.address).toBe(ADDRESS_B));
 
-        // Coming back to the tab, and the check before an evidence action, keep B: the wallet still shares it.
-        act(() => window.dispatchEvent(new Event("focus")));
-        await act(async () => {});
-        expect(text("account")).toBe(ADDRESS_B);
-        await user.click(screen.getByText("ensure"));
-        await waitFor(() => expect(text("ensure")).toBe("ok"));
-        expect(text("account")).toBe(ADDRESS_B);
-        // A re-sent account list with the same active account is not a switch either.
-        act(() => window.ethereum.emit("accountsChanged", [ADDRESS_A, ADDRESS_B]));
-        expect(text("account")).toBe(ADDRESS_B);
+        await waitFor(() => expect(text("notice")).toMatch(/could not disconnect this site/));
+        expect(text("account")).toBe("none");
+        expect(text("signed-in")).toBe("false");
+        expect(methods().filter((m) => m === "eth_requestAccounts")).toHaveLength(1); // only the first connect
       });
 
-      it("follows the user when they pick another active account in the wallet itself", async () => {
-        const { wallet, shared } = metaMaskLike();
-        shared.push(ADDRESS_B);
-        window.ethereum = wallet;
-        const user = userEvent.setup();
-        renderProbe();
-        await user.click(screen.getByText("connect"));
-        expect(text("account")).toBe(ADDRESS_A);
-
-        act(() => window.ethereum.emit("accountsChanged", [ADDRESS_B, ADDRESS_A]));
-        expect(text("account")).toBe(ADDRESS_B);
-      });
-
-      it("explains the manual way for a wallet that cannot open a picker", async () => {
+      it("disconnects the site when the user picks another active account in the wallet itself", async () => {
         window.ethereum = createFakeEthereum({
-          overrides: { wallet_requestPermissions: () => Promise.reject(Object.assign(new Error("Method not found"), { code: -32601 })) },
+          overrides: { eth_accounts: async () => [ADDRESS_A, ADDRESS_B] },
         });
         const user = userEvent.setup();
         renderProbe();
         await user.click(screen.getByText("connect"));
+        await waitFor(() => expect(text("signed-in")).toBe("true"));
 
-        await user.click(screen.getByText("switch account"));
+        act(() => window.ethereum.emit("accountsChanged", [ADDRESS_B, ADDRESS_A]));
 
-        expect(screen.getByRole("alert").textContent).toMatch(/Disconnect, select the account in your wallet/);
+        expect(text("account")).toBe("none");
+        expect(text("signed-in")).toBe("false");
+        expect(text("notice")).toMatch(/switched to .*disconnected/);
+        await waitFor(() => expect(methods()).toContain("wallet_revokePermissions"));
       });
     });
 
@@ -519,14 +505,14 @@ describe("WalletProvider", () => {
       return { user, ...utils };
     }
 
-    it("follows an account switch and ends the old account's session", async () => {
+    it("disconnects the site on an account switch and ends the old account's session", async () => {
       await connectAndSignIn();
 
       act(() => window.ethereum.emit("accountsChanged", [ADDRESS_B]));
 
-      expect(text("account")).toBe(ADDRESS_B);
+      expect(text("account")).toBe("none");
       expect(text("signed-in")).toBe("false");
-      expect(text("notice")).toMatch(/switched to/);
+      expect(text("notice")).toMatch(/switched to .*disconnected/);
       expect(auth.logout).toHaveBeenCalledTimes(1);
     });
 
@@ -600,7 +586,7 @@ describe("WalletProvider", () => {
       expect(window.ethereum.signCount()).toBe(1);
     });
 
-    it("stops when the wallet switched account without an event, then asks the new account for a fresh signature", async () => {
+    it("stops and disconnects when the wallet switched account without an event", async () => {
       window.ethereum = createFakeEthereum();
       const user = userEvent.setup();
       renderProbe();
@@ -609,15 +595,10 @@ describe("WalletProvider", () => {
       window.ethereum.state.selected = ADDRESS_B; // switched in the wallet; no accountsChanged was delivered
 
       await user.click(screen.getByText("ensure"));
-      await waitFor(() => expect(text("ensure")).toMatch(/switched to .*Nothing was sent/));
-      expect(text("account")).toBe(ADDRESS_B);
+      await waitFor(() => expect(text("ensure")).toMatch(/switched account.*Nothing was sent/));
+      expect(text("account")).toBe("none");
       expect(text("signed-in")).toBe("false");
       expect(window.ethereum.signCount()).toBe(1);
-
-      await user.click(screen.getByText("ensure"));
-      await waitFor(() => expect(text("ensure")).toBe("ok"));
-      expect(window.ethereum.signCount()).toBe(2);
-      expect(auth.verified.at(-1).address).toBe(ADDRESS_B);
     });
 
     it("stops when the wallet was locked without an event", async () => {

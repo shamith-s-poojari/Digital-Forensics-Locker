@@ -62,6 +62,16 @@ async function readPermittedAccounts(provider) {
   }
 }
 
+/** Withdraws this site's access to every wallet account (MetaMask). Resolves false when the wallet cannot. */
+async function revokeSiteAccess(provider) {
+  try {
+    await provider.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const toAccountList = (accounts) => (Array.isArray(accounts) ? accounts.filter((a) => typeof a === "string" && a) : []);
 
 /** How long to wait for the user to answer a connection request the wallet already has open (error -32002). */
@@ -117,7 +127,7 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
   const [session, setSession] = useState(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [notice, setNotice] = useState(null);
-  /** Every account the wallet lets this site use; the user may act as any of them (see `selectAccount`). */
+  /** Every account the wallet lets this site use. */
   const [permittedAccounts, setPermittedAccounts] = useState([]);
   const connectingRef = useRef(false);
   // Mirrors of state for async code, which must act on the CURRENT account rather than the one it started with.
@@ -144,6 +154,17 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
     updateSession(null);
     if (hadSession) authClient.logout().catch(() => {});
   }, [authClient, updateSession]);
+
+  /** Signs out and forgets the connected account here. The wallet's own permissions are untouched. */
+  const disconnectLocally = useCallback(() => {
+    endSession();
+    updateAccount(null);
+    walletActiveRef.current = null;
+    setPermittedAccounts([]);
+    setChainId(null);
+    setError(null);
+    setNotice(null);
+  }, [endSession, updateAccount]);
 
   const lookUpChain = useCallback((provider) => {
     Promise.resolve(provider.request({ method: "eth_chainId" }))
@@ -211,10 +232,10 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
 
   /**
    * Applies the wallet's current account list (from an event, a focus check or a pre-action check). The page stays
-   * on the account in use while the wallet still lets this site use it, so an account chosen with `selectAccount` is
-   * kept even though MetaMask's own active account is another one. It moves when the user picks a different active
-   * account in the wallet, or when the account in use is no longer shared. Any change ends the session: a lock or
-   * disconnect also clears the account; a switch follows the new account, which then has to sign in before it can act.
+   * on the account in use while the wallet still lets this site use it, even when MetaMask's own active account is
+   * another one. When the user picks a different active account in the wallet, or the account in use is no longer
+   * shared, the site is disconnected from every account (as with `switchAccount`) and must connect again; a lock or
+   * disconnect clears the account.
    */
   const applyAccounts = useCallback(
     (accounts) => {
@@ -230,12 +251,16 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
       const next = walletActive;
       if (next && sameAddress(next, previous)) return;
 
-      endSession();
       if (next) {
-        updateAccount(next);
-        setNotice(`Your wallet switched to ${shorten(next)}. You will be asked to sign in as this account before any evidence action.`);
+        // A role switch made in the wallet itself is treated like one made here: the site loses access to every
+        // account and the next role has to connect and sign in from scratch.
+        disconnectLocally();
+        const provider = getEthereumProvider();
+        if (provider) void revokeSiteAccess(provider);
+        setNotice(`Your wallet switched to ${shorten(next)}, so this site was disconnected. Connect again to continue as that account.`);
         return;
       }
+      endSession();
       updateAccount(null);
       setChainId(null);
       setNotice("Your wallet disconnected from this site. Connect again to continue.");
@@ -243,7 +268,7 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
         if (locked) setNotice("Your wallet was locked. Unlock it and connect again to continue.");
       });
     },
-    [endSession, updateAccount]
+    [disconnectLocally, endSession, updateAccount]
   );
 
   const connect = useCallback(async () => {
@@ -298,36 +323,10 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
   }, [endSession, lookUpChain, signInAs, updateAccount]);
 
   /**
-   * Acts as another account the wallet already shares with this site, without touching the wallet's own active
-   * account (MetaMask signs for any shared account it is asked to). Ends the current session and asks the chosen
-   * account to sign in.
-   */
-  const selectAccount = useCallback(
-    async (address) => {
-      const provider = getEthereumProvider();
-      if (!provider || !address) return;
-      const shared = await readPermittedAccounts(provider);
-      setPermittedAccounts(shared);
-      if (!shared.some((a) => sameAddress(a, address))) {
-        setError(`${shorten(address)} is not connected to this site any more. Use "Connect another account" to add it again.`);
-        return;
-      }
-      if (sameAddress(address, accountRef.current)) return;
-      endSession();
-      updateAccount(address);
-      setError(null);
-      setNotice(null);
-      lookUpChain(provider);
-      await signInAs(address);
-    },
-    [endSession, lookUpChain, signInAs, updateAccount]
-  );
-
-  /**
-   * Opens the wallet's account picker so the user can connect more of their accounts to this site. MetaMask only
-   * shares accounts the user connected here, and connecting one does not make it the wallet's active account, so the
-   * page cannot rely on the wallet to switch. When exactly one new account was connected the page switches to it;
-   * otherwise the shared accounts are offered in the page (`permittedAccounts`, `selectAccount`).
+   * Switches role. A website cannot lock the wallet, so this does the strongest thing a page can: end the session,
+   * withdraw this site's access to EVERY account in the wallet (`wallet_revokePermissions`), then connect from
+   * scratch, so the next role must be picked in the wallet's own account picker and sign in again. If the wallet
+   * cannot withdraw access, the page stays disconnected rather than silently reusing an account.
    */
   const switchAccount = useCallback(async () => {
     if (connectingRef.current) return;
@@ -338,45 +337,26 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
     }
 
     connectingRef.current = true;
-    setError(null);
     setIsConnecting(true);
-    let others = [];
-    try {
-      await provider.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
-      const shared = await readPermittedAccounts(provider);
-      setPermittedAccounts(shared);
-      others = shared.filter((a) => !sameAddress(a, accountRef.current));
-      if (others.length === 0) setError("No other account is connected to this site. In MetaMask's window, tick the account you want, then Connect.");
-    } catch (err) {
-      setError(
-        err?.code === -32601
-          ? "This wallet cannot switch accounts from the page. Disconnect, select the account in your wallet, then connect again."
-          : describeConnectError(err)
-      );
-    } finally {
-      connectingRef.current = false;
-      setIsConnecting(false);
+    // Clear the account first: revoking fires `accountsChanged([])`, which must find nothing left to follow.
+    disconnectLocally();
+    const revoked = await revokeSiteAccess(provider);
+    connectingRef.current = false;
+    setIsConnecting(false);
+    if (!revoked) {
+      setNotice("Signed out. Your wallet could not disconnect this site by itself: remove the site in your wallet's connected sites, then connect again as the next role.");
+      return;
     }
-    if (others.length === 1) await selectAccount(others[0]);
-  }, [selectAccount]);
+    await connect();
+  }, [connect, disconnectLocally]);
 
   const disconnect = useCallback(() => {
     // Also withdraw this site's account permission (MetaMask supports this; other wallets may not), so the next
     // connect shows the wallet's account picker again instead of silently reusing the account.
     const provider = getEthereumProvider();
-    if (provider) {
-      Promise.resolve()
-        .then(() => provider.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }))
-        .catch(() => {});
-    }
-    endSession();
-    updateAccount(null);
-    walletActiveRef.current = null;
-    setPermittedAccounts([]);
-    setChainId(null);
-    setError(null);
-    setNotice(null);
-  }, [endSession, updateAccount]);
+    disconnectLocally();
+    if (provider) void revokeSiteAccess(provider);
+  }, [disconnectLocally]);
 
   /** Signs in as the connected account (the "Sign in" button). */
   const signIn = useCallback(async () => {
@@ -405,7 +385,7 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
     }
     applyAccounts(shared);
     if (!sameAddress(accountRef.current, shown)) {
-      return { ok: false, error: `Your wallet switched to ${shorten(accountRef.current)}. Nothing was sent. Check the page, then try again as that account.` };
+      return { ok: false, error: "Your wallet switched account, so this site was disconnected. Nothing was sent. Connect again as the account you want." };
     }
 
     const local = sessionRef.current;
@@ -519,7 +499,6 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
       chainId,
       connect,
       switchAccount,
-      selectAccount,
       permittedAccounts,
       disconnect,
       switchChain,
@@ -534,7 +513,7 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
       notice,
       clearNotice,
     }),
-    [account, chainId, connect, switchAccount, selectAccount, permittedAccounts, disconnect, switchChain, error, isConnecting, clearError, session, isSignedIn, isSigningIn, signIn, ensureSession, notice, clearNotice]
+    [account, chainId, connect, switchAccount, permittedAccounts, disconnect, switchChain, error, isConnecting, clearError, session, isSignedIn, isSigningIn, signIn, ensureSession, notice, clearNotice]
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

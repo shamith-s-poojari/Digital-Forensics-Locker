@@ -6,16 +6,11 @@ export default function ThemeToggle({ style }) {
   const { theme, toggle } = useTheme();
   const night = theme === "dark";
 
-  const onClick = (event) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    toggle({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-  };
-
   return (
     <button
       type="button"
       className="dfl-focusable theme-toggle"
-      onClick={onClick}
+      onClick={() => toggle()}
       aria-pressed={night}
       aria-label="Night mode"
       title={night ? "Switch to day mode" : "Switch to night mode"}

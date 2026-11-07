@@ -122,18 +122,11 @@
   --color-rose-400: #e11d48;
 }
 
-/* Theme switch: a circle grows out of the toggle button (View Transitions; one composited snapshot). */
+/* Theme switch: a short, plain cross-fade of the whole page (View Transitions; one composited snapshot). */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation: none;
-  mix-blend-mode: normal;
-}
-::view-transition-new(root) {
-  animation: dfl-theme-reveal 0.55s cubic-bezier(0.4, 0, 0.2, 1);
-}
-@keyframes dfl-theme-reveal {
-  from { clip-path: circle(0 at var(--reveal-x, 100%) var(--reveal-y, 0%)); }
-  to   { clip-path: circle(var(--reveal-r, 150vmax) at var(--reveal-x, 100%) var(--reveal-y, 0%)); }
+  animation-duration: 0.16s;
+  animation-timing-function: ease-out;
 }
 
 
@@ -607,15 +600,13 @@ code, pre, .mono {
   border-color: color-mix(in srgb, var(--color-rose-400) 45%, transparent);
   background: color-mix(in srgb, var(--color-rose-500) 10%, transparent);
 }
-/* The moon and sun swap with a quick spin-and-fade (transform + opacity only). */
+/* The moon and sun swap with a plain fade. */
 .theme-toggle-icon {
   position: absolute;
   display: inline-flex;
   opacity: 0;
-  transform: rotate(-90deg) scale(0.6);
-  transition: opacity 0.3s ease, transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: opacity 0.15s ease;
 }
 .theme-toggle-icon[data-visible] {
   opacity: 1;
-  transform: none;
 }
