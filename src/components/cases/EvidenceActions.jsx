@@ -5,6 +5,7 @@ import { useWallet } from "../../context/walletContext.js";
 import { keyClient as defaultKeyClient } from "../../crypto/keyClient.js";
 import { MAX_NOTE_LENGTH } from "../../custody/custodyNote.js";
 import { downloadBytes } from "../../utils/download.js";
+import { detectFileType } from "../../utils/fileType.js";
 import { formatFileSize } from "../../utils/hash";
 import { MAX_VERIFY_BYTES, openAndHash, verifyStoredCopy } from "../../verify/verifyEvidence.js";
 import { accountLabel } from "../../web3/accountNames.js";
@@ -114,7 +115,17 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
               A match shows only that this file equals what was registered. It cannot show the evidence was genuine before registration.
             </p>
             {state.decrypted && state.matches ? (
-              <Button className="mt-3 mr-2" size="sm" variant="secondary" icon={Download} onClick={() => downloadBytes(`evidence-${record.id}-decrypted.bin`, state.decrypted)}>
+              <Button
+                className="mt-3 mr-2"
+                size="sm"
+                variant="secondary"
+                icon={Download}
+                onClick={() => {
+                  // The original name is never stored, so the extension comes from the file's contents.
+                  const { ext, mime } = detectFileType(state.decrypted);
+                  downloadBytes(`evidence-${record.id}-decrypted.${ext}`, state.decrypted, mime);
+                }}
+              >
                 Save the decrypted file
               </Button>
             ) : null}
