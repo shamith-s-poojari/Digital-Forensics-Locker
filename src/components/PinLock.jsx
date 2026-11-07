@@ -32,8 +32,18 @@ function PinLockDialog({ prompt, onSubmit, onCancel }) {
   const inputRef = useRef(null);
   const name = accountName(address);
 
+  const dialogRef = useRef(null);
+
+  // This screen usually opens the moment MetaMask's popup closes, while that popup still has the OS focus, so the
+  // first focus() is lost and typing goes nowhere. Focus the PIN field again whenever the window comes back, unless
+  // the user is already in one of the dialog's controls.
   useEffect(() => {
-    inputRef.current?.focus();
+    const focusPin = () => {
+      if (!dialogRef.current?.contains(document.activeElement)) inputRef.current?.focus();
+    };
+    focusPin();
+    window.addEventListener("focus", focusPin);
+    return () => window.removeEventListener("focus", focusPin);
   }, []);
 
   const submit = (event) => {
@@ -48,6 +58,7 @@ function PinLockDialog({ prompt, onSubmit, onCancel }) {
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
