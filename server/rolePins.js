@@ -11,12 +11,27 @@ import { getAddress, isAddress } from "ethers";
 
 const scrypt = promisify(scryptCallback);
 
-export const PIN_PATTERN = /^\d{4,8}$/;
+// The account password (still called a "PIN" in the API and storage). A new one needs 8 to 64 characters with at least
+// one letter, one number and one symbol, and no spaces.
+export const PIN_MIN_LENGTH = 8;
+export const PIN_MAX_LENGTH = 64;
+export const PIN_RULE = `A password is ${PIN_MIN_LENGTH} to ${PIN_MAX_LENGTH} characters with at least one letter, one number and one symbol, and no spaces.`;
 export const MAX_ATTEMPTS = 5;
 export const LOCKOUT_MS = 15 * 60_000;
 const KEY_LENGTH = 32;
 
-export const isValidPin = (pin) => typeof pin === "string" && PIN_PATTERN.test(pin);
+/** Whether `pin` is strong enough to be set as a new password. */
+export const isValidPin = (pin) =>
+  typeof pin === "string" &&
+  pin.length >= PIN_MIN_LENGTH &&
+  pin.length <= PIN_MAX_LENGTH &&
+  !/\s/.test(pin) &&
+  /\p{L}/u.test(pin) &&
+  /\p{N}/u.test(pin) &&
+  /[^\p{L}\p{N}\s]/u.test(pin);
+
+/** Whether `pin` could be a stored password. Looser than isValidPin, so numeric PINs set before this rule still sign in. */
+const isPinShaped = (pin) => typeof pin === "string" && pin.length > 0 && pin.length <= PIN_MAX_LENGTH;
 
 async function hashPin(pin, saltHex) {
   return (await scrypt(pin, Buffer.from(saltHex, "hex"), KEY_LENGTH)).toString("hex");
@@ -46,11 +61,11 @@ export function createRolePins({ storage, now = Date.now }) {
     const time = now();
     if (state?.lockedUntil > time) {
       const minutes = Math.ceil((state.lockedUntil - time) / 60_000);
-      return { ok: false, error: `too many wrong PINs. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.` };
+      return { ok: false, error: `too many wrong passwords. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.` };
     }
     const entry = await storage.get(id);
     if (!entry) return { ok: true };
-    if (!isValidPin(pin)) return { ok: false, error: "enter the 4 to 8 digit PIN for this account." };
+    if (!isPinShaped(pin)) return { ok: false, error: "enter the password for this account." };
 
     const expected = Buffer.from(entry.hash, "hex");
     const actual = Buffer.from(await hashPin(pin, entry.salt), "hex");
@@ -61,16 +76,16 @@ export function createRolePins({ storage, now = Date.now }) {
     const failures = (state?.lockedUntil && state.lockedUntil <= time ? 0 : (state?.failures ?? 0)) + 1;
     if (failures >= MAX_ATTEMPTS) {
       attempts.set(id, { failures: 0, lockedUntil: time + LOCKOUT_MS });
-      return { ok: false, error: `wrong PIN. Too many attempts: this account is locked for ${LOCKOUT_MS / 60_000} minutes.` };
+      return { ok: false, error: `wrong password. Too many attempts: this account is locked for ${LOCKOUT_MS / 60_000} minutes.` };
     }
     attempts.set(id, { failures, lockedUntil: 0 });
     const left = MAX_ATTEMPTS - failures;
-    return { ok: false, error: `wrong PIN. ${left} attempt${left === 1 ? "" : "s"} left.` };
+    return { ok: false, error: `wrong password. ${left} attempt${left === 1 ? "" : "s"} left.` };
   }
 
   /** Stores a new PIN for the address (replacing any previous one). The caller checks who may do this. */
   async function set(address, pin) {
-    if (!isValidPin(pin)) throw Object.assign(new Error("A PIN is 4 to 8 digits."), { code: "INVALID_PIN" });
+    if (!isValidPin(pin)) throw Object.assign(new Error(PIN_RULE), { code: "INVALID_PIN" });
     const salt = randomBytes(16).toString("hex");
     const existing = await storage.get(key(address));
     const time = new Date(now()).toISOString();

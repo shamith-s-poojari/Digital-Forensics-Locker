@@ -23,7 +23,7 @@ import { randomBytes } from "node:crypto";
 import { getAddress, isAddress, verifyMessage } from "ethers";
 import { parseSiweMessage } from "../src/auth/siweMessage.js";
 import { REQUIRED_HEADER_VALUE } from "./pinataProxy.js";
-import { isValidPin } from "./rolePins.js";
+import { isValidPin, PIN_RULE } from "./rolePins.js";
 
 export const SESSION_COOKIE = "dfl_session";
 export const NONCE_TTL_MS = 5 * 60_000;
@@ -224,10 +224,10 @@ export function createSiweAuth({ now = Date.now, chainId, secureCookie = false, 
     } catch (err) {
       return sendJson(res, err?.code === "TOO_LARGE" ? 413 : 400, { error: "Expected a JSON body with a pin." });
     }
-    if (!isValidPin(body?.pin)) return sendJson(res, 400, { error: "A PIN is 4 to 8 digits." });
+    if (!isValidPin(body?.pin)) return sendJson(res, 400, { error: PIN_RULE });
     if (await pins.hasPin(session.address)) {
       const result = await pins.check(session.address, body.currentPin);
-      if (!result.ok) return sendJson(res, 401, { error: `PIN not changed: ${result.error}`, code: "BAD_PIN" });
+      if (!result.ok) return sendJson(res, 401, { error: `Password not changed: ${result.error}`, code: "BAD_PIN" });
     }
     await pins.set(session.address, body.pin);
     const stored = sessions.get(session.id);

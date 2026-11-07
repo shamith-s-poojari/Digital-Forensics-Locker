@@ -214,7 +214,7 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
         setIsSigningIn(true);
         setError(null);
         const stillShown = () => sameAddress(accountRef.current, address);
-        const locked = { ok: false, error: "Locked: sign-in needs this account's PIN." };
+        const locked = { ok: false, error: "Locked: sign-in needs this account's password." };
         try {
           if (!provider) return { ok: false, error: "No Ethereum wallet detected." };
           const checksummed = getAddress(address);
@@ -259,7 +259,7 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
             const pin = await requestPin(checksummed, "create", createError);
             if (pin === null || !stillShown()) {
               authClient.logout().catch(() => {});
-              return { ok: false, error: "Signed out: this account needs a PIN before it can be used." };
+              return { ok: false, error: "Signed out: this account needs a password before it can be used." };
             }
             try {
               next = await authClient.setPin(pin);

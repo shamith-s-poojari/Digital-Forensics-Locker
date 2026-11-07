@@ -45,7 +45,7 @@ export const authClient = {
   /** @returns {Promise<boolean>} Whether the account has a sign-in PIN (and so must enter it to sign in). */
   async getPinStatus(address) {
     const { status, body } = await call(`/api/auth/pin-status?address=${encodeURIComponent(address)}`);
-    if (status !== 200 || typeof body?.hasPin !== "boolean") throw new Error(body?.error || `Could not check the account's PIN (HTTP ${status}).`);
+    if (status !== 200 || typeof body?.hasPin !== "boolean") throw new Error(body?.error || `Could not check the account's password (HTTP ${status}).`);
     return body.hasPin;
   },
 
@@ -60,7 +60,7 @@ export const authClient = {
       body: JSON.stringify(currentPin === undefined ? { pin } : { pin, currentPin }),
     });
     if (status !== 200 || typeof body?.address !== "string") {
-      throw Object.assign(new Error(body?.error || `Could not save the PIN (HTTP ${status}).`), { code: body?.code });
+      throw Object.assign(new Error(body?.error || `Could not save the password (HTTP ${status}).`), { code: body?.code });
     }
     return body;
   },

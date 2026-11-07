@@ -1,12 +1,20 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Lock, LockKeyhole } from "lucide-react";
+import { Eye, EyeOff, Lock, LockKeyhole } from "lucide-react";
 import { useWallet } from "../context/walletContext.js";
 import { accountName } from "../web3/accountNames.js";
 import { shorten } from "../web3/format.js";
 import { Button, Field, INPUT_CLASS } from "./ui";
 
-const PIN_PATTERN = /^\d{4,8}$/;
-const digitsOnly = (value) => value.replace(/\D/g, "").slice(0, 8);
+// Same rule as server/rolePins.js (isValidPin), which is the one that counts.
+const MAX_LENGTH = 64;
+const RULE = "8 to 64 characters with at least one letter, one number and one symbol, and no spaces.";
+const isStrongPassword = (value) =>
+  value.length >= 8 &&
+  value.length <= MAX_LENGTH &&
+  !/\s/.test(value) &&
+  /\p{L}/u.test(value) &&
+  /\p{N}/u.test(value) &&
+  /[^\p{L}\p{N}\s]/u.test(value);
 
 /**
  * The app's lock screen. A website cannot lock MetaMask, so the app locks itself: every sign-in, and so every role
@@ -26,6 +34,7 @@ function PinLockDialog({ prompt, onSubmit, onCancel }) {
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
   const [localError, setLocalError] = useState(null);
+  const [shown, setShown] = useState(false);
   const titleId = useId();
   const pinId = useId();
   const confirmId = useId();
@@ -48,8 +57,10 @@ function PinLockDialog({ prompt, onSubmit, onCancel }) {
 
   const submit = (event) => {
     event.preventDefault();
-    if (!PIN_PATTERN.test(pin)) return setLocalError("A PIN is 4 to 8 digits.");
-    if (creating && pin !== confirm) return setLocalError("The two PINs do not match.");
+    if (!pin) return setLocalError("Enter the password.");
+    // Only a new password must meet the rule: numeric PINs set before it still unlock.
+    if (creating && !isStrongPassword(pin)) return setLocalError(`A password is ${RULE}`);
+    if (creating && pin !== confirm) return setLocalError("The two passwords do not match.");
     setLocalError(null);
     onSubmit(pin);
   };
@@ -75,7 +86,7 @@ function PinLockDialog({ prompt, onSubmit, onCancel }) {
           </span>
           <div>
             <h2 id={titleId} className="text-lg font-semibold text-slate-50">
-              {creating ? "Set a PIN for this account" : "Locked"}
+              {creating ? "Set a password for this account" : "Locked"}
             </h2>
             <p className="text-sm text-slate-300">
               {name ? <span className="font-semibold text-slate-100">{name} </span> : null}
@@ -88,35 +99,50 @@ function PinLockDialog({ prompt, onSubmit, onCancel }) {
 
         <p className="mb-4 text-sm text-slate-400">
           {creating
-            ? "Choose a 4 to 8 digit PIN. It will be asked every time this account signs in or someone switches to it."
-            : "Enter this account's PIN to unlock. MetaMask will then ask you to sign in."}
+            ? `Choose a password: ${RULE} It will be asked every time this account signs in or someone switches to it.`
+            : "Enter this account's password to unlock. MetaMask will then ask you to sign in."}
         </p>
 
         <div className="space-y-3">
-          <Field label={creating ? "New PIN" : "PIN"} htmlFor={pinId} error={!creating || !confirm ? shownError : null}>
-            <input
-              ref={inputRef}
-              id={pinId}
-              type="password"
-              inputMode="numeric"
-              autoComplete={creating ? "new-password" : "current-password"}
-              maxLength={8}
-              value={pin}
-              onChange={(e) => setPin(digitsOnly(e.target.value))}
-              className={`${INPUT_CLASS} font-mono tracking-[0.4em]`}
-            />
+          <Field label={creating ? "New password" : "Password"} htmlFor={pinId} error={!creating || !confirm ? shownError : null}>
+            <div className="relative">
+              <input
+                ref={inputRef}
+                id={pinId}
+                type={shown ? "text" : "password"}
+                autoComplete={creating ? "new-password" : "current-password"}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                maxLength={MAX_LENGTH}
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                className={`${INPUT_CLASS} pr-11 font-mono`}
+              />
+              <button
+                type="button"
+                onClick={() => setShown((v) => !v)}
+                aria-label={shown ? "Hide password" : "Show password"}
+                aria-pressed={shown}
+                className="absolute inset-y-0 right-0 inline-flex w-10 items-center justify-center rounded-r-md text-slate-400 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
+              >
+                {shown ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+              </button>
+            </div>
           </Field>
           {creating ? (
-            <Field label="Repeat PIN" htmlFor={confirmId} error={confirm ? shownError : null}>
+            <Field label="Repeat password" htmlFor={confirmId} error={confirm ? shownError : null}>
               <input
                 id={confirmId}
-                type="password"
-                inputMode="numeric"
+                type={shown ? "text" : "password"}
                 autoComplete="new-password"
-                maxLength={8}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                maxLength={MAX_LENGTH}
                 value={confirm}
-                onChange={(e) => setConfirm(digitsOnly(e.target.value))}
-                className={`${INPUT_CLASS} font-mono tracking-[0.4em]`}
+                onChange={(e) => setConfirm(e.target.value)}
+                className={`${INPUT_CLASS} font-mono`}
               />
             </Field>
           ) : null}
@@ -127,7 +153,7 @@ function PinLockDialog({ prompt, onSubmit, onCancel }) {
             {creating ? "Sign out" : "Cancel"}
           </Button>
           <Button variant="primary" type="submit">
-            {creating ? "Save PIN" : "Unlock"}
+            {creating ? "Save password" : "Unlock"}
           </Button>
         </div>
       </form>

@@ -25,41 +25,70 @@ describe("PinLock", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("covers the page and unlocks with the PIN typed (digits only)", async () => {
+  it("covers the page and unlocks with the password typed, letters and symbols included", async () => {
     const wallet = renderLock({ address: ADDRESS, mode: "enter", error: null });
     expect(screen.getByRole("dialog", { name: "Locked" })).toBeTruthy();
 
-    await userEvent.type(screen.getByLabelText("PIN"), "12a34");
+    await userEvent.type(screen.getByLabelText("Password"), "Ev1dence!#");
     await userEvent.click(screen.getByRole("button", { name: "Unlock" }));
 
+    expect(wallet.submitPin).toHaveBeenCalledWith("Ev1dence!#");
+  });
+
+  it("still unlocks with a numeric PIN set before passwords were required", async () => {
+    const wallet = renderLock({ address: ADDRESS, mode: "enter", error: null });
+    await userEvent.type(screen.getByLabelText("Password"), "1234");
+    await userEvent.click(screen.getByRole("button", { name: "Unlock" }));
     expect(wallet.submitPin).toHaveBeenCalledWith("1234");
   });
 
-  it("refuses a too-short PIN without submitting, and shows the server's error", async () => {
-    const wallet = renderLock({ address: ADDRESS, mode: "enter", error: "wrong PIN. 4 attempts left." });
-    expect(screen.getByRole("alert").textContent).toMatch(/wrong PIN/);
+  it("refuses an empty password without submitting, and shows the server's error", async () => {
+    const wallet = renderLock({ address: ADDRESS, mode: "enter", error: "wrong password. 4 attempts left." });
+    expect(screen.getByRole("alert").textContent).toMatch(/wrong password/);
 
-    await userEvent.type(screen.getByLabelText("PIN"), "12");
     await userEvent.click(screen.getByRole("button", { name: "Unlock" }));
 
     expect(wallet.submitPin).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert").textContent).toMatch(/4 to 8 digits/);
+    expect(screen.getByRole("alert").textContent).toMatch(/Enter the password/);
   });
 
-  it("asks for the new PIN twice when creating one", async () => {
-    const wallet = renderLock({ address: ADDRESS, mode: "create", error: null });
-    expect(screen.getByRole("dialog", { name: "Set a PIN for this account" })).toBeTruthy();
+  it("shows and hides the password", async () => {
+    renderLock({ address: ADDRESS, mode: "enter", error: null });
+    const input = screen.getByLabelText("Password");
+    expect(input.getAttribute("type")).toBe("password");
+    await userEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(input.getAttribute("type")).toBe("text");
+    await userEvent.click(screen.getByRole("button", { name: "Hide password" }));
+    expect(input.getAttribute("type")).toBe("password");
+  });
 
-    await userEvent.type(screen.getByLabelText("New PIN"), "2468");
-    await userEvent.type(screen.getByLabelText("Repeat PIN"), "2469");
-    await userEvent.click(screen.getByRole("button", { name: "Save PIN" }));
+  it("refuses a weak new password", async () => {
+    const wallet = renderLock({ address: ADDRESS, mode: "create", error: null });
+    for (const weak of ["12345678", "abcd1234", "Ab1!"]) {
+      await userEvent.clear(screen.getByLabelText("New password"));
+      await userEvent.clear(screen.getByLabelText("Repeat password"));
+      await userEvent.type(screen.getByLabelText("New password"), weak);
+      await userEvent.type(screen.getByLabelText("Repeat password"), weak);
+      await userEvent.click(screen.getByRole("button", { name: "Save password" }));
+      expect(screen.getByRole("alert").textContent).toMatch(/one letter, one number and one symbol/);
+    }
+    expect(wallet.submitPin).not.toHaveBeenCalled();
+  });
+
+  it("asks for the new password twice when creating one", async () => {
+    const wallet = renderLock({ address: ADDRESS, mode: "create", error: null });
+    expect(screen.getByRole("dialog", { name: "Set a password for this account" })).toBeTruthy();
+
+    await userEvent.type(screen.getByLabelText("New password"), "Ev1dence!");
+    await userEvent.type(screen.getByLabelText("Repeat password"), "Ev1dence?");
+    await userEvent.click(screen.getByRole("button", { name: "Save password" }));
     expect(wallet.submitPin).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toMatch(/do not match/);
 
-    await userEvent.clear(screen.getByLabelText("Repeat PIN"));
-    await userEvent.type(screen.getByLabelText("Repeat PIN"), "2468");
-    await userEvent.click(screen.getByRole("button", { name: "Save PIN" }));
-    expect(wallet.submitPin).toHaveBeenCalledWith("2468");
+    await userEvent.clear(screen.getByLabelText("Repeat password"));
+    await userEvent.type(screen.getByLabelText("Repeat password"), "Ev1dence!");
+    await userEvent.click(screen.getByRole("button", { name: "Save password" }));
+    expect(wallet.submitPin).toHaveBeenCalledWith("Ev1dence!");
   });
 
   it("cancels with the button or Escape", async () => {
