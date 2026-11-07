@@ -65,7 +65,7 @@ describe("EvidenceActions: checking a file", () => {
 
     await screen.findByText(/hash equals the hash registered/);
     expect(ensureSession).toHaveBeenCalledTimes(1);
-    expect(keyClient.fetchKey).toHaveBeenCalledWith(keyId);
+    expect(keyClient.fetchKey).toHaveBeenCalledWith(keyId, { evidenceId: 3 });
     expect(ledger.verifyHash).toHaveBeenCalledWith(3, originalSha);
     expect(screen.getByText(/encrypted copy, decrypted in your browser/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save the decrypted file" })).toBeTruthy();

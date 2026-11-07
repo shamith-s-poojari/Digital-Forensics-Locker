@@ -88,8 +88,14 @@ async function fillAndChoose(caseNumber = "CASE-1", file = makeFile("abc", "evid
     await userEvent.type(screen.getByLabelText("Case number"), caseNumber);
     await screen.findByText(/^Case found:|^New case\./); // the case store has been read
   }
+  fillAcquisition();
   chooseFile(file);
   await waitFor(() => expect(step("Compute SHA-256 in your browser").dataset.status).toBe("done"));
+}
+
+function fillAcquisition() {
+  fireEvent.change(screen.getByLabelText("Seized / acquired at (your local time)"), { target: { value: "2026-11-01T10:30" } });
+  fireEvent.change(screen.getByLabelText("Where, by whom, and from what device"), { target: { value: "Laptop, HQ, Officer Rao" } });
 }
 
 beforeEach(async () => {

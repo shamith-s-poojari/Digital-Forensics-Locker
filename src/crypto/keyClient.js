@@ -25,10 +25,28 @@ export const keyClient = {
     if (status !== 201) throw new Error(body?.error || `Could not store the decryption key (HTTP ${status}).`);
   },
 
-  /** @returns {Promise<{ keyId: string, sha256: string, key: string, createdBy: string, createdAt: string }>} */
-  async fetchKey(keyId) {
-    const { status, body } = await call(`/api/keys/${encodeURIComponent(keyId)}`);
+  /**
+   * Fetches a file's key. The server releases it only for the named evidence record (it checks the record's hash and
+   * branch on the ledger) and logs who took it.
+   * @param {string} keyId
+   * @param {{ evidenceId?: number }} [options]
+   * @returns {Promise<{ keyId: string, sha256: string, key: string, createdBy: string, createdAt: string }>}
+   */
+  async fetchKey(keyId, { evidenceId } = {}) {
+    const query = evidenceId ? `?evidence=${encodeURIComponent(evidenceId)}` : "";
+    const { status, body } = await call(`/api/keys/${encodeURIComponent(keyId)}${query}`);
     if (status !== 200 || typeof body?.key !== "string") throw new Error(body?.error || `Could not get the decryption key (HTTP ${status}).`);
     return body;
+  },
+
+  /**
+   * Who has been given this evidence's decryption key, oldest first.
+   * @returns {Promise<{ address: string, at: string }[]>}
+   */
+  async listReleases(evidenceId, sha256) {
+    const query = new URLSearchParams({ evidence: String(evidenceId), sha256: String(sha256 ?? "") });
+    const { status, body } = await call(`/api/keys/releases?${query}`);
+    if (status !== 200 || !Array.isArray(body?.releases)) throw new Error(body?.error || `Could not load the decryption log (HTTP ${status}).`);
+    return body.releases;
   },
 };

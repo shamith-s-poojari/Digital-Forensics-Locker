@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowRightLeft, CloudDownload, Download, Eye, FileSearch, ShieldCheck, ShieldX } from "lucide-react";
+import { ArrowRightLeft, CloudDownload, Download, Eye, FileSearch, KeyRound, ShieldCheck, ShieldX } from "lucide-react";
 import { useRole } from "../../context/roleContext.js";
 import { useWallet } from "../../context/walletContext.js";
 import { keyClient as defaultKeyClient } from "../../crypto/keyClient.js";
@@ -10,7 +10,7 @@ import { formatFileSize } from "../../utils/hash";
 import { MAX_VERIFY_BYTES, openAndHash, verifyStoredCopy } from "../../verify/verifyEvidence.js";
 import { accountLabel } from "../../web3/accountNames.js";
 import { lockerConfig } from "../../web3/config.js";
-import { sameAddress, shorten } from "../../web3/format.js";
+import { formatUtc, sameAddress, shorten, timeAgo } from "../../web3/format.js";
 import { friendlyMessage, LEDGER_ERROR, LedgerError } from "../../web3/ledgerErrors.js";
 import { CAPABILITIES } from "../../web3/roles.js";
 import Can from "../Can";
@@ -32,10 +32,12 @@ const describe = (err) => (err instanceof LedgerError || !err?.message ? friendl
  *
  * Opening an encrypted copy needs a current sign-in to fetch its key, and the key server logs that.
  */
-function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
+function CheckFile({ record, ledger, paused, runWrite, keyClient: baseKeyClient, gateways, onDecrypted }) {
   const inputId = useId();
   const { ensureSession } = useWallet();
   const [state, setState] = useState(IDLE);
+  // Every key request names this record, so the server can check the record's hash and branch on the ledger.
+  const keyClient = { fetchKey: (keyId) => baseKeyClient.fetchKey(keyId, { evidenceId: record.id }) };
   const onStage = (detail) => setState((s) => ({ ...s, detail }));
 
   async function onFile(event) {
@@ -52,6 +54,7 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
       onStage("Comparing with the hash on the ledger…");
       const matches = await ledger.verifyHash(record.id, opened.sha256);
       setState({ ...IDLE, phase: "done", source: file.name, hash: opened.sha256, matches, decrypted: opened.plaintext, encrypted: opened.encrypted });
+      if (opened.encrypted) onDecrypted?.();
     } catch (err) {
       setState({ ...IDLE, phase: "error", source: file.name, error: describe(err) });
     }
@@ -63,6 +66,7 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
       const result = await verifyStoredCopy({ record, ledger, gateways, ensureSession, keyClient, onStage });
       const source = `Stored copy ${shorten(record.cid, 10, 6)} via ${new URL(result.gateway).host}`;
       setState({ ...IDLE, phase: "done", source, hash: result.sha256, matches: result.matches, decrypted: result.plaintext, encrypted: result.encrypted });
+      if (result.encrypted) onDecrypted?.();
     } catch (err) {
       setState({ ...IDLE, phase: "error", source: "IPFS", error: describe(err) });
     }
@@ -148,6 +152,75 @@ function CheckFile({ record, ledger, paused, runWrite, keyClient, gateways }) {
   );
 }
 
+/**
+ * Everyone who has been given this evidence's decryption key, from the key server's release log. Opening a file is an
+ * access to the evidence, so it is shown next to the ledger's custody entries. The list is the server's record,
+ * not the ledger's: see README, "Known limitations".
+ */
+function DecryptionLog({ record, keyClient, account, refresh }) {
+  const { ensureSession } = useWallet();
+  const [state, setState] = useState({ phase: "idle", releases: [], error: "" });
+  const opened = useRef(false);
+
+  async function load() {
+    opened.current = true;
+    setState((s) => ({ ...s, phase: "loading", error: "" }));
+    try {
+      await ensureSession();
+      const releases = await keyClient.listReleases(record.id, record.sha256);
+      setState({ phase: "done", releases, error: "" });
+    } catch (err) {
+      setState({ phase: "error", releases: [], error: describe(err) });
+    }
+  }
+
+  // Reload after this user decrypted the file, once the list has been opened.
+  useEffect(() => {
+    if (refresh > 0 && opened.current) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refresh]);
+
+  if (state.phase === "idle") {
+    return (
+      <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => void load()}>
+        Show who has decrypted this file
+      </Button>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <p className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+        <KeyRound className="size-4" aria-hidden="true" /> Decryption log
+      </p>
+      {state.phase === "loading" ? <Spinner label="Loading the decryption log…" /> : null}
+      {state.phase === "error" ? (
+        <p role="alert" className="text-sm text-rose-300">
+          {state.error}
+        </p>
+      ) : null}
+      {state.phase === "done" && state.releases.length === 0 ? <p className="text-xs text-slate-400">Nobody has decrypted this file yet.</p> : null}
+      {state.phase === "done" && state.releases.length > 0 ? (
+        <ol aria-label="Decryptions, oldest first" className="space-y-1 text-xs text-slate-300">
+          {state.releases.map((r, i) => {
+            const seconds = Math.floor(Date.parse(r.at) / 1000);
+            return (
+              <li key={`${r.at}-${i}`} className="flex flex-wrap items-center gap-1.5">
+                <span className="font-mono text-slate-100" title={r.address}>
+                  {accountLabel(r.address)}
+                </span>
+                {sameAddress(r.address, account) ? <Badge tone="info">you</Badge> : null}
+                <time dateTime={r.at} title={formatUtc(seconds)}>
+                  {formatUtc(seconds)} <span className="text-slate-400">({timeAgo(seconds)})</span>
+                </time>
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
+      <p className="text-xs text-slate-400">Kept by the key server each time it hands out this file's key. It is not written to the ledger.</p>
+    </div>
+  );
+}
 
 /** Investigator-only form that moves custody; the Chief uses the same form for emergency reassignment. */
 function CustodyForm({ record, ledger, account, paused, runWrite, mode }) {
@@ -260,11 +333,18 @@ function ActionsPanel({ record, ledger, account, paused, runWrite, keyClient, ga
   const { note, setNote, runWithNote } = useCustodyNote({ record, account, runWrite, noteStore });
   const isCustodian = sameAddress(record.custodian, account);
   const canNote = noteStore && (can(CAPABILITIES.LOG_CUSTODY) || can(CAPABILITIES.REASSIGN));
+  const [decryptions, setDecryptions] = useState(0);
 
   return (
     <Panel title="Actions" titleId="actions-heading">
       <div className="space-y-4">
-        <CheckFile key={record.id} record={record} ledger={ledger} paused={paused} runWrite={runWithNote} keyClient={keyClient} gateways={gateways} />
+        <CheckFile key={record.id} record={record} ledger={ledger} paused={paused} runWrite={runWithNote} keyClient={keyClient} gateways={gateways} onDecrypted={() => setDecryptions((n) => n + 1)} />
+
+        {keyClient.listReleases ? (
+          <div className="border-t border-slate-800 pt-3">
+            <DecryptionLog key={record.id} record={record} keyClient={keyClient} account={account} refresh={decryptions} />
+          </div>
+        ) : null}
 
         {canNote ? (
           <div className="border-t border-slate-800 pt-3">

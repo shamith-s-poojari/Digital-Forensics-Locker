@@ -10,7 +10,7 @@ import { createKeyStore, parseMasterKey } from "./keyStore.js";
 import { createCaseStore } from "./caseStore.js";
 import { createAccessRequestStore } from "./accessRequests.js";
 import { createCustodyNoteStore } from "./custodyNotes.js";
-import { createChainRoleReader, createRoleGate } from "./chainRoles.js";
+import { createChainEvidenceReader, createChainRoleReader, createRoleGate } from "./chainRoles.js";
 import { createFileStorage } from "./storage/fileStorage.js";
 import { createPostgresStorage } from "./storage/postgresStorage.js";
 import { CAPABILITIES } from "../src/web3/roles.js";
@@ -38,6 +38,16 @@ export function createGate(env, { production }) {
   }
   const chainId = Number(env.VITE_CHAIN_ID) || undefined;
   return createRoleGate({ readRoles: createChainRoleReader({ rpcUrl: env.RPC_URL, address, chainId }) });
+}
+
+/**
+ * Reads evidence records from the contract for the key store, or null when no contract can be read (the key store
+ * then refuses through the role gate anyway, except on the dev server's demo ledger).
+ */
+export function createEvidenceReader(env) {
+  const address = env.VITE_LOCKER_ADDRESS?.trim();
+  if (!address || !env.RPC_URL) return null;
+  return createChainEvidenceReader({ rpcUrl: env.RPC_URL, address, chainId: Number(env.VITE_CHAIN_ID) || undefined });
 }
 
 /** Where the JSON-file storage keeps each collection. Also read by scripts/import-data.mjs. */
@@ -89,6 +99,8 @@ export function createApi(env, { production }) {
     storage: storage.keys,
     getSession: auth.getSession,
     checkRole: gate.check,
+    readScope: gate.scope,
+    readEvidence: createEvidenceReader(env),
   });
   const caseStore = createCaseStore({
     storage: storage.cases,

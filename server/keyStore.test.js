@@ -38,7 +38,11 @@ function makeRes() {
 let harness;
 
 /** roleOf: returns the signed-in wallet's on-chain role flags at the time of each call; omitted = no role checks. */
-function setup({ masterKey = randomBytes(32), masterKeyVersion = 1, roleOf } = {}) {
+/**
+ * evidence: id -> { sha256, branchId } on the "ledger" (omitted = no contract, releases not bound to a record).
+ * scope: the caller's branch scope.
+ */
+function setup({ masterKey = randomBytes(32), masterKeyVersion = 1, roleOf, evidence, scope } = {}) {
   const storage = harness.newStorage().keys;
   const store = createKeyStore({
     masterKey,
@@ -47,6 +51,8 @@ function setup({ masterKey = randomBytes(32), masterKeyVersion = 1, roleOf } = {
     getSession: (req) => (req.signedIn ? { address: ALICE } : null),
     // A fresh gate per call, so a role change in the test is seen at once (no cache).
     checkRole: roleOf ? (session, capability) => createRoleGate({ readRoles: async () => roleOf() }).check(session, capability) : undefined,
+    readEvidence: evidence ? async (id) => evidence[id] ?? null : undefined,
+    readScope: scope ? async () => scope : undefined,
     now: () => Date.parse("2026-10-26T12:00:00.000Z"),
   });
   async function call(options) {
@@ -89,6 +95,66 @@ describe.each(backends)("createKeyStore with on-chain roles ($name)", (backend) 
 
     role = { isAuditor: true };
     expect((await get()).json.key).toBe(RAW_KEY);
+  });
+});
+
+describe.each(backends)("createKeyStore bound to the ledger ($name)", (backend) => {
+  useBackend(backend, (h) => (harness = h));
+  const OTHER_SHA = "cd".repeat(32);
+  const ledger = { 7: { sha256: SHA, branchId: 1 }, 8: { sha256: OTHER_SHA, branchId: 1 }, 9: { sha256: SHA, branchId: 2 } };
+
+  it("releases a key only for a named record that holds this file's hash, in the caller's branch", async () => {
+    const { put, get, storage } = setup({ evidence: ledger, scope: { global: false, branchId: 1 } });
+    await put();
+
+    expect((await get()).status).toBe(400); // no record named
+    expect((await get(`${KEY_ID}?evidence=abc`)).status).toBe(400);
+    expect((await get(`${KEY_ID}?evidence=99`)).status).toBe(404); // not on the ledger
+    expect((await get(`${KEY_ID}?evidence=8`)).status).toBe(409); // another file's record
+    const otherBranch = await get(`${KEY_ID}?evidence=9`);
+    expect(otherBranch.status).toBe(403);
+    expect(otherBranch.json.key).toBeUndefined();
+    expect(await storage.listReleases()).toEqual([]); // refusals release and log nothing
+
+    expect((await get(`${KEY_ID}?evidence=7`)).json.key).toBe(RAW_KEY);
+    expect(await storage.listReleases()).toEqual([expect.objectContaining({ keyId: KEY_ID, sha256: SHA, address: ALICE })]);
+  });
+
+  it("lets the Chief (every branch) open any branch's record", async () => {
+    const { put, get } = setup({ evidence: ledger, scope: { global: true, branchId: null } });
+    await put();
+    expect((await get(`${KEY_ID}?evidence=9`)).json.key).toBe(RAW_KEY);
+  });
+
+  it("refuses when the ledger cannot be read", async () => {
+    const rpcDown = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("RPC down");
+        },
+      },
+    );
+    const { put, get, storage } = setup({ evidence: rpcDown, scope: { global: true } });
+    await put();
+    expect((await get(`${KEY_ID}?evidence=7`)).status).toBe(503);
+    expect(await storage.listReleases()).toEqual([]);
+  });
+
+  it("lists who decrypted a record, only within the caller's branch", async () => {
+    const mine = setup({ evidence: ledger, scope: { global: false, branchId: 1 } });
+    await mine.put();
+    await mine.get(`${KEY_ID}?evidence=7`);
+    await mine.get(`${KEY_ID}?evidence=7`);
+
+    const list = await mine.call({ url: "/api/keys/releases?evidence=7" });
+    expect(list.status).toBe(200);
+    expect(list.json.releases).toEqual([
+      { address: ALICE, at: "2026-10-26T12:00:00.000Z" },
+      { address: ALICE, at: "2026-10-26T12:00:00.000Z" },
+    ]);
+    expect((await mine.call({ url: "/api/keys/releases?evidence=8" })).json.releases).toEqual([]);
+    expect((await mine.call({ url: "/api/keys/releases?evidence=9" })).status).toBe(403);
   });
 });
 
@@ -143,6 +209,14 @@ describe.each(backends)("createKeyStore ($name)", (backend) => {
     const other = randomBytes(32).toString("base64");
     expect((await put({ keyId: KEY_ID, sha256: SHA, key: other })).status).toBe(409);
     expect((await get()).json.key).toBe(RAW_KEY);
+  });
+
+  it("without a contract, lists releases by the hash the caller gives", async () => {
+    const { put, get, call } = setup();
+    await put();
+    await get(`${KEY_ID}?evidence=3`);
+    expect((await call({ url: `/api/keys/releases?evidence=3&sha256=${SHA}` })).json.releases).toEqual([{ address: ALICE, at: "2026-10-26T12:00:00.000Z" }]);
+    expect((await call({ url: "/api/keys/releases?evidence=3" })).status).toBe(400);
   });
 
   it("logs every key release", async () => {

@@ -15,6 +15,11 @@ import { deriveCaseRef, shorten } from "../web3/format.js";
 import { useLedger } from "../web3/ledgerContext.js";
 import { friendlyMessage, LedgerError, LEDGER_ERROR } from "../web3/ledgerErrors.js";
 import { useWriteFlow } from "../web3/useWriteFlow.js";
+import { createDemoCustodyNoteStore, httpCustodyNoteStore } from "../custody/custodyNoteStores.js";
+import { acquisitionNote, checkAcquisition } from "../custody/acquisition.js";
+
+// Demo-ledger notes live in memory for the session, like the demo ledger itself.
+const demoNoteStore = createDemoCustodyNoteStore();
 
 // Module-level so the list is stable across renders.
 const UPLOAD_STEPS = [
@@ -44,7 +49,16 @@ const UPLOAD_STEPS = [
  * @param {typeof defaultKeyClient} [props.keyClient] Override for tests.
  */
 export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
-  const { ledger, config } = useLedger();
+  const { ledger, config, mode } = useLedger();
+  const noteStore = mode === "demo" ? demoNoteStore : mode === "chain" ? httpCustodyNoteStore : null;
+  const seizedAtId = useId();
+  const seizedWhereId = useId();
+  const acqHashId = useId();
+  const [seizedAt, setSeizedAt] = useState("");
+  const [seizedWhere, setSeizedWhere] = useState("");
+  const [acquisitionHash, setAcquisitionHash] = useState("");
+  const [acqError, setAcqError] = useState("");
+  const [anchor, setAnchor] = useState(null); // { status: "done" | "failed", txHash?, error? } for the acquisition record
   const { account, ensureSession } = useWallet();
   const directory = useCaseDirectory();
   const caseId = useId();
@@ -128,6 +142,11 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
     setCaseNumber("");
     setCaseTitle("");
     setCaseDescription("");
+    setSeizedAt("");
+    setSeizedWhere("");
+    setAcquisitionHash("");
+    setAcqError("");
+    setAnchor(null);
     setResult(null);
   }
 
@@ -159,6 +178,11 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
     if (hashState.status !== "ready" || !file) return;
 
     const { hash } = hashState;
+    // The ledger can only vouch for the file from registration onward. The acquisition record covers the time before:
+    // when and where it was seized, and the hash the imaging tool computed then, which must equal this file's hash.
+    const acq = checkAcquisition({ seizedAt, seizedWhere, acquisitionHash, fileHash: hash });
+    setAcqError(acq.error ?? "");
+    if (acq.error) return;
     const caseRef = deriveCaseRef(caseNumber);
     setSubmitting(true);
     let stage = "case";
@@ -228,7 +252,22 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
 
       stage = "write";
       const outcome = await runWrite("Register evidence", () => ledger.registerEvidence({ caseRef, sha256: hash, cid, caseDigest }), { keepSteps: true });
-      if (outcome.ok) setResult({ evidenceId: outcome.mined.evidenceId, txHash: outcome.mined.hash, blockNumber: outcome.mined.blockNumber, cid, hash, keyId });
+      if (outcome.ok) {
+        const evidenceId = outcome.mined.evidenceId;
+        setResult({ evidenceId, txHash: outcome.mined.hash, blockNumber: outcome.mined.blockNumber, cid, hash, keyId });
+        // Anchor the acquisition record: its text is kept by the note store and its hash goes on the ledger as the
+        // second custody entry, so it cannot be changed afterwards without the timeline showing it.
+        if (noteStore) {
+          try {
+            const note = acquisitionNote(acq.record);
+            const { noteHash } = await noteStore.add({ evidenceId, note, branchId: knownCase?.branchId ?? null }, account);
+            const anchored = await runWrite("Anchor the acquisition record", () => ledger.logAccess(evidenceId, noteHash));
+            setAnchor(anchored.ok ? { status: "done", txHash: anchored.mined?.hash } : { status: "failed", error: "The transaction was not completed." });
+          } catch (err) {
+            setAnchor({ status: "failed", error: err?.message ?? String(err) });
+          }
+        }
+      }
     } catch (err) {
       // Only the duplicate check, the encryption, the key store and the pin can throw here; wallet and chain errors are
       // handled inside runWrite.
@@ -319,6 +358,30 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
             {directory.status === "signed-out" || directory.status === "error" ? (
               <p className="text-xs text-amber-200">{directory.status === "signed-out" ? "Sign in with your wallet to look up the case details." : directory.error}</p>
             ) : null}
+
+            <fieldset className="space-y-3 rounded-md border border-slate-700 p-3">
+              <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-300">Acquisition record</legend>
+              <p className="text-xs text-slate-400">
+                The ledger proves integrity from registration onward. These fields cover the time before: they are anchored on the ledger with this record and cannot be changed afterwards.
+              </p>
+              <Field label="Seized / acquired at (your local time)" htmlFor={seizedAtId}>
+                <input id={seizedAtId} type="datetime-local" value={seizedAt} onChange={(e) => setSeizedAt(e.target.value)} disabled={submitting || Boolean(result)} className={INPUT_CLASS} />
+              </Field>
+              <Field label="Where, by whom, and from what device" htmlFor={seizedWhereId}>
+                <input
+                  id={seizedWhereId}
+                  value={seizedWhere}
+                  onChange={(e) => setSeizedWhere(e.target.value)}
+                  maxLength={300}
+                  placeholder="e.g. Suspect's phone, Room 4 HQ, imaged by Officer Rao"
+                  disabled={submitting || Boolean(result)}
+                  className={INPUT_CLASS}
+                />
+              </Field>
+              <Field label="SHA-256 recorded at acquisition (optional)" htmlFor={acqHashId} hint="From the imaging tool's report (FTK Imager, Autopsy…). It must equal this file's hash, which proves the file is unchanged since seizure." error={acqError}>
+                <input id={acqHashId} value={acquisitionHash} onChange={(e) => setAcquisitionHash(e.target.value)} spellCheck={false} autoComplete="off" disabled={submitting || Boolean(result)} className={`${INPUT_CLASS} font-mono`} />
+              </Field>
+            </fieldset>
 
             <div>
               <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-300">Evidence file</span>
@@ -424,6 +487,20 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
                   Evidence #{result.evidenceId} recorded
                 </Badge>
                 <p className="text-slate-300">Block {result.blockNumber}</p>
+                {anchor?.status === "done" ? (
+                  <p className="text-xs text-emerald-300">
+                    Acquisition record anchored on the ledger
+                    {anchor.txHash && txUrl(config, anchor.txHash) ? (
+                      <>
+                        {" · "}
+                        <a href={txUrl(config, anchor.txHash)} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                          transaction
+                        </a>
+                      </>
+                    ) : null}
+                  </p>
+                ) : null}
+                {anchor?.status === "failed" ? <p className="text-xs text-amber-200">The acquisition record was not anchored: {anchor.error}</p> : null}
                 <p className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300">
                   CID <CopyChip value={result.cid} display={shorten(result.cid, 12, 8)} label="IPFS CID" textClassName="text-sky-200" />
                 </p>

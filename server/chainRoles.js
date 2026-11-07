@@ -40,6 +40,34 @@ export function createChainRoleReader({ rpcUrl, address, chainId }) {
 }
 
 /**
+ * Reads one evidence record's registered hash and owning branch from a deployed contract. Used by the key store to
+ * release a decryption key only for a record that exists on the ledger, holds that file's hash, and belongs to a
+ * branch the caller may see.
+ *
+ * @param {{ rpcUrl: string, address: string, chainId?: number }} options
+ * @returns {(id: number) => Promise<{ sha256: string, branchId: number } | null>} null when no such record exists
+ */
+export function createChainEvidenceReader({ rpcUrl, address, chainId }) {
+  const provider = chainId ? new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true }) : new JsonRpcProvider(rpcUrl);
+  const locker = new Contract(address, EVIDENCE_ABI, provider);
+  return async (id) => {
+    let ev;
+    try {
+      ev = await locker.getEvidence(id);
+    } catch (err) {
+      // The contract reverts with UnknownEvidence for an id that was never registered.
+      if (err?.code === "CALL_EXCEPTION") return null;
+      throw err;
+    }
+    return { sha256: String(ev.sha256Hash).replace(/^0x/, "").toLowerCase(), branchId: Number(ev.branchId) };
+  };
+}
+
+const EVIDENCE_ABI = [
+  "function getEvidence(uint256 id) view returns ((uint256 caseId, bytes32 sha256Hash, string cid, address submitter, address custodian, uint256 submittedAt, uint32 custodyCount, bytes32 custodyHead, bytes32 link, uint64 caseIndex, bytes32 caseDigest, uint64 branchId))",
+];
+
+/**
  * @param {object} options
  * @param {((account: string) => Promise<object>) | null} options.readRoles  null when no contract is configured
  * @param {string | null} [options.misconfigured]  set when a contract is configured but cannot be read; refuses everything
