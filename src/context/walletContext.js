@@ -14,6 +14,9 @@ import { createContext, useContext } from "react";
  *                               account, then connects again through the wallet's own picker and asks for a fresh
  *                               sign-in. Never throws, sets `error` on failure.
  *   permittedAccounts: string[] Every account the wallet shares with this site, the wallet's active one first.
+ *   accountChoices: string[] | null  Set when the wallet's picker approved several accounts at once; the page asks
+ *                               which one to use instead of guessing.
+ *   chooseAccount: (address) => Promise<void>  Uses one of `accountChoices` and signs in as it.
  *   disconnect: () => void      Ends the session here and on the server, and asks the wallet to drop this site's
  *                               account permission (best effort), so the next connect starts from scratch.
  *   error: string | null        Human-readable message for the last failed connect attempt.
@@ -40,6 +43,8 @@ export const WalletContext = createContext(null);
  *   connect: () => Promise<void>,
  *   switchAccount: () => Promise<void>,
  *   permittedAccounts: string[],
+ *   accountChoices: string[] | null,
+ *   chooseAccount: (address: string) => Promise<void>,
  *   disconnect: () => void,
  *   error: string | null,
  *   isConnecting: boolean,

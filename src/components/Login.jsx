@@ -1,5 +1,7 @@
 import { ArrowRightLeft, BadgeCheck, ExternalLink, FileLock2, Fingerprint, LayoutDashboard, ShieldCheck, Wallet } from "lucide-react";
 import { useAuth } from "../context/authContext.js";
+import { accountName } from "../web3/accountNames.js";
+import { shorten } from "../web3/format.js";
 import { Button } from "./ui";
 
 /** What happens after "Connect", in order. Mirrors the gate in AuthContext.jsx. */
@@ -76,8 +78,9 @@ function hasInjectedWallet() {
  * Must be inside <AuthProvider>.
  */
 export default function Login() {
-  const { connect, isConnecting, error, notice } = useAuth();
+  const { connect, isConnecting, error, notice, accountChoices, chooseAccount } = useAuth();
   const walletFound = hasInjectedWallet();
+  const choosing = Array.isArray(accountChoices) && accountChoices.length > 1;
 
   return (
     <div className="mx-auto w-full max-w-5xl">
@@ -109,16 +112,37 @@ export default function Login() {
             </p>
           ) : null}
 
-          <Button
-            variant="primary"
-            size="lg"
-            icon={Wallet}
-            loading={isConnecting}
-            onClick={connect}
-            className="w-full justify-center sm:w-auto"
-          >
-            {isConnecting ? "Waiting for MetaMask…" : "Connect MetaMask"}
-          </Button>
+          {choosing ? (
+            <ul aria-label="Choose an account" className="space-y-2">
+              {accountChoices.map((address) => (
+                <li key={address}>
+                  <button
+                    type="button"
+                    onClick={() => void chooseAccount(address)}
+                    title={address}
+                    className="dfl-focusable flex w-full cursor-pointer items-center justify-between gap-3 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-left hover:border-slate-500 hover:bg-slate-800"
+                  >
+                    <span className="flex flex-col leading-tight">
+                      <span className="text-sm font-semibold text-slate-100">{accountName(address) ?? shorten(address, 6, 4)}</span>
+                      {accountName(address) ? <span className="font-mono text-xs text-slate-400">{shorten(address, 6, 4)}</span> : null}
+                    </span>
+                    <span className="text-xs text-slate-300">Sign in as this account</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Button
+              variant="primary"
+              size="lg"
+              icon={Wallet}
+              loading={isConnecting}
+              onClick={connect}
+              className="w-full justify-center sm:w-auto"
+            >
+              {isConnecting ? "Waiting for MetaMask…" : "Connect MetaMask"}
+            </Button>
+          )}
 
           {walletFound ? (
             <p className="flex items-center gap-2 text-xs text-slate-400">
