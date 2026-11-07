@@ -2,9 +2,15 @@
 //
 // Endpoints (Node http handlers, mounted on the Vite dev/preview servers by vite.config.js):
 //   GET  /api/auth/nonce    -> { nonce }                       single use, expires after NONCE_TTL_MS
-//   POST /api/auth/verify   { message, signature } -> session  sets an httpOnly cookie
-//   GET  /api/auth/session  -> { address, chainId, expiresAt } or 401
+//   POST /api/auth/verify   { message, signature, pin? } -> session  sets an httpOnly cookie
+//   GET  /api/auth/session  -> { address, chainId, expiresAt, needsPin } or 401
 //   POST /api/auth/logout   -> 204                             deletes the session and the cookie
+//   GET  /api/auth/pin-status?address=0x...  -> { hasPin }      (only with role PINs, see server/rolePins.js)
+//   POST /api/auth/pin      { pin, currentPin? } -> session    sets or changes the signed-in account's PIN
+//
+// Role PINs (when `pins` is given): an account that has a PIN must send it with the signature, or the sign-in is
+// refused. An account without one gets a session marked `needsPin`, which every other endpoint treats as signed out
+// (`getSession` returns null) until a PIN is set.
 //
 // What a session proves: the holder of the cookie signed, within the last SESSION_TTL_MS, a fresh server nonce with
 // the private key of `address`. It grants nothing by itself. Roles stay on chain, and the contract checks them on
@@ -14,9 +20,10 @@
 // one process. A deployed API needs a shared store (roadmap Phase 1, `sessions` table).
 
 import { randomBytes } from "node:crypto";
-import { getAddress, verifyMessage } from "ethers";
+import { getAddress, isAddress, verifyMessage } from "ethers";
 import { parseSiweMessage } from "../src/auth/siweMessage.js";
 import { REQUIRED_HEADER_VALUE } from "./pinataProxy.js";
+import { isValidPin } from "./rolePins.js";
 
 export const SESSION_COOKIE = "dfl_session";
 export const NONCE_TTL_MS = 5 * 60_000;
@@ -92,8 +99,9 @@ function pruneExpired(map, now) {
  * @param {() => number} [options.now]       Clock (ms). Injected by tests.
  * @param {number} [options.chainId]         When set, only sign-ins for this chain are accepted.
  * @param {boolean} [options.secureCookie]   Add `Secure` to the cookie (any HTTPS deployment).
+ * @param {ReturnType<import("./rolePins.js").createRolePins>} [options.pins]  Role PINs; without it, no PIN is asked.
  */
-export function createSiweAuth({ now = Date.now, chainId, secureCookie = false } = {}) {
+export function createSiweAuth({ now = Date.now, chainId, secureCookie = false, pins = null } = {}) {
   /** nonce -> { expiresAt } */
   const nonces = new Map();
   /** session id -> { address, chainId, expiresAt } */
@@ -102,8 +110,8 @@ export function createSiweAuth({ now = Date.now, chainId, secureCookie = false }
   const cookie = (value, maxAgeSeconds) =>
     `${SESSION_COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=${maxAgeSeconds}${secureCookie ? "; Secure" : ""}`;
 
-  /** The live session for this request, or null. */
-  function getSession(req) {
+  /** The live session for this request, or null, including one still waiting for its PIN to be set. */
+  function getAnySession(req) {
     const id = readCookie(req, SESSION_COOKIE);
     if (!id) return null;
     const session = sessions.get(id);
@@ -114,6 +122,14 @@ export function createSiweAuth({ now = Date.now, chainId, secureCookie = false }
     }
     return { id, ...session };
   }
+
+  /** The live session for this request, or null. A session whose account has not set its PIN yet does not count. */
+  function getSession(req) {
+    const session = getAnySession(req);
+    return session && !session.needsPin ? session : null;
+  }
+
+  const publicSession = (s) => ({ address: s.address, chainId: s.chainId, expiresAt: s.expiresAt, needsPin: Boolean(s.needsPin) });
 
   function issueNonce(res) {
     const time = now();
@@ -166,22 +182,61 @@ export function createSiweAuth({ now = Date.now, chainId, secureCookie = false }
     }
     if (getAddress(signer) !== getAddress(fields.address)) return reject("the signature does not belong to the address in the message.");
 
+    // The app's own lock: an account with a PIN must send it. Checked only after the signature, so guessing a PIN
+    // needs the account's private key too.
+    let needsPin = false;
+    if (pins) {
+      if (await pins.hasPin(fields.address)) {
+        const result = await pins.check(fields.address, body.pin);
+        if (!result.ok) return sendJson(res, 401, { error: `Sign-in rejected: ${result.error}`, code: "BAD_PIN" });
+      } else {
+        needsPin = true;
+      }
+    }
+
     pruneExpired(sessions, time);
     if (sessions.size >= MAX_SESSIONS) return sendJson(res, 503, { error: "Too many active sessions. Try again later." });
 
     // Replace this browser's previous session, if any, so switching accounts never leaves two live sessions.
-    const previous = getSession(req);
+    const previous = getAnySession(req);
     if (previous) sessions.delete(previous.id);
 
     const id = randomBytes(32).toString("base64url");
-    const session = { address: getAddress(fields.address), chainId: fields.chainId, expiresAt: time + SESSION_TTL_MS };
+    const session = { address: getAddress(fields.address), chainId: fields.chainId, expiresAt: time + SESSION_TTL_MS, needsPin };
     sessions.set(id, session);
     res.setHeader("Set-Cookie", cookie(id, Math.floor(SESSION_TTL_MS / 1000)));
-    return sendJson(res, 200, session);
+    return sendJson(res, 200, publicSession(session));
+  }
+
+  async function pinStatus(req, res) {
+    const address = new URL(req.url, "http://local").searchParams.get("address") ?? "";
+    if (!isAddress(address)) return sendJson(res, 400, { error: "Expected ?address=0x..." });
+    return sendJson(res, 200, { hasPin: await pins.hasPin(address) });
+  }
+
+  /** Sets the signed-in account's PIN. Changing an existing PIN needs the current one. */
+  async function setPin(req, res) {
+    const session = getAnySession(req);
+    if (!session) return sendJson(res, 401, { error: "Not signed in." });
+    let body;
+    try {
+      body = await readJson(req, MAX_BODY_BYTES);
+    } catch (err) {
+      return sendJson(res, err?.code === "TOO_LARGE" ? 413 : 400, { error: "Expected a JSON body with a pin." });
+    }
+    if (!isValidPin(body?.pin)) return sendJson(res, 400, { error: "A PIN is 4 to 8 digits." });
+    if (await pins.hasPin(session.address)) {
+      const result = await pins.check(session.address, body.currentPin);
+      if (!result.ok) return sendJson(res, 401, { error: `PIN not changed: ${result.error}`, code: "BAD_PIN" });
+    }
+    await pins.set(session.address, body.pin);
+    const stored = sessions.get(session.id);
+    if (stored) stored.needsPin = false;
+    return sendJson(res, 200, publicSession({ ...session, needsPin: false }));
   }
 
   function logout(req, res) {
-    const session = getSession(req);
+    const session = getAnySession(req);
     if (session) sessions.delete(session.id);
     res.setHeader("Set-Cookie", cookie("", 0));
     res.statusCode = 204;
@@ -213,11 +268,19 @@ export function createSiweAuth({ now = Date.now, chainId, secureCookie = false }
         await verify(req, res);
         break;
       case "GET /api/auth/session": {
-        const session = getSession(req);
-        if (session) sendJson(res, 200, { address: session.address, chainId: session.chainId, expiresAt: session.expiresAt });
+        const session = getAnySession(req);
+        if (session) sendJson(res, 200, publicSession(session));
         else sendJson(res, 401, { error: "Not signed in." });
         break;
       }
+      case "GET /api/auth/pin-status":
+        if (pins) await pinStatus(req, res);
+        else sendJson(res, 200, { hasPin: false });
+        break;
+      case "POST /api/auth/pin":
+        if (pins) await setPin(req, res);
+        else sendJson(res, 404, { error: "Not found." });
+        break;
       case "POST /api/auth/logout":
         logout(req, res);
         break;

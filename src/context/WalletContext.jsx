@@ -129,13 +129,16 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
   const [notice, setNotice] = useState(null);
   /** Every account the wallet lets this site use. */
   const [permittedAccounts, setPermittedAccounts] = useState([]);
-  /** Set when the wallet's picker approved several accounts: the user picks one in the page (`chooseAccount`). */
+  /** Set when the wallet's picker approved several accounts: the user picks one in the page (`selectAccount`). */
   const [accountChoices, setAccountChoices] = useState(null);
   const connectingRef = useRef(false);
   // Mirrors of state for async code, which must act on the CURRENT account rather than the one it started with.
   const accountRef = useRef(null);
   const sessionRef = useRef(null);
   const signInRef = useRef(null); // { address, promise } while a sign-in is in progress
+  /** The PIN lock screen while it is shown: { address, mode: "enter" | "create", error }. */
+  const [pinPrompt, setPinPrompt] = useState(null);
+  const pinResolveRef = useRef(null); // resolves the open prompt
 
   const updateAccount = useCallback((value) => {
     accountRef.current = value;
@@ -156,6 +159,9 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
 
   /** Signs out and forgets the connected account here. The wallet's own permissions are untouched. */
   const disconnectLocally = useCallback(() => {
+    pinResolveRef.current?.(null);
+    pinResolveRef.current = null;
+    setPinPrompt(null);
     endSession();
     updateAccount(null);
     setPermittedAccounts([]);
@@ -172,8 +178,30 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
   }, []);
 
   /**
-   * Signs in as `address`: fetch a nonce, have the wallet sign the EIP-4361 message, let the server verify it.
-   * Concurrent calls for the same address share one wallet prompt.
+   * The app's lock screen (components/PinLock.jsx). `requestPin` shows it and resolves with the PIN entered, or null
+   * when the user cancels or the sign-in it belongs to is abandoned.
+   */
+  const requestPin = useCallback((address, mode, promptError = null) => {
+    pinResolveRef.current?.(null);
+    setPinPrompt({ address, mode, error: promptError });
+    return new Promise((resolve) => {
+      pinResolveRef.current = resolve;
+    });
+  }, []);
+  const settlePin = useCallback((value) => {
+    const resolve = pinResolveRef.current;
+    pinResolveRef.current = null;
+    setPinPrompt(null);
+    resolve?.(value);
+  }, []);
+  const submitPin = useCallback((pin) => settlePin(pin), [settlePin]);
+  const cancelPin = useCallback(() => settlePin(null), [settlePin]);
+
+  /**
+   * Signs in as `address`: unlock with the account's PIN, fetch a nonce, have the wallet sign the EIP-4361 message,
+   * let the server verify both. An account without a PIN is asked to create one right after signing. A wrong PIN asks
+   * again (each try needs a new signature, so guessing needs the wallet too). Concurrent calls for the same address
+   * share one prompt.
    *
    * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
    */
@@ -185,28 +213,62 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
         const provider = getEthereumProvider();
         setIsSigningIn(true);
         setError(null);
+        const stillShown = () => sameAddress(accountRef.current, address);
+        const locked = { ok: false, error: "Locked: sign-in needs this account's PIN." };
         try {
           if (!provider) return { ok: false, error: "No Ethereum wallet detected." };
           const checksummed = getAddress(address);
-          const nonce = await authClient.getNonce();
-          const signingChain = parseChainId(await provider.request({ method: "eth_chainId" }).catch(() => null)) ?? 1;
-          const issuedAt = Date.now();
-          const message = buildSiweMessage({
-            domain: window.location.host,
-            address: checksummed,
-            uri: window.location.origin,
-            chainId: signingChain,
-            nonce,
-            issuedAt: new Date(issuedAt).toISOString(),
-            expirationTime: new Date(issuedAt + SIGN_IN_WINDOW_MS).toISOString(),
-          });
-          const signature = await provider.request({ method: "personal_sign", params: [hexlify(toUtf8Bytes(message)), checksummed] });
-          // Checked here too so a wallet that signed with another account gets a clear message, not a server refusal.
-          if (!sameAddress(verifyMessage(message, signature), checksummed)) {
-            return { ok: false, error: "The wallet signed with a different account than the one connected. Select that account in your wallet and try again." };
+          const hasPin = typeof authClient.getPinStatus === "function" ? await authClient.getPinStatus(checksummed) : false;
+
+          let next = null;
+          let pinError = null;
+          while (!next) {
+            let pin;
+            if (hasPin) {
+              pin = await requestPin(checksummed, "enter", pinError);
+              if (pin === null || !stillShown()) return locked;
+            }
+            const nonce = await authClient.getNonce();
+            const signingChain = parseChainId(await provider.request({ method: "eth_chainId" }).catch(() => null)) ?? 1;
+            const issuedAt = Date.now();
+            const message = buildSiweMessage({
+              domain: window.location.host,
+              address: checksummed,
+              uri: window.location.origin,
+              chainId: signingChain,
+              nonce,
+              issuedAt: new Date(issuedAt).toISOString(),
+              expirationTime: new Date(issuedAt + SIGN_IN_WINDOW_MS).toISOString(),
+            });
+            const signature = await provider.request({ method: "personal_sign", params: [hexlify(toUtf8Bytes(message)), checksummed] });
+            // Checked here too so a wallet that signed with another account gets a clear message, not a server refusal.
+            if (!sameAddress(verifyMessage(message, signature), checksummed)) {
+              return { ok: false, error: "The wallet signed with a different account than the one connected. Select that account in your wallet and try again." };
+            }
+            try {
+              next = await authClient.verify(message, signature, pin);
+            } catch (err) {
+              if (err?.code !== "BAD_PIN" || !hasPin) throw err;
+              pinError = err.message.replace(/^Sign-in rejected: /, "");
+            }
           }
-          const next = await authClient.verify(message, signature);
-          // The wallet may have switched while the prompt was open. A session for an account we no longer show is dropped.
+
+          // First sign-in for this account: it must choose a PIN before it can do anything.
+          let createError = null;
+          while (next.needsPin) {
+            const pin = await requestPin(checksummed, "create", createError);
+            if (pin === null || !stillShown()) {
+              authClient.logout().catch(() => {});
+              return { ok: false, error: "Signed out: this account needs a PIN before it can be used." };
+            }
+            try {
+              next = await authClient.setPin(pin);
+            } catch (err) {
+              createError = err.message;
+            }
+          }
+
+          // The wallet may have switched while a prompt was open. A session for an account we no longer show is dropped.
           if (!sameAddress(accountRef.current, next.address)) {
             authClient.logout().catch(() => {});
             return { ok: false, error: "Your wallet switched account during sign-in. Try again." };
@@ -226,7 +288,7 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
       signInRef.current = { address, promise };
       return promise;
     },
-    [authClient, updateSession]
+    [authClient, requestPin, updateSession]
   );
 
   /**
@@ -292,7 +354,7 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
       const approved = toAccountList(accounts);
       if (approved.length > 1 && !accountRef.current) {
         // Several accounts were ticked in the wallet's picker. Which one comes first is the wallet's choice, not the
-        // user's, so ask in the page rather than guess (see `chooseAccount`).
+        // user's, so ask in the page rather than guess (see `selectAccount`).
         setPermittedAccounts(approved);
         setAccountChoices(approved);
         setNotice("You connected several accounts. Choose which one to sign in as.");
@@ -321,18 +383,23 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
     if (connected && !sameAddress(sessionRef.current?.address, connected)) await signInAs(connected);
   }, [endSession, lookUpChain, signInAs, updateAccount]);
 
-  /** Picks which of the accounts approved together in the wallet's picker to use, and signs in as it. */
-  const chooseAccount = useCallback(
+  /**
+   * Acts as another account the wallet already shares with this site (the header's account list, or the sign-in
+   * page's choice after several were approved together). Signs out the current account and asks the chosen one for a
+   * fresh sign-in signature; nothing is disconnected, so MetaMask shows only that one signature request.
+   */
+  const selectAccount = useCallback(
     async (address) => {
       const provider = getEthereumProvider();
       if (!provider || !address) return;
       const shared = await readPermittedAccounts(provider);
       setPermittedAccounts(shared);
       if (!shared.some((a) => sameAddress(a, address))) {
-        setAccountChoices(shared.length > 1 ? shared : null);
-        setError(`${shorten(address)} is not connected to this site any more. Use Connect to pick it again.`);
+        setAccountChoices((current) => (current && shared.length > 1 ? shared : null));
+        setError(`${shorten(address)} is not connected to this site any more. Use "Connect another account" to add it again.`);
         return;
       }
+      if (sameAddress(address, accountRef.current) && sessionRef.current) return;
       setAccountChoices(null);
       endSession();
       updateAccount(address);
@@ -345,10 +412,9 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
   );
 
   /**
-   * Switches role. A website cannot lock the wallet, so this does the strongest thing a page can: end the session,
-   * withdraw this site's access to EVERY account in the wallet (`wallet_revokePermissions`), then connect from
-   * scratch, so the next role must be picked in the wallet's own account picker and sign in again. If the wallet
-   * cannot withdraw access, the page stays disconnected rather than silently reusing an account.
+   * Opens the wallet's account picker so the user can connect more of their accounts to this site (MetaMask only
+   * shares accounts connected here). When exactly one new account was connected the page switches to it; otherwise
+   * the shared accounts are offered in the page (`permittedAccounts`, `selectAccount`).
    */
   const switchAccount = useCallback(async () => {
     if (connectingRef.current) return;
@@ -359,19 +425,30 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
     }
 
     connectingRef.current = true;
+    setError(null);
     setIsConnecting(true);
-    // Clear the account first: revoking fires `accountsChanged([])`, which must find nothing left to follow.
-    disconnectLocally();
-    const revoked = await revokeSiteAccess(provider);
-    connectingRef.current = false;
-    setIsConnecting(false);
-    if (!revoked) {
-      setNotice("Signed out. Your wallet could not disconnect this site by itself: remove the site in your wallet's connected sites, then connect again as the next role.");
-      return;
+    let added = [];
+    try {
+      const before = await readPermittedAccounts(provider);
+      await provider.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+      const shared = await readPermittedAccounts(provider);
+      setPermittedAccounts(shared);
+      added = shared.filter((a) => !before.some((b) => sameAddress(a, b)));
+      if (shared.every((a) => sameAddress(a, accountRef.current))) {
+        setError("No other account is connected to this site. In MetaMask's window, tick the account you want, then Connect.");
+      }
+    } catch (err) {
+      setError(
+        err?.code === -32601
+          ? "This wallet cannot add accounts from the page. Disconnect, select the account in your wallet, then connect again."
+          : describeConnectError(err)
+      );
+    } finally {
+      connectingRef.current = false;
+      setIsConnecting(false);
     }
-    setNotice("In MetaMask's window, tick only the account you want to use, then Connect.");
-    await connect();
-  }, [connect, disconnectLocally]);
+    if (added.length === 1) await selectAccount(added[0]);
+  }, [selectAccount]);
 
   const disconnect = useCallback(() => {
     // Also withdraw this site's account permission (MetaMask supports this; other wallets may not), so the next
@@ -524,7 +601,8 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
       switchAccount,
       permittedAccounts,
       accountChoices,
-      chooseAccount,
+      chooseAccount: selectAccount,
+      selectAccount,
       disconnect,
       switchChain,
       error,
@@ -536,9 +614,12 @@ export function WalletProvider({ children, authClient = defaultAuthClient }) {
       signIn,
       ensureSession,
       notice,
+      pinPrompt,
+      submitPin,
+      cancelPin,
       clearNotice,
     }),
-    [account, chainId, connect, switchAccount, permittedAccounts, accountChoices, chooseAccount, disconnect, switchChain, error, isConnecting, clearError, session, isSignedIn, isSigningIn, signIn, ensureSession, notice, clearNotice]
+    [account, chainId, connect, switchAccount, permittedAccounts, accountChoices, selectAccount, disconnect, switchChain, error, isConnecting, clearError, session, isSignedIn, isSigningIn, signIn, ensureSession, notice, clearNotice, pinPrompt, submitPin, cancelPin]
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

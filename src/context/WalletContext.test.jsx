@@ -19,8 +19,25 @@ const KEYS = new Map([
 ]);
 
 function Probe() {
-  const { account, connect, switchAccount, disconnect, error, isConnecting, isSignedIn, isSigningIn, signIn, ensureSession, notice, accountChoices, chooseAccount } =
-    useWallet();
+  const {
+    account,
+    connect,
+    switchAccount,
+    selectAccount,
+    disconnect,
+    error,
+    isConnecting,
+    isSignedIn,
+    isSigningIn,
+    signIn,
+    ensureSession,
+    notice,
+    accountChoices,
+    chooseAccount,
+    pinPrompt,
+    submitPin,
+    cancelPin,
+  } = useWallet();
   return (
     <div>
       <p data-testid="account">{account ?? "none"}</p>
@@ -29,6 +46,12 @@ function Probe() {
       <p data-testid="signing-in">{String(isSigningIn)}</p>
       <p data-testid="notice">{notice ?? ""}</p>
       <p data-testid="choices">{(accountChoices ?? []).join(",")}</p>
+      <p data-testid="pin-prompt">{pinPrompt ? `${pinPrompt.mode} ${pinPrompt.address} ${pinPrompt.error ?? ""}`.trim() : ""}</p>
+      <button onClick={() => submitPin(document.querySelector("[data-testid=pin-value]").value)}>submit pin</button>
+      <input data-testid="pin-value" defaultValue="" />
+      <button onClick={cancelPin}>cancel pin</button>
+      <button onClick={() => void selectAccount(document.querySelector("[data-testid=select-value]").value)}>select account</button>
+      <input data-testid="select-value" defaultValue="" />
       {(accountChoices ?? []).map((a) => (
         <button key={a} onClick={() => void chooseAccount(a)}>{`choose ${a}`}</button>
       ))}
@@ -115,6 +138,28 @@ function createFakeAuthClient({ ttlMs = 60 * 60_000 } = {}) {
       client.session = null;
     }),
   };
+  return client;
+}
+
+/** Like createFakeAuthClient, but with role PINs as server/siweAuth.js enforces them: `pins` maps address -> PIN. */
+function createPinAuthClient(pins = new Map()) {
+  const client = createFakeAuthClient();
+  client.pins = pins;
+  client.getPinStatus = vi.fn(async (address) => pins.has(address));
+  client.verify = vi.fn(async (message, _signature, pin) => {
+    const fields = parseSiweMessage(message);
+    if (pins.has(fields.address) && pins.get(fields.address) !== pin) {
+      throw Object.assign(new Error("Sign-in rejected: wrong PIN. 4 attempts left."), { code: "BAD_PIN" });
+    }
+    client.verified.push(fields);
+    client.session = { address: fields.address, chainId: fields.chainId, expiresAt: Date.now() + 60 * 60_000, needsPin: !pins.has(fields.address) };
+    return client.session;
+  });
+  client.setPin = vi.fn(async (pin) => {
+    pins.set(client.session.address, pin);
+    client.session = { ...client.session, needsPin: false };
+    return client.session;
+  });
   return client;
 }
 
@@ -244,16 +289,35 @@ describe("WalletProvider", () => {
       });
     });
 
-    describe("switching role", () => {
-      const methods = () => window.ethereum.request.mock.calls.map(([arg]) => arg.method);
+    describe("switching role in the page", () => {
+      it("asks the chosen account for a fresh signature and ends the previous account's session, without disconnecting", async () => {
+        window.ethereum = createFakeEthereum({ overrides: { eth_accounts: async () => [ADDRESS_A, ADDRESS_B] } });
+        const user = userEvent.setup();
+        renderProbe();
+        await user.click(screen.getByText("connect"));
+        await waitFor(() => expect(text("signed-in")).toBe("true"));
 
-      it("signs out, disconnects the site from every account, then connects and signs in as the account picked", async () => {
+        await user.type(screen.getByTestId("select-value"), ADDRESS_B);
+        await user.click(screen.getByText("select account"));
+
+        await waitFor(() => expect(auth.session?.address).toBe(ADDRESS_B));
+        expect(text("account")).toBe(ADDRESS_B);
+        expect(text("signed-in")).toBe("true");
+        expect(auth.logout).toHaveBeenCalledTimes(1);
+        expect(window.ethereum.signCount()).toBe(2);
+        const methods = window.ethereum.request.mock.calls.map(([arg]) => arg.method);
+        expect(methods).not.toContain("wallet_revokePermissions");
+      });
+
+      it("opens the wallet's picker to add an account, and switches to it when exactly one was added", async () => {
+        const shared = [ADDRESS_A];
         window.ethereum = createFakeEthereum({
           overrides: {
-            wallet_revokePermissions: async () => {
-              window.ethereum.state.connected = false;
-              window.ethereum.state.selected = ADDRESS_B; // the user picks B in MetaMask's account picker next
-              return null;
+            eth_accounts: async () => [...shared],
+            eth_requestAccounts: async () => [...shared],
+            wallet_requestPermissions: async () => {
+              shared.push(ADDRESS_B);
+              return [{ parentCapability: "eth_accounts" }];
             },
           },
         });
@@ -264,114 +328,103 @@ describe("WalletProvider", () => {
 
         await user.click(screen.getByText("switch account"));
 
-        await waitFor(() => expect(text("account")).toBe(ADDRESS_B));
-        await waitFor(() => expect(auth.session?.address).toBe(ADDRESS_B));
-        expect(text("signed-in")).toBe("true");
-        expect(auth.logout).toHaveBeenCalledTimes(1); // A's session ended
-        const calls = methods();
-        const revokeAt = calls.indexOf("wallet_revokePermissions");
-        expect(revokeAt).toBeGreaterThan(-1);
-        expect(calls.indexOf("eth_requestAccounts", revokeAt)).toBeGreaterThan(revokeAt); // picker only after revoking
-        expect(window.ethereum.signCount()).toBe(2);
-      });
-
-      it("asks for a fresh signature even when the same account is picked again", async () => {
-        window.ethereum = createFakeEthereum();
-        const user = userEvent.setup();
-        renderProbe();
-        await user.click(screen.getByText("connect"));
-        await waitFor(() => expect(text("signed-in")).toBe("true"));
-
-        await user.click(screen.getByText("switch account"));
-
-        await waitFor(() => expect(window.ethereum.signCount()).toBe(2));
-        expect(text("account")).toBe(ADDRESS_A);
-        expect(text("signed-in")).toBe("true");
-      });
-
-      it("stays disconnected when the picker is closed, and says why", async () => {
-        window.ethereum = createFakeEthereum();
-        const user = userEvent.setup();
-        renderProbe();
-        await user.click(screen.getByText("connect"));
-        await waitFor(() => expect(text("signed-in")).toBe("true"));
-        window.ethereum.request.mockImplementationOnce(async () => {
-          window.ethereum.state.connected = false; // revoke
-          return null;
-        });
-        window.ethereum.request.mockImplementationOnce(() => Promise.reject(Object.assign(new Error("User rejected"), { code: 4001 })));
-
-        await user.click(screen.getByText("switch account"));
-
-        await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/rejected/i));
-        expect(text("account")).toBe("none");
-        expect(text("signed-in")).toBe("false");
-        expect(text("connecting")).toBe("false");
-      });
-
-      it("stays signed out and disconnected when the wallet cannot drop the site's access, instead of reusing the account", async () => {
-        window.ethereum = createFakeEthereum({
-          overrides: { wallet_revokePermissions: () => Promise.reject(Object.assign(new Error("Method not found"), { code: -32601 })) },
-        });
-        const user = userEvent.setup();
-        renderProbe();
-        await user.click(screen.getByText("connect"));
-        await waitFor(() => expect(text("signed-in")).toBe("true"));
-
-        await user.click(screen.getByText("switch account"));
-
-        await waitFor(() => expect(text("notice")).toMatch(/could not disconnect this site/));
-        expect(text("account")).toBe("none");
-        expect(text("signed-in")).toBe("false");
-        expect(methods().filter((m) => m === "eth_requestAccounts")).toHaveLength(1); // only the first connect
-      });
-
-      it("asks which account to use when several are ticked in the picker, then signs in only as the one chosen", async () => {
-        window.ethereum = createFakeEthereum({
-          overrides: {
-            eth_requestAccounts: async () => [ADDRESS_A, ADDRESS_B],
-            eth_accounts: async () => [ADDRESS_A, ADDRESS_B],
-          },
-        });
-        const user = userEvent.setup();
-        renderProbe();
-        await user.click(screen.getByText("connect"));
-
-        await waitFor(() => expect(text("choices")).toBe(`${ADDRESS_A},${ADDRESS_B}`));
-        expect(text("account")).toBe("none");
-        expect(window.ethereum.signCount()).toBe(0); // nothing signed until the user chooses
-
-        await user.click(screen.getByText(`choose ${ADDRESS_B}`));
-
         await waitFor(() => expect(auth.session?.address).toBe(ADDRESS_B));
         expect(text("account")).toBe(ADDRESS_B);
-        expect(text("signed-in")).toBe("true");
-        expect(text("choices")).toBe("");
-        expect(window.ethereum.signCount()).toBe(1);
       });
 
-      it("stays on the account in use when the wallet only reorders its accounts (no second picker)", async () => {
+      it("stays on the current account when the picker is closed, and says why", async () => {
         window.ethereum = createFakeEthereum({
-          overrides: {
-            eth_requestAccounts: async () => [ADDRESS_A, ADDRESS_B],
-            eth_accounts: async () => [ADDRESS_B, ADDRESS_A],
-          },
+          overrides: { wallet_requestPermissions: () => Promise.reject(Object.assign(new Error("User rejected"), { code: 4001 })) },
         });
         const user = userEvent.setup();
         renderProbe();
         await user.click(screen.getByText("connect"));
-        await user.click(await screen.findByText(`choose ${ADDRESS_A}`));
         await waitFor(() => expect(text("signed-in")).toBe("true"));
 
-        // MetaMask lists the accounts in another order once its window closes.
-        act(() => window.ethereum.emit("accountsChanged", [ADDRESS_B, ADDRESS_A]));
-        act(() => window.dispatchEvent(new Event("focus")));
-        await act(async () => {});
+        await user.click(screen.getByText("switch account"));
 
         expect(text("account")).toBe(ADDRESS_A);
         expect(text("signed-in")).toBe("true");
-        expect(methods()).not.toContain("wallet_revokePermissions");
-        expect(methods().filter((m) => m === "eth_requestAccounts")).toHaveLength(1);
+        expect(screen.getByRole("alert").textContent).toMatch(/rejected/i);
+      });
+    });
+
+    describe("PIN lock", () => {
+      it("locks until the account's PIN is entered, then signs in with it", async () => {
+        auth = createPinAuthClient(new Map([[ADDRESS_A, "2468"]]));
+        window.ethereum = createFakeEthereum();
+        const user = userEvent.setup();
+        renderProbe();
+        await user.click(screen.getByText("connect"));
+
+        await waitFor(() => expect(text("pin-prompt")).toBe(`enter ${ADDRESS_A}`));
+        expect(window.ethereum.signCount()).toBe(0); // nothing is signed while locked
+
+        await user.type(screen.getByTestId("pin-value"), "2468");
+        await user.click(screen.getByText("submit pin"));
+
+        await waitFor(() => expect(text("signed-in")).toBe("true"));
+        expect(auth.verify.mock.calls.at(-1)[2]).toBe("2468");
+        expect(text("pin-prompt")).toBe("");
+      });
+
+      it("asks again after a wrong PIN, saying why, and stays signed out when cancelled", async () => {
+        auth = createPinAuthClient(new Map([[ADDRESS_A, "2468"]]));
+        window.ethereum = createFakeEthereum();
+        const user = userEvent.setup();
+        renderProbe();
+        await user.click(screen.getByText("connect"));
+        await waitFor(() => expect(text("pin-prompt")).toMatch(/^enter/));
+
+        await user.type(screen.getByTestId("pin-value"), "1111");
+        await user.click(screen.getByText("submit pin"));
+        await waitFor(() => expect(text("pin-prompt")).toMatch(/wrong PIN/));
+
+        await user.click(screen.getByText("cancel pin"));
+        await waitFor(() => expect(text("pin-prompt")).toBe(""));
+        expect(text("signed-in")).toBe("false");
+        expect(auth.session).toBeNull();
+      });
+
+      it("locks again when switching to another account, asking for that account's PIN", async () => {
+        auth = createPinAuthClient(new Map([[ADDRESS_A, "2468"], [ADDRESS_B, "1357"]]));
+        window.ethereum = createFakeEthereum({ overrides: { eth_accounts: async () => [ADDRESS_A, ADDRESS_B] } });
+        const user = userEvent.setup();
+        renderProbe();
+        await user.click(screen.getByText("connect"));
+        await waitFor(() => expect(text("pin-prompt")).toMatch(/^enter/));
+        await user.type(screen.getByTestId("pin-value"), "2468");
+        await user.click(screen.getByText("submit pin"));
+        await waitFor(() => expect(text("signed-in")).toBe("true"));
+
+        await user.type(screen.getByTestId("select-value"), ADDRESS_B);
+        await user.click(screen.getByText("select account"));
+
+        await waitFor(() => expect(text("pin-prompt")).toBe(`enter ${ADDRESS_B}`));
+        expect(text("signed-in")).toBe("false"); // the previous role is signed out while locked
+        await user.clear(screen.getByTestId("pin-value"));
+        await user.type(screen.getByTestId("pin-value"), "1357");
+        await user.click(screen.getByText("submit pin"));
+        await waitFor(() => expect(auth.session?.address).toBe(ADDRESS_B));
+        expect(text("signed-in")).toBe("true");
+      });
+
+      it("makes an account without a PIN create one before it is signed in", async () => {
+        auth = createPinAuthClient();
+        window.ethereum = createFakeEthereum();
+        const user = userEvent.setup();
+        renderProbe();
+        await user.click(screen.getByText("connect"));
+
+        await waitFor(() => expect(text("pin-prompt")).toBe(`create ${ADDRESS_A}`));
+        expect(text("signed-in")).toBe("false");
+
+        await user.type(screen.getByTestId("pin-value"), "9753");
+        await user.click(screen.getByText("submit pin"));
+
+        await waitFor(() => expect(text("signed-in")).toBe("true"));
+        expect(auth.setPin).toHaveBeenCalledWith("9753");
+        expect(auth.pins.get(ADDRESS_A)).toBe("9753");
       });
     });
 

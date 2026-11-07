@@ -87,7 +87,7 @@ describe("createSiweAuth", () => {
     const result = await verify(message({ nonce: await nonce() }));
 
     expect(result.status).toBe(200);
-    expect(result.json).toEqual({ address: ALICE.address, chainId: 11155111, expiresAt: T0 + SESSION_TTL_MS });
+    expect(result.json).toEqual({ address: ALICE.address, chainId: 11155111, expiresAt: T0 + SESSION_TTL_MS, needsPin: false });
     expect(result.cookie).toMatch(new RegExp(`^${SESSION_COOKIE}=[A-Za-z0-9_-]{43}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=3600$`));
 
     const session = await call({ url: "/api/auth/session", headers: { cookie: cookieHeader(result.cookie) } });

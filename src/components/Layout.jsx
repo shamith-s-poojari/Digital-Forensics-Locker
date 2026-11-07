@@ -13,6 +13,7 @@ import { Spinner } from "./ui";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
 import { useAuth } from "../context/authContext.js";
 import { accountName } from "../web3/accountNames.js";
+import PinLock from "./PinLock";
 
 const APP_NAME = "Digital Forensics Locker";
 const SIDEBAR_ID = "app-sidebar";
@@ -422,6 +423,8 @@ export default function Layout({ children }) {
   return (
     <div style={rootStyle}>
       <style>{SHELL_CSS}</style>
+      {/* Covers the whole page while a sign-in (or role switch) waits for the account's PIN. */}
+      <PinLock />
       <a href={`#${MAIN_ID}`} className="dfl-skip-link" onClick={handleSkipLinkClick}>
         Skip to main content
       </a>

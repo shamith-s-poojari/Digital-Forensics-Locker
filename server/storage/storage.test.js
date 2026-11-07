@@ -95,6 +95,15 @@ describe.each(backends)("storage operations ($name)", (backend) => {
     (await cases.get("0xcase")).versions[0].title = "Changed";
     expect((await cases.get("0xcase")).versions[0].title).toBe("Title");
   });
+
+  it("keeps one role PIN entry per address, replacing it on change and keeping when it was first set", async () => {
+    const { rolePins } = harness.newStorage();
+    expect(await rolePins.get(ALICE)).toBeNull();
+    await rolePins.put({ address: ALICE, salt: "aa", hash: "h1", createdAt: AT, updatedAt: AT });
+    const later = "2026-11-05T09:00:00.000Z";
+    await rolePins.put({ address: ALICE, salt: "bb", hash: "h2", createdAt: AT, updatedAt: later });
+    expect(await harness.newStorage().rolePins.get(ALICE)).toEqual({ address: ALICE, salt: "bb", hash: "h2", createdAt: AT, updatedAt: later });
+  });
 });
 
 describe("file storage", () => {

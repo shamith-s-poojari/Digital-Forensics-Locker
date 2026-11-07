@@ -5,11 +5,12 @@
 //   accessRequests: list() | listPending() | latestFor(address) | get(id) | replacePending(request) | resolve(id, decision) -> Request
 //   keys:           list() | get(keyId) | insert(entry) -> false if taken | logRelease(row) | listReleases()
 //   custodyNotes:   list() | listFor(evidenceId) | insert(entry) -> false if taken
+//   rolePins:       get(address) -> entry | null | put(entry)   (address checksummed; replaces any previous entry)
 //
 // Lists are in the order things were added. Records handed out are copies: changing one changes nothing stored.
 
 import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { sameAddress } from "../../src/web3/format.js";
 
 const copy = (value) => (value === undefined || value === null ? null : structuredClone(value));
@@ -168,6 +169,25 @@ function createFileCustodyNotes(filePath) {
   };
 }
 
+function createFileRolePins(filePath) {
+  const file = jsonFile(filePath, "pins", asMap, Object.fromEntries);
+  return {
+    get: async (address) => copy((await file.load()).get(address)),
+    async put(entry) {
+      const map = await file.load();
+      const previous = map.get(entry.address);
+      map.set(entry.address, copy(entry));
+      try {
+        await file.persist(map);
+      } catch (err) {
+        if (previous) map.set(entry.address, previous);
+        else map.delete(entry.address);
+        throw err;
+      }
+    },
+  };
+}
+
 /**
  * @param {object} paths
  * @param {string} paths.caseFile
@@ -175,14 +195,16 @@ function createFileCustodyNotes(filePath) {
  * @param {string} paths.keyFile
  * @param {string} paths.accessLogFile  JSON-lines; one line per key release.
  * @param {string} paths.custodyNoteFile
+ * @param {string} [paths.rolePinFile]  Defaults to role-pins.json next to the case file.
  */
-export function createFileStorage({ caseFile, accessRequestFile, keyFile, accessLogFile, custodyNoteFile }) {
+export function createFileStorage({ caseFile, accessRequestFile, keyFile, accessLogFile, custodyNoteFile, rolePinFile }) {
   return {
     kind: "file",
     cases: createFileCases(caseFile),
     accessRequests: createFileAccessRequests(accessRequestFile),
     keys: createFileKeys(keyFile, accessLogFile),
     custodyNotes: createFileCustodyNotes(custodyNoteFile),
+    rolePins: createFileRolePins(rolePinFile ?? join(dirname(caseFile), "role-pins.json")),
     ready: async () => {},
     close: async () => {},
   };

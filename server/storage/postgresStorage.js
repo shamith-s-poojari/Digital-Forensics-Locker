@@ -274,5 +274,20 @@ export function createPostgresStorage(config) {
     });
   }
 
-  return { kind: "postgres", cases, accessRequests, keys, custodyNotes, ready, importFrom, close: () => pool.end() };
+  const rolePins = {
+    async get(address) {
+      const { rows } = await query("SELECT * FROM role_pins WHERE address = $1", [address]);
+      const row = rows[0];
+      return row ? { address: row.address, salt: row.salt, hash: row.hash, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at) } : null;
+    },
+    async put(entry) {
+      await query(
+        `INSERT INTO role_pins (address, salt, hash, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (address) DO UPDATE SET salt = EXCLUDED.salt, hash = EXCLUDED.hash, updated_at = EXCLUDED.updated_at`,
+        [entry.address, entry.salt, entry.hash, entry.createdAt, entry.updatedAt]
+      );
+    },
+  };
+
+  return { kind: "postgres", cases, accessRequests, keys, custodyNotes, rolePins, ready, importFrom, close: () => pool.end() };
 }

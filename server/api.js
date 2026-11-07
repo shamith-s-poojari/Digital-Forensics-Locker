@@ -5,6 +5,7 @@
 import { resolve } from "node:path";
 import { handlePinRequest, resolvePinataJwt } from "./pinataProxy.js";
 import { createSiweAuth } from "./siweAuth.js";
+import { createRolePins } from "./rolePins.js";
 import { createKeyStore, parseMasterKey } from "./keyStore.js";
 import { createCaseStore } from "./caseStore.js";
 import { createAccessRequestStore } from "./accessRequests.js";
@@ -48,6 +49,7 @@ export function fileStoragePaths(env) {
     keyFile: resolve(env.EVIDENCE_KEY_STORE || `${dataDir}/evidence-keys.json`),
     accessLogFile: resolve(env.EVIDENCE_KEY_ACCESS_LOG || `${dataDir}/key-access.log`),
     custodyNoteFile: resolve(env.CUSTODY_NOTE_STORE || `${dataDir}/custody-notes.json`),
+    rolePinFile: resolve(env.ROLE_PIN_STORE || `${dataDir}/role-pins.json`),
   };
 }
 
@@ -75,10 +77,12 @@ export function createApi(env, { production }) {
   // Sign-ins are not pinned to a chain: a wallet may sign in first and switch network afterwards (the ledger
   // provider refuses the wrong network on its own, and the contract can only be written on its chain).
   // The production server sits behind HTTPS, so its session cookie is `Secure`.
-  const auth = createSiweAuth({ secureCookie: production });
+  const storage = createStorage(env, { production });
+  // Every account signs in with a PIN as well as its wallet (server/rolePins.js), so switching role locks the app.
+  const pins = createRolePins({ storage: storage.rolePins });
+  const auth = createSiweAuth({ secureCookie: production, pins });
   const authorize = (req) => auth.getSession(req) !== null;
   const gate = createGate(env, { production });
-  const storage = createStorage(env, { production });
   const keyStore = createKeyStore({
     masterKey: parseMasterKey(env.EVIDENCE_MASTER_KEY),
     masterKeyVersion: Number(env.EVIDENCE_MASTER_KEY_VERSION) > 0 ? Number(env.EVIDENCE_MASTER_KEY_VERSION) : 1,

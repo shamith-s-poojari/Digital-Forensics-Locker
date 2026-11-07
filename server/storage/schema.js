@@ -113,4 +113,17 @@ export const MIGRATIONS = [
         FOR EACH STATEMENT EXECUTE FUNCTION refuse_change();
     `,
   },
+  {
+    name: "003_role_pins",
+    sql: `
+      -- Salted scrypt hash of each account's sign-in PIN (server/rolePins.js). Never the PIN itself.
+      CREATE TABLE role_pins (
+        address    text PRIMARY KEY,
+        salt       text NOT NULL,
+        hash       text NOT NULL,
+        created_at timestamptz NOT NULL,
+        updated_at timestamptz NOT NULL
+      );
+    `,
+  },
 ];
