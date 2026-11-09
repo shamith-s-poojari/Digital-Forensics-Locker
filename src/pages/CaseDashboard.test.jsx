@@ -177,7 +177,8 @@ describe("CaseDashboard: reading the ledger", () => {
     await loaded();
 
     const target = store.evidence.find((e) => e.id === 7);
-    await userEvent.type(screen.getByLabelText(/Search cases/), target.cid);
+    await userEvent.click(screen.getByLabelText(/Search cases/));
+    await userEvent.paste(target.cid); // pasted, as users do: typing it key by key re-renders the dashboard per character
     expect(caseButtons()).toHaveLength(1);
     expect(caseButtons()[0].textContent).toMatch(/CASE-2025-0029/);
 

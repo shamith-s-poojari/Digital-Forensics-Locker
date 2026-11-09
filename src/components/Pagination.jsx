@@ -32,9 +32,9 @@ export default function Pagination({ page, totalPages, onPageChange, showingFrom
     flexWrap: "wrap",
     gap: "12px",
     padding: "12px 0",
-    color: "#e2e8f0",
+    color: "var(--color-slate-200)",
     fontSize: "13px",
-    fontFamily: "'Space Grotesk', sans-serif",
+    fontFamily: "inherit",
   };
 
   const controlsStyle = { display: "flex", alignItems: "center", gap: "8px" };
@@ -44,9 +44,9 @@ export default function Pagination({ page, totalPages, onPageChange, showingFrom
     alignItems: "center",
     gap: "4px",
     background: "transparent",
-    border: "1px solid #334155",
+    border: "1px solid var(--color-slate-700)",
     borderRadius: "6px",
-    color: "#e2e8f0",
+    color: "var(--color-slate-200)",
     padding: "6px 12px",
     fontSize: "13px",
     fontFamily: "inherit",
@@ -59,12 +59,12 @@ export default function Pagination({ page, totalPages, onPageChange, showingFrom
   const highlight = (enabled) => ({
     onMouseEnter: (e) => {
       if (enabled) {
-        e.currentTarget.style.borderColor = "#3b82f6";
-        e.currentTarget.style.background = "rgba(59,130,246,0.1)";
+        e.currentTarget.style.borderColor = "var(--color-slate-50)";
+        e.currentTarget.style.background = "rgba(var(--ink-rgb), 0.1)";
       }
     },
     onMouseLeave: (e) => {
-      e.currentTarget.style.borderColor = "#334155";
+      e.currentTarget.style.borderColor = "var(--color-slate-700)";
       e.currentTarget.style.background = "transparent";
     },
   });
@@ -89,7 +89,7 @@ export default function Pagination({ page, totalPages, onPageChange, showingFrom
         >
           <ChevronLeft size={16} aria-hidden="true" /> Previous
         </button>
-        <span style={{ color: "#60a5fa", fontWeight: 600, minWidth: "88px", textAlign: "center" }}>
+        <span style={{ color: "var(--color-slate-200)", fontWeight: 600, minWidth: "88px", textAlign: "center" }}>
           Page {page} of {totalPages}
         </span>
         <button

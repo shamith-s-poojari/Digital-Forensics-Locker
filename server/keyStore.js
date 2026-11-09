@@ -2,10 +2,19 @@
 //
 // The browser encrypts each file with its own random key (src/crypto/evidenceCrypto.js) and sends that key here
 // before the encrypted copy is pinned. The key is wrapped (encrypted) with the agency master key and only the wrapped
-// form is written to disk. Endpoints (mounted by vite.config.js, both need a wallet sign-in session):
+// form is stored. Endpoints (mounted by vite.config.js, both need a wallet sign-in session and a role):
 //
 //   POST /api/keys        { keyId, sha256, key }  -> 201   stores a key once; an id can never be overwritten
-//   GET  /api/keys/:keyId                         -> { keyId, sha256, key, createdBy, createdAt }
+//   GET  /api/keys/:keyId?evidence=<id>           -> { keyId, sha256, key, createdBy, createdAt }
+//   GET  /api/keys/releases?evidence=<id>[&sha256=] -> { releases: [{ address, at }] }  who decrypted this evidence
+//
+// Binding a release to the ledger: with a contract configured, a key is released only for a named evidence record
+// that exists on chain, whose registered SHA-256 is the one stored with the key, whose submitter is the wallet that
+// escrowed the key, and whose branch the caller may see (the Chief sees every branch). The submitter check matters
+// because hashes (and key ids, in the public envelope header) are public: without it, an Investigator could register
+// a decoy record in their own branch with another branch's hash and open that branch's file through it. So holding a
+// role is not enough to open evidence from another branch, and a key id cannot be asked for without saying which
+// evidence record it is for. The release log names the evidence record.
 //
 // Wrapping: AES-256-GCM under the master key, with the key id, plaintext SHA-256 and master-key version as additional
 // data, so a stored entry cannot be moved onto another key id or file. `masterKeyVersion` is stored with each entry so
@@ -13,16 +22,23 @@
 //
 // Every key release is appended to an access log (who, which key, when).
 //
-// LIMITS (development build): the master key comes from an environment variable rather than a KMS/HSM; any signed-in
-// wallet may read any key (the server does not yet check on-chain roles); the store is a JSON file for one process.
+// Roles (server/chainRoles.js, via `checkRole`): storing a key needs the upload capability (Investigator); releasing
+// one needs the view capability (any role on the ledger).
+//
+// LIMITS (development build): the master key comes from an environment variable rather than a KMS/HSM; within a
+// branch, any wallet with a role may read any of that branch's keys (there is no per-case access list); the release
+// log is kept by this server, not on the ledger (the contract lets only Investigators write custody entries).
+//
+// Storage: server/storage/ (JSON files in development, Postgres when DATABASE_URL is set).
 
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { CAPABILITIES } from "../src/web3/roles.js";
+import { allowAll, globalScope } from "./chainRoles.js";
 import { isSameSiteRequest } from "./siweAuth.js";
 
 const KEY_ID = /^[0-9a-f]{32}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
+const EVIDENCE_ID = /^[1-9][0-9]{0,15}$/;
 const MAX_BODY_BYTES = 2 * 1024;
 
 export const MASTER_KEY_HELP =
@@ -66,7 +82,10 @@ function readJson(req, limit) {
   });
 }
 
-const additionalData = (version, keyId, sha256) => Buffer.from(`dfl-evidence-key|v${version}|${keyId}|${sha256}`, "utf8");
+/** Two account addresses are the same, ignoring checksum case. False when either is missing (fails closed). */
+const sameAccount = (a, b) => typeof a === "string" && typeof b === "string" && a.length > 0 && a.toLowerCase() === b.toLowerCase();
+
+const additionalData =(version, keyId, sha256) => Buffer.from(`dfl-evidence-key|v${version}|${keyId}|${sha256}`, "utf8");
 
 function wrapKey(masterKey, version, keyId, sha256, rawKey) {
   const iv = randomBytes(12);
@@ -87,36 +106,45 @@ function unwrapKey(masterKey, entry) {
  * @param {object} options
  * @param {Buffer | null} options.masterKey        32 bytes, or null (then every request gets 503 with setup help).
  * @param {number} [options.masterKeyVersion]
- * @param {string} options.filePath                JSON file holding the wrapped keys.
- * @param {string} options.accessLogPath           JSON-lines file; one line per key release.
+ * @param {object} options.storage                 The `keys` part of a storage (server/storage/fileStorage.js).
  * @param {(req) => ({ address: string } | null)} options.getSession  From server/siweAuth.js.
+ * @param {(session, capability: string) => Promise<null | { status: number, error: string }>} [options.checkRole]
+ *        From server/chainRoles.js. Defaults to no role checks.
+ * @param {(session) => Promise<{ global: boolean, branchId: number | null }>} [options.readScope]
+ *        From server/chainRoles.js. Defaults to every branch.
+ * @param {((id: number) => Promise<{ sha256: string, branchId: number, submitter: string } | null>) | null} [options.readEvidence]
+ *        Reads an evidence record from the contract (chainRoles.js createChainEvidenceReader). null when no contract
+ *        is configured (the dev server's demo ledger lives in the browser): releases are then not bound to a record.
  * @param {() => number} [options.now]
  */
-export function createKeyStore({ masterKey, masterKeyVersion = 1, filePath, accessLogPath, getSession, now = Date.now }) {
-  /** @type {Promise<Map<string, object>> | null} */
-  let loading = null;
-  // Writes are chained so two uploads at once cannot interleave and lose an entry.
-  let writeChain = Promise.resolve();
+export function createKeyStore({ masterKey, masterKeyVersion = 1, storage, getSession, checkRole = allowAll, readScope = globalScope, readEvidence = null, now = Date.now }) {
+  /**
+   * The evidence record a request names (?evidence=<id>), checked against the ledger and the caller's branch.
+   * Resolves to { evidenceId, sha256 } (sha256 null without a contract), or { error: [status, message] }.
+   */
+  async function evidenceFor(req, session) {
+    const params = new URL(req.url ?? "", "http://x").searchParams;
+    const raw = params.get("evidence");
+    if (raw === null) {
+      if (readEvidence) return { error: [400, "Say which evidence record the key is for (?evidence=<id>)."] };
+      return { evidenceId: null, sha256: null };
+    }
+    if (!EVIDENCE_ID.test(raw)) return { error: [400, "Malformed evidence id."] };
+    const evidenceId = Number(raw);
+    if (!readEvidence) return { evidenceId, sha256: null };
 
-  function entries() {
-    loading ??= readFile(filePath, "utf8")
-      .then((text) => new Map(Object.entries(JSON.parse(text).keys ?? {})))
-      .catch((err) => {
-        if (err?.code === "ENOENT") return new Map();
-        loading = null; // a corrupt or unreadable file must not be silently replaced by an empty store
-        throw err;
-      });
-    return loading;
-  }
-
-  function persist(map) {
-    writeChain = writeChain.then(async () => {
-      await mkdir(dirname(filePath), { recursive: true });
-      const tmp = `${filePath}.${process.pid}.tmp`;
-      await writeFile(tmp, JSON.stringify({ version: 1, keys: Object.fromEntries(map) }, null, 2), { mode: 0o600 });
-      await rename(tmp, filePath);
-    });
-    return writeChain;
+    let record;
+    try {
+      record = await readEvidence(evidenceId);
+    } catch {
+      return { error: [503, "Could not read the evidence record from the ledger. Try again shortly."] };
+    }
+    if (!record) return { error: [404, `Evidence #${evidenceId} is not on the ledger.`] };
+    const scope = await readScope(session);
+    if (!scope.global && scope.branchId !== record.branchId) {
+      return { error: [403, `Evidence #${evidenceId} belongs to another branch. Your role does not cover it.`] };
+    }
+    return { evidenceId, sha256: record.sha256, submitter: record.submitter ?? null };
   }
 
   async function store(req, res, session) {
@@ -133,9 +161,6 @@ export function createKeyStore({ masterKey, masterKeyVersion = 1, filePath, acce
       return sendJson(res, 400, { error: "Expected keyId (32 hex), sha256 (64 hex) and a 32-byte base64 key." });
     }
 
-    const map = await entries();
-    if (map.has(keyId)) return sendJson(res, 409, { error: "A key with this id is already stored. Keys are never replaced." });
-
     const entry = {
       keyId,
       sha256,
@@ -145,20 +170,28 @@ export function createKeyStore({ masterKey, masterKeyVersion = 1, filePath, acce
       createdAt: new Date(now()).toISOString(),
     };
     rawKey.fill(0);
-    map.set(keyId, entry);
-    try {
-      await persist(map);
-    } catch (err) {
-      map.delete(keyId);
-      throw err;
-    }
+    if (!(await storage.insert(entry))) return sendJson(res, 409, { error: "A key with this id is already stored. Keys are never replaced." });
     return sendJson(res, 201, { keyId, sha256, masterKeyVersion });
   }
 
-  async function release(res, session, keyId) {
+  async function release(req, res, session, keyId) {
     if (!KEY_ID.test(keyId)) return sendJson(res, 400, { error: "Malformed key id." });
-    const entry = (await entries()).get(keyId);
+    const evidence = await evidenceFor(req, session);
+    if (evidence.error) return sendJson(res, evidence.error[0], { error: evidence.error[1] });
+    const entry = await storage.get(keyId);
     if (!entry) return sendJson(res, 404, { error: "No key is stored for this file." });
+    // The key must be the one escrowed for this record's file, or a key for one branch's file could be released
+    // by naming another branch's record.
+    if (evidence.sha256 && evidence.sha256 !== entry.sha256) {
+      return sendJson(res, 409, { error: `This file's key does not belong to evidence #${evidence.evidenceId}: the hashes differ.` });
+    }
+    // Hashes are public on the ledger, so a matching hash alone proves nothing: an Investigator could register a decoy
+    // record in their own branch carrying another branch's hash and ask for that file's key through it. The key goes
+    // only with the record its own escrower registered (the upload flow stores the key and registers the record from
+    // the same wallet), and the contract sets `submitter` from msg.sender, so a decoy can never claim it.
+    if (readEvidence && !sameAccount(evidence.submitter, entry.createdBy)) {
+      return sendJson(res, 409, { error: `This file's key was not escrowed by the officer who registered evidence #${evidence.evidenceId}.` });
+    }
     if (entry.masterKeyVersion !== masterKeyVersion) {
       return sendJson(res, 503, { error: `This key is wrapped with master key version ${entry.masterKeyVersion}, which is not loaded.` });
     }
@@ -170,11 +203,30 @@ export function createKeyStore({ masterKey, masterKeyVersion = 1, filePath, acce
       return sendJson(res, 500, { error: "The stored key could not be unwrapped (wrong master key, or the store was modified)." });
     }
     // Log before releasing: a key never leaves without a record of who took it.
-    await mkdir(dirname(accessLogPath), { recursive: true });
-    await appendFile(accessLogPath, `${JSON.stringify({ keyId, sha256: entry.sha256, address: session.address, at: new Date(now()).toISOString() })}\n`, { mode: 0o600 });
+    await storage.logRelease({
+      keyId,
+      sha256: entry.sha256,
+      address: session.address,
+      at: new Date(now()).toISOString(),
+      ...(evidence.evidenceId ? { evidenceId: evidence.evidenceId } : {}),
+    });
     const body = { keyId, sha256: entry.sha256, key: rawKey.toString("base64"), createdBy: entry.createdBy, createdAt: entry.createdAt };
     rawKey.fill(0);
     return sendJson(res, 200, body);
+  }
+
+  /**
+   * Who has been given this evidence's decryption key, oldest first. Rows are matched by the file's SHA-256, so
+   * releases logged before records were named still show. Without a contract the caller supplies the hash.
+   */
+  async function listReleases(req, res, session) {
+    const evidence = await evidenceFor(req, session);
+    if (evidence.error) return sendJson(res, evidence.error[0], { error: evidence.error[1] });
+    if (!evidence.evidenceId) return sendJson(res, 400, { error: "Say which evidence record (?evidence=<id>)." });
+    const sha256 = evidence.sha256 ?? new URL(req.url ?? "", "http://x").searchParams.get("sha256")?.toLowerCase().replace(/^0x/, "");
+    if (!sha256 || !SHA256.test(sha256)) return sendJson(res, 400, { error: "Give the evidence's SHA-256 (?sha256=)." });
+    const releases = (await storage.listReleases()).filter((r) => r.sha256 === sha256).map(({ address, at }) => ({ address, at }));
+    return sendJson(res, 200, { releases });
   }
 
   /**
@@ -201,9 +253,22 @@ export function createKeyStore({ masterKey, masterKeyVersion = 1, filePath, acce
       return true;
     }
 
-    if (req.method === "POST" && path === "/api/keys") await store(req, res, session);
-    else if (req.method === "GET" && path.startsWith("/api/keys/")) await release(res, session, path.slice("/api/keys/".length));
-    else sendJson(res, 405, { error: "Method not allowed." });
+    const storing = req.method === "POST" && path === "/api/keys";
+    const listing = req.method === "GET" && path === "/api/keys/releases";
+    const releasing = !listing && req.method === "GET" && path.startsWith("/api/keys/");
+    if (!storing && !releasing && !listing) {
+      sendJson(res, 405, { error: "Method not allowed." });
+      return true;
+    }
+    const denied = await checkRole(session, storing ? CAPABILITIES.UPLOAD : CAPABILITIES.VIEW);
+    if (denied) {
+      sendJson(res, denied.status, { error: denied.error });
+      return true;
+    }
+
+    if (storing) await store(req, res, session);
+    else if (listing) await listReleases(req, res, session);
+    else await release(req, res, session, path.slice("/api/keys/".length));
     return true;
   }
 

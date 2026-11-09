@@ -1,5 +1,6 @@
 import { Check, Copy, Loader2 } from "lucide-react";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { accountName } from "../web3/accountNames.js";
 
 /*
  * Small building blocks for the tactical dark UI: slate surfaces, high-contrast text, electric-blue accent.
@@ -7,10 +8,10 @@ import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
  */
 
 const BUTTON_BASE =
-  "inline-flex items-center justify-center gap-2 rounded-md border font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center justify-center gap-2 rounded-lg border font-semibold transition-[background-color,border-color,color,transform] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
 
 const BUTTON_VARIANTS = {
-  primary: "border-sky-400 bg-sky-500 text-slate-950 hover:bg-sky-400 disabled:hover:bg-sky-500",
+  primary: "btn-shine border-sky-400 bg-sky-500 text-slate-950 hover:bg-sky-400 disabled:hover:bg-sky-500",
   secondary: "border-slate-600 bg-slate-800 text-slate-100 hover:border-slate-500 hover:bg-slate-700 disabled:hover:bg-slate-800",
   ghost: "border-transparent bg-transparent text-sky-300 hover:bg-slate-800",
   danger: "border-rose-500/60 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20",
@@ -56,9 +57,9 @@ export function Badge({ tone = "neutral", icon: Icon, children, className = "" }
 
 export function Panel({ title, titleId, actions, children, className = "", bodyClassName = "p-4" }) {
   return (
-    <section aria-labelledby={title ? titleId : undefined} className={`rounded-lg border border-slate-700/70 bg-slate-950/60 ${className}`}>
+    <section aria-labelledby={title ? titleId : undefined} className={`glass rounded-xl ${className}`}>
       {title ? (
-        <header className="flex items-center justify-between gap-2 border-b border-slate-700/70 px-4 py-2.5">
+        <header className="flex items-center justify-between gap-2 border-b border-white/5 px-4 py-2.5">
           <h2 id={titleId} className="text-sm font-semibold uppercase tracking-wide text-slate-200">
             {title}
           </h2>
@@ -74,8 +75,11 @@ export function Panel({ title, titleId, actions, children, className = "", bodyC
 export function CopyChip({ value, display, label, className = "", textClassName = "text-slate-100" }) {
   const { copiedKey, copy } = useCopyToClipboard();
   const copied = copiedKey === value;
+  // A wallet address with a display name (VITE_ACCOUNT_NAMES) shows the name too; the address stays the copied value.
+  const name = accountName(value);
   return (
     <span className={`inline-flex max-w-full items-center gap-1.5 rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 ${className}`}>
+      {name ? <span className="shrink-0 text-xs font-semibold text-sky-200">{name}</span> : null}
       <code className={`truncate font-mono text-xs ${textClassName}`} title={value}>
         {display ?? value}
       </code>

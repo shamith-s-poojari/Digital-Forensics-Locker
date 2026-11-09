@@ -3,13 +3,38 @@ import { describe, expect, it, vi } from "vitest";
 import { handlePinRequest, MAX_UPLOAD_BYTES, resolvePinataJwt } from "./pinataProxy.js";
 
 const SECRET = "test-jwt-secret-value";
+// Browser-style boundary. (undici mis-parses some bodies under a one-letter boundary such as "b".)
+const BOUNDARY = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
 
-function makeReq({ method = "POST", headers = {}, body = Buffer.from("--b\r\nfile\r\n--b--") } = {}) {
+/** A minimal valid envelope: "DFLENC", version 1, AES-256-GCM, then zeroed header fields and 32 bytes of "ciphertext". */
+function envelopeBytes() {
+  const bytes = new Uint8Array(68 + 32);
+  bytes.set(new TextEncoder().encode("DFLENC"), 0);
+  bytes[6] = 1;
+  bytes[7] = 1;
+  return bytes;
+}
+
+/** Builds a browser-style multipart body. parts: [{ name, filename?, data }] */
+function multipart(parts) {
+  const chunks = [];
+  for (const { name, filename, data } of parts) {
+    const disposition = filename ? `form-data; name="${name}"; filename="${filename}"` : `form-data; name="${name}"`;
+    const type = filename ? "\r\nContent-Type: application/octet-stream" : "";
+    chunks.push(Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: ${disposition}${type}\r\n\r\n`), Buffer.from(data), Buffer.from("\r\n"));
+  }
+  chunks.push(Buffer.from(`--${BOUNDARY}--\r\n`));
+  return Buffer.concat(chunks);
+}
+
+const encryptedBody = () => multipart([{ name: "file", filename: "evidence.bin.enc", data: envelopeBytes() }]);
+
+function makeReq({ method = "POST", headers = {}, body = encryptedBody() } = {}) {
   const req = Readable.from([body]);
   req.method = method;
   req.headers = {
     host: "localhost:5173",
-    "content-type": "multipart/form-data; boundary=b",
+    "content-type": `multipart/form-data; boundary=${BOUNDARY}`,
     "x-requested-with": "forensics-locker",
     ...headers,
   };
@@ -62,6 +87,16 @@ describe("handlePinRequest", () => {
     await handlePinRequest(makeReq(), res, { jwt: SECRET, fetchImpl, authorize: () => false });
     expect(res.statusCode).toBe(401);
     expect(json(res).error).toMatch(/Sign in with your wallet/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("refuses signed-in wallets whose on-chain role cannot upload, without contacting Pinata", async () => {
+    const fetchImpl = vi.fn();
+    const res = makeRes();
+    const checkRole = async () => ({ status: 403, error: "Your wallet's role does not allow this. Required: Investigator." });
+    await handlePinRequest(makeReq(), res, { jwt: SECRET, fetchImpl, authorize: () => true, checkRole });
+    expect(res.statusCode).toBe(403);
+    expect(json(res).error).toMatch(/Required: Investigator/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -120,8 +155,60 @@ describe("handlePinRequest", () => {
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe("https://api.pinata.cloud/pinning/pinFileToIPFS");
     expect(init.headers.Authorization).toBe(`Bearer ${SECRET}`);
-    expect(init.headers["Content-Type"]).toMatch(/^multipart\/form-data; boundary=b/);
+    expect(init.headers["Content-Type"]).toBeUndefined(); // fetch sets it with the boundary of the rebuilt form
+    expect([...init.body.keys()]).toEqual(["file"]);
+    const forwarded = init.body.get("file");
+    expect(forwarded.name).toBe("evidence.bin.enc");
+    expect(new Uint8Array(await forwarded.arrayBuffer())).toEqual(envelopeBytes());
     expect(res.body).not.toContain(SECRET);
+  });
+
+  it("refuses a plaintext file without contacting Pinata", async () => {
+    const fetchImpl = vi.fn();
+    const res = makeRes();
+    const plain = Buffer.from("not encrypted at all, just some plain bytes here".repeat(3));
+    const body = multipart([{ name: "file", filename: "photo.jpg", data: plain }]);
+    await handlePinRequest(makeReq({ body }), res, { jwt: SECRET, fetchImpl });
+    expect(res.statusCode).toBe(400);
+    expect(json(res).error).toMatch(/encrypted/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("refuses a header-only stub too short to hold ciphertext and a tag", async () => {
+    const fetchImpl = vi.fn();
+    const res = makeRes();
+    const body = multipart([{ name: "file", filename: "x.enc", data: envelopeBytes().slice(0, 70) }]);
+    await handlePinRequest(makeReq({ body }), res, { jwt: SECRET, fetchImpl });
+    expect(res.statusCode).toBe(400);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("refuses extra parts, so nothing can ride along next to an encrypted file", async () => {
+    const fetchImpl = vi.fn();
+    const res = makeRes();
+    const body = multipart([
+      { name: "file", filename: "evidence.enc", data: envelopeBytes() },
+      { name: "file", filename: "secret.txt", data: Buffer.from("plaintext") },
+    ]);
+    await handlePinRequest(makeReq({ body }), res, { jwt: SECRET, fetchImpl });
+    expect(res.statusCode).toBe(400);
+
+    const res2 = makeRes();
+    const body2 = multipart([
+      { name: "file", filename: "evidence.enc", data: envelopeBytes() },
+      { name: "pinataMetadata", data: '{"name":"Case 12 - suspect laptop"}' },
+    ]);
+    await handlePinRequest(makeReq({ body: body2 }), res2, { jwt: SECRET, fetchImpl });
+    expect(res2.statusCode).toBe(400);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("refuses a malformed multipart body", async () => {
+    const fetchImpl = vi.fn();
+    const res = makeRes();
+    await handlePinRequest(makeReq({ body: Buffer.from("garbage") }), res, { jwt: SECRET, fetchImpl });
+    expect(res.statusCode).toBe(400);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("maps a Pinata 401 to a server-credentials error and never leaks the token", async () => {

@@ -26,6 +26,7 @@ function publicEnv() {
     VITE_DEMO_ADMINS: import.meta.env.VITE_DEMO_ADMINS,
     VITE_DEMO_INVESTIGATORS: import.meta.env.VITE_DEMO_INVESTIGATORS,
     VITE_DEMO_AUDITORS: import.meta.env.VITE_DEMO_AUDITORS,
+    VITE_ACCOUNT_NAMES: import.meta.env.VITE_ACCOUNT_NAMES,
     DEV: import.meta.env.DEV,
     MODE: import.meta.env.MODE,
   };
@@ -96,6 +97,28 @@ function parseAddressList(value) {
     .map((s) => s.trim())
     .filter((s) => isAddress(s))
     .map((s) => getAddress(s));
+}
+
+const MAX_ACCOUNT_NAME_LENGTH = 40;
+
+/**
+ * Display names for known wallet addresses, so people see "Investigator 1" instead of only 0xE07c…2dAe. Labels for
+ * the UI only: they grant nothing, and anyone can read them in the page (do not use real people's names).
+ *
+ *   VITE_ACCOUNT_NAMES  comma-separated "0xAddress=Name" pairs, e.g. 0xE07c…=Investigator 1,0xDbcA…=Investigator 2
+ *
+ * @returns {Map<string, string>} lowercase address -> name
+ */
+export function readAccountNames(env = publicEnv()) {
+  const names = new Map();
+  for (const entry of String(env.VITE_ACCOUNT_NAMES ?? "").split(",")) {
+    const at = entry.indexOf("=");
+    if (at < 0) continue;
+    const address = entry.slice(0, at).trim();
+    const name = entry.slice(at + 1).replace(/\s+/g, " ").trim().slice(0, MAX_ACCOUNT_NAME_LENGTH);
+    if (isAddress(address) && name) names.set(address.toLowerCase(), name);
+  }
+  return names;
 }
 
 /**

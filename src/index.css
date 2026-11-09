@@ -21,6 +21,115 @@
 @source "../index.html";
 @source "./**/*.{js,jsx}";
 
+/*
+ * Monochrome "obsidian" theme. Tailwind v4 reads every colour utility from these variables, so
+ * re-pointing the slate (surfaces/text) and sky (accent) scales re-themes every bg-/text-/border-
+ * class in the app at once. Status colours (emerald/amber/rose) are left alone on purpose: in a
+ * chain-of-custody tool "verified" vs "tampered" must stay readable at a glance.
+ */
+@theme static {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-slate-50: #fafafa;
+  --color-slate-100: #f5f5f5;
+  --color-slate-200: #e5e5e5;
+  --color-slate-300: #d4d4d4;
+  --color-slate-400: #a3a3a3;
+  --color-slate-500: #808080;
+  --color-slate-600: #3f3f3f;
+  --color-slate-700: #2a2a2a;
+  --color-slate-800: #1c1c1c;
+  --color-slate-900: #111111;
+  --color-slate-950: #070707;
+
+  /* The accent is light: white buttons with black text, silver highlights. */
+  --color-sky-50: #ffffff;
+  --color-sky-100: #ffffff;
+  --color-sky-200: #f2f2f2;
+  --color-sky-300: #ebebeb;
+  --color-sky-400: #ffffff;
+  --color-sky-500: #f0f0f0;
+  --color-sky-600: #d4d4d4;
+  --color-sky-700: #a3a3a3;
+  --color-sky-800: #525252;
+  --color-sky-900: #262626;
+  --color-sky-950: #171717;
+}
+
+/*
+ * Night (default) and day themes. <html data-theme="light"> flips the whole monochrome scale, so a class
+ * or inline style written for night mode ("text-slate-100", "var(--color-slate-950)") reads correctly
+ * in day mode too: light text on dark becomes dark text on light. The *-rgb triplets feed the translucent
+ * overlays (rgba(var(--ink-rgb), 0.08) is a faint white veil at night and a faint black one by day).
+ * The choice is stored by src/theme/theme.js and applied before first paint by the script in index.html.
+ */
+:root {
+  color-scheme: dark;
+  --ink-rgb: 255, 255, 255;
+  --surface-rgb: 42, 42, 42;
+  --bg-rgb: 8, 8, 8;
+  --glass-rgb: 12, 12, 12;
+  --shadow-strong: rgba(0, 0, 0, 0.8);
+  --shadow-soft: rgba(0, 0, 0, 0.5);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ink-rgb: 0, 0, 0;
+  --surface-rgb: 228, 228, 228;
+  --bg-rgb: 250, 250, 250;
+  --glass-rgb: 255, 255, 255;
+  --shadow-strong: rgba(0, 0, 0, 0.12);
+  --shadow-soft: rgba(0, 0, 0, 0.06);
+
+  --color-slate-50: #0a0a0a;
+  --color-slate-100: #141414;
+  --color-slate-200: #262626;
+  --color-slate-300: #3a3a3a;
+  --color-slate-400: #555555;
+  --color-slate-500: #6b6b6b;
+  --color-slate-600: #c2c2c2;
+  --color-slate-700: #d9d9d9;
+  --color-slate-800: #e6e6e6;
+  --color-slate-900: #f1f1f1;
+  --color-slate-950: #fafafa;
+
+  --color-sky-50: #000000;
+  --color-sky-100: #000000;
+  --color-sky-200: #111111;
+  --color-sky-300: #1a1a1a;
+  --color-sky-400: #000000;
+  --color-sky-500: #141414;
+  --color-sky-600: #2a2a2a;
+  --color-sky-700: #555555;
+  --color-sky-800: #a3a3a3;
+  --color-sky-900: #e0e0e0;
+  --color-sky-950: #f0f0f0;
+
+  /* Status tints are designed for dark backgrounds; by day use the deep end of each scale. */
+  --color-emerald-100: #064e3b;
+  --color-emerald-200: #065f46;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-amber-100: #78350f;
+  --color-amber-200: #92400e;
+  --color-amber-300: #b45309;
+  --color-amber-400: #d97706;
+  --color-rose-100: #881337;
+  --color-rose-200: #9f1239;
+  --color-rose-300: #be123c;
+  --color-rose-400: #e11d48;
+}
+
+/* Theme switch: a short, plain cross-fade of the whole page (View Transitions; one composited snapshot). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.16s;
+  animation-timing-function: ease-out;
+}
+
+
 /* Kept in the base layer so Tailwind utilities (e.g. px-4) can still override the reset. */
 @layer base {
   * {
@@ -30,9 +139,6 @@
   }
 }
 
-:root {
-  color-scheme: dark;
-}
 
 html {
   width: 100%;
@@ -41,9 +147,10 @@ html {
 }
 
 body {
-  font-family: 'Space Grotesk', sans-serif;
-  background-color: #0f172a;
-  color: #f0f6fc;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-color: var(--color-slate-950);
+  color: var(--color-slate-50);
   margin: 0;
   padding: 0;
   line-height: 1.6;
@@ -56,13 +163,45 @@ body {
   width: 100%;
   min-height: 100vh;
   display: flex;
+  position: relative;
+  isolation: isolate;
 }
 
-/* Keyboard focus: visible by default on everything focusable (#93c5fd on #0f172a is ~9:1).
+h1, h2, h3 {
+  letter-spacing: -0.02em;
+}
+
+/*
+ * Page backdrop: a faint grid that fades out from the top and a soft spotlight above it.
+ * Fixed and static, painted once behind everything (#root is its own stacking context).
+ */
+#root::before,
+#root::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+#root::before {
+  background-image:
+    linear-gradient(rgba(var(--ink-rgb), 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--ink-rgb), 0.035) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+}
+#root::after {
+  background:
+    radial-gradient(ellipse 60% 40% at 50% -10%, rgba(var(--ink-rgb), 0.09), transparent 70%),
+    radial-gradient(circle at 100% 100%, rgba(var(--ink-rgb), 0.03), transparent 40%);
+}
+
+/* Keyboard focus: visible by default on everything focusable (var(--color-slate-300) on var(--color-slate-950) is ~9:1).
  * Components that draw their own focus ring set an inline `outline` (or use a more specific
  * selector such as .evidence-select:focus), which takes precedence over this rule. */
 :focus-visible {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid var(--color-slate-300);
   outline-offset: 2px;
 }
 
@@ -92,8 +231,8 @@ a.skip-link {
   left: 8px;
   z-index: 10000;
   padding: 10px 16px;
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--color-slate-50);
+  color: var(--color-slate-950);
   font-size: 14px;
   font-weight: 600;
   line-height: 1.4;
@@ -112,8 +251,8 @@ a.skip-link:focus-visible {
   -webkit-appearance: none;
   -moz-appearance: none;
   background-image:
-    linear-gradient(45deg, transparent 50%, #93c5fd 50%),
-    linear-gradient(135deg, #93c5fd 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--color-slate-300) 50%),
+    linear-gradient(135deg, var(--color-slate-300) 50%, transparent 50%);
   background-position:
     calc(100% - 18px) calc(50% - 2px),
     calc(100% - 12px) calc(50% - 2px);
@@ -123,21 +262,21 @@ a.skip-link:focus-visible {
 }
 
 .evidence-select option {
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--color-slate-950);
+  color: var(--color-slate-200);
   padding: 12px 14px;
   font-size: 15px;
 }
 
 .evidence-select option:checked,
 .evidence-select option:hover {
-  background: linear-gradient(180deg, rgba(59,130,246,0.32) 0%, rgba(37,99,235,0.22) 100%);
-  color: #f8fafc;
+  background: linear-gradient(180deg, rgba(var(--ink-rgb), 0.16) 0%, rgba(var(--ink-rgb), 0.10) 100%);
+  color: var(--color-slate-50);
 }
 
 .evidence-select:focus {
-  border-color: #60a5fa;
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+  border-color: var(--color-slate-300);
+  box-shadow: 0 0 0 3px rgba(var(--ink-rgb), 0.12);
   outline: none;
 }
 
@@ -148,21 +287,271 @@ a.skip-link:focus-visible {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: var(--color-slate-950);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: var(--color-slate-700);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: var(--color-slate-600);
 }
 
 /* Monospace font for code/hashes */
 code, pre, .mono {
   font-family: 'JetBrains Mono', monospace;
+}
+
+/* ───────────────────────── Surfaces ───────────────────────── */
+
+/* Headline text that fades from white to grey, as in the hero. */
+.text-metal {
+  background: linear-gradient(180deg, var(--color-slate-50) 0%, var(--color-slate-300) 55%, #7a7a7a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.text-metal-soft {
+  background: linear-gradient(90deg, #8a8a8a 0%, var(--color-slate-300) 45%, #8a8a8a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/*
+ * Glass card: dark gradient fill, a hairline border that is brighter at the top (the "lit edge")
+ * and a gentle lift on hover. Only transform/box-shadow/border-color are transitioned.
+ */
+.glass {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(var(--ink-rgb), 0.045) 0%, rgba(var(--ink-rgb), 0.012) 100%),
+    rgba(var(--glass-rgb), 0.72);
+  border: 1px solid rgba(var(--ink-rgb), 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink-rgb), 0.07),
+    0 1px 2px var(--shadow-soft),
+    0 12px 32px -16px var(--shadow-strong);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.glass-hover:hover {
+  border-color: rgba(var(--ink-rgb), 0.16);
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink-rgb), 0.10),
+    0 1px 2px var(--shadow-soft),
+    0 22px 48px -20px var(--shadow-strong);
+}
+
+/* Small pill above a heading ("NEW  Chain of custody"). */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--ink-rgb), 0.10);
+  background: rgba(var(--ink-rgb), 0.04);
+  box-shadow: inset 0 1px 0 rgba(var(--ink-rgb), 0.06);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-slate-300);
+}
+.eyebrow-tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--color-slate-50);
+  color: var(--color-slate-950);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Light sweep across the primary (white) button on hover. */
+.btn-shine {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow: 0 0 0 1px rgba(var(--ink-rgb), 0.2), 0 8px 24px -10px rgba(var(--ink-rgb), 0.35);
+}
+.btn-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(110deg, transparent 30%, rgba(0,0,0,0.12) 50%, transparent 70%);
+  transform: translateX(-120%);
+  transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.btn-shine:hover::after {
+  transform: translateX(120%);
+}
+
+/* Frosted top bar. */
+.glass-bar {
+  background: rgba(var(--bg-rgb), 0.72) !important;
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  backdrop-filter: saturate(140%) blur(14px);
+}
+
+/* ───────────────────────── Motion ─────────────────────────
+ * Everything below animates only opacity and transform (compositor-only: no layout or paint
+ * per frame), runs once except the few decorative loops, and is switched off by the
+ * reduced-motion block at the end of this file.
+ */
+@keyframes dfl-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes dfl-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes dfl-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}
+@keyframes dfl-pulse-dot {
+  0%   { box-shadow: 0 0 0 0 rgba(52,211,153,0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(52,211,153,0); }
+  100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+}
+
+.animate-rise {
+  animation: dfl-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.animate-fade {
+  animation: dfl-fade 0.6s ease both;
+}
+
+/* Route change: the page's top-level blocks rise in one after another. */
+.page-enter > * {
+  animation: dfl-rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.page-enter > *:nth-child(2) { animation-delay: 60ms; }
+.page-enter > *:nth-child(3) { animation-delay: 120ms; }
+.page-enter > *:nth-child(4) { animation-delay: 180ms; }
+.page-enter > *:nth-child(5) { animation-delay: 240ms; }
+.page-enter > *:nth-child(n+6) { animation-delay: 300ms; }
+
+/* Generic stagger for lists and grids: put .stagger on the parent. */
+.stagger > * {
+  animation: dfl-rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0.15s; }
+.stagger > *:nth-child(2) { animation-delay: 0.25s; }
+.stagger > *:nth-child(3) { animation-delay: 0.35s; }
+.stagger > *:nth-child(4) { animation-delay: 0.45s; }
+.stagger > *:nth-child(n+5) { animation-delay: 0.55s; }
+
+/*
+ * Custody chain (sign-in hero). One 4s cycle: block 1 lights, a pulse runs down link 1, block 2 lights,
+ * a pulse runs down link 2, block 3 lights green. Each part uses the same keyframes with its own delay,
+ * and only opacity/transform are animated.
+ */
+.custody-chain {
+  --chain-cycle: 4s;
+}
+.chain-row {
+  display: flex;
+  align-items: flex-start;
+}
+.chain-node {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 84px;
+  text-align: center;
+}
+.chain-node-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--ink-rgb), 0.10);
+  background: rgba(var(--ink-rgb), 0.04);
+  color: var(--color-slate-300);
+}
+/* The "lit" state is a ring drawn on top and faded in, so nothing repaints the block itself. */
+.chain-node-icon::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(var(--ink-rgb), 0.55);
+  box-shadow: 0 0 18px rgba(var(--ink-rgb), 0.22), inset 0 0 12px rgba(var(--ink-rgb), 0.08);
+  opacity: 0;
+  animation: dfl-chain-glow var(--chain-cycle) ease-out infinite;
+}
+.chain-node-2 .chain-node-icon::after { animation-delay: 1.2s; }
+.chain-node-3 .chain-node-icon {
+  color: var(--color-emerald-300);
+}
+.chain-node-3 .chain-node-icon::after {
+  border-color: color-mix(in srgb, var(--color-emerald-400) 70%, transparent);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--color-emerald-400) 35%, transparent);
+  animation-delay: 2.4s;
+}
+.chain-link {
+  position: relative;
+  flex: 1;
+  height: 1px;
+  margin-top: 21px;
+  overflow: hidden;
+  background: repeating-linear-gradient(90deg, rgba(var(--ink-rgb), 0.18) 0 4px, transparent 4px 8px);
+}
+.chain-link::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(var(--ink-rgb), 0.95), transparent);
+  transform: translateX(-100%);
+  animation: dfl-chain-pulse var(--chain-cycle) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.chain-link-1::after { animation-delay: 0.3s; }
+.chain-link-2::after { animation-delay: 1.5s; }
+
+@keyframes dfl-chain-glow {
+  0%   { opacity: 0; }
+  6%   { opacity: 1; }
+  35%  { opacity: 0.35; }
+  80%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+@keyframes dfl-chain-pulse {
+  0%   { transform: translateX(-100%); }
+  25%  { transform: translateX(250%); }
+  100% { transform: translateX(250%); }
+}
+
+.marquee {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: dfl-marquee 32s linear infinite;
+}
+.marquee:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+.live-dot {
+  animation: dfl-pulse-dot 2s ease-out infinite;
 }
 
 /* Respect the OS "reduce motion" setting: no animations or transitions (inline styles included). */
@@ -177,4 +566,47 @@ code, pre, .mono {
     transition-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Night/day toggle and log-out button in the top bar. */
+.theme-toggle,
+.topbar-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--ink-rgb), 0.10);
+  background: rgba(var(--ink-rgb), 0.04);
+  color: var(--color-slate-200);
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
+}
+.theme-toggle:hover,
+.topbar-icon-btn:hover {
+  background: rgba(var(--ink-rgb), 0.08);
+  border-color: rgba(var(--ink-rgb), 0.18);
+  color: var(--color-slate-50);
+}
+.theme-toggle:active,
+.topbar-icon-btn:active {
+  transform: scale(0.94);
+}
+.topbar-icon-btn.is-danger:hover {
+  color: var(--color-rose-300);
+  border-color: color-mix(in srgb, var(--color-rose-400) 45%, transparent);
+  background: color-mix(in srgb, var(--color-rose-500) 10%, transparent);
+}
+/* The moon and sun swap with a plain fade. */
+.theme-toggle-icon {
+  position: absolute;
+  display: inline-flex;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.theme-toggle-icon[data-visible] {
+  opacity: 1;
 }

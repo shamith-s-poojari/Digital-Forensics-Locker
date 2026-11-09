@@ -7,10 +7,11 @@ import { createContext, useContext } from "react";
  * Value:
  *   status: "unavailable" | "loading" | "ready" | "signed-out" | "error"
  *   mine: Request | null          the connected wallet's latest request (see accessRequestStores.js)
- *   pending: Request[]            every pending request (for the Chief)
+ *   pending: Request[]            pending requests the wallet may decide: every branch's for the Chief, its own
+ *                                 branch's working-role requests for a Branch Admin
  *   error: string | null
  *   reload(): Promise<void>
- *   submit({ role, reason }): Promise<Request>
+ *   submit({ role, branchId, reason }): Promise<Request>
  *   resolve(id, "approved" | "rejected"): Promise<Request>
  */
 export const AccessRequestContext = createContext(null);

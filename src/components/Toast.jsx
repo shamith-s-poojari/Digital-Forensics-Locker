@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 // Each text/background pair is at least 8:1 (WCAG AA needs 4.5:1). The old blue-400 on blue-900
 // and red-400 on red-900 pairs measured only about 4.1:1 and 3.6:1.
 const TYPES = {
-  info: { background: "#1e3a8a", border: "#3b82f6", color: "#dbeafe" },
+  info: { background: "#1c1c1c", border: "#fafafa", color: "#f5f5f5" },
   success: { background: "#14532d", border: "#22c55e", color: "#dcfce7" },
   error: { background: "#7f1d1d", border: "#ef4444", color: "#fee2e2" },
   warning: { background: "#713f12", border: "#eab308", color: "#fef9c3" },
@@ -78,7 +78,7 @@ export default function Toast({ message, type = "info", onDismiss, duration = 50
         backgroundColor: theme.background,
         color: theme.color,
         boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.5)",
-        fontFamily: "'Space Grotesk', sans-serif",
+        fontFamily: "inherit",
         fontSize: "14px",
         lineHeight: 1.5,
       }}

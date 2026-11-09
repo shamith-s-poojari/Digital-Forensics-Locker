@@ -11,7 +11,12 @@
 //    cannot make a visitor's browser pin files with your key.
 //  - If an Origin header is present it must match the Host header.
 //  - When mounted by vite.config.js, the caller must hold a wallet sign-in session (server/siweAuth.js).
+//  - The upload must be exactly one "file" part holding an encrypted evidence envelope (src/crypto/evidenceCrypto.js).
+//    Pinning is permanent and public, so plaintext from a buggy or modified client is refused here, and only that
+//    one file is forwarded (in a form this server builds), so no other part of the request ever reaches Pinata.
 //  - The upstream error text is passed on, the token never is.
+
+import { readEnvelopeHeader } from "../src/crypto/evidenceCrypto.js";
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
@@ -45,6 +50,29 @@ function readBody(req, limit) {
   });
 }
 
+/**
+ * Parses the multipart body and returns the single encrypted evidence file, or an error message.
+ * @returns {Promise<{ file: File } | { error: string }>}
+ */
+export async function extractEncryptedFile(body, contentType) {
+  let form;
+  try {
+    form = await new Response(body, { headers: { "Content-Type": contentType } }).formData();
+  } catch {
+    return { error: "Could not read the upload." };
+  }
+  const entries = [...form.entries()];
+  if (entries.length !== 1 || entries[0][0] !== "file" || typeof entries[0][1] === "string") {
+    return { error: "Expected multipart/form-data with a single 'file' field." };
+  }
+  const file = entries[0][1];
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!readEnvelopeHeader(bytes)) {
+    return { error: "Only encrypted evidence files can be uploaded. The file was not encrypted, so it was not pinned." };
+  }
+  return { file };
+}
+
 function originMatchesHost(req) {
   const origin = req.headers.origin;
   if (!origin) return true;
@@ -58,11 +86,13 @@ function originMatchesHost(req) {
 /**
  * @param {import("node:http").IncomingMessage} req
  * @param {import("node:http").ServerResponse} res
- * @param {{ jwt?: string, fetchImpl?: typeof fetch, authorize?: (req: import("node:http").IncomingMessage) => boolean }} options
+ * @param {{ jwt?: string, fetchImpl?: typeof fetch, authorize?: (req: import("node:http").IncomingMessage) => boolean, checkRole?: (req: import("node:http").IncomingMessage) => Promise<null | { status: number, error: string }> }} options
  *        authorize: when given, requests it returns false for are refused with 401 (vite.config.js passes the
  *        wallet sign-in check from server/siweAuth.js).
+ *        checkRole: when given, a non-null result refuses the request with its status (vite.config.js passes the
+ *        on-chain upload check from server/chainRoles.js, so only Investigators can spend the Pinata quota).
  */
-export async function handlePinRequest(req, res, { jwt, fetchImpl = fetch, authorize } = {}) {
+export async function handlePinRequest(req, res, { jwt, fetchImpl = fetch, authorize, checkRole } = {}) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return sendJson(res, 405, { error: "Method not allowed." });
@@ -81,6 +111,8 @@ export async function handlePinRequest(req, res, { jwt, fetchImpl = fetch, autho
   if (authorize && !authorize(req)) {
     return sendJson(res, 401, { error: "Sign in with your wallet before uploading evidence." });
   }
+  const denied = checkRole ? await checkRole(req) : null;
+  if (denied) return sendJson(res, denied.status, { error: denied.error });
 
   const contentType = req.headers["content-type"] || "";
   if (!contentType.toLowerCase().startsWith("multipart/form-data")) {
@@ -101,12 +133,18 @@ export async function handlePinRequest(req, res, { jwt, fetchImpl = fetch, autho
     return sendJson(res, 400, { error: "Could not read the upload." });
   }
 
+  const extracted = await extractEncryptedFile(body, contentType);
+  if (extracted.error) return sendJson(res, 400, { error: extracted.error });
+  const forward = new FormData();
+  forward.append("file", extracted.file, extracted.file.name || "evidence.enc");
+
   let upstream;
   try {
     upstream = await fetchImpl(PINATA_PIN_URL, {
       method: "POST",
-      headers: { Authorization: `Bearer ${jwt}`, "Content-Type": contentType },
-      body,
+      // No Content-Type: fetch sets it, with the boundary of the form built above.
+      headers: { Authorization: `Bearer ${jwt}` },
+      body: forward,
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   } catch (err) {

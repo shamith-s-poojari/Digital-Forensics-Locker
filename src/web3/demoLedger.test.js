@@ -66,7 +66,9 @@ describe("demo ledger: demo-specific behaviour", () => {
     const store = createDemoStore({ seed: false, roles });
     const ledger = createDemoLedger({ store, account: chief, signDelayMs: 0, confirmDelayMs: 0 });
     expect(await ledger.getRoles(chief)).toEqual({ isChief: true, isAdmin: false, isInvestigator: false, isAuditor: false });
-    expect(await ledger.getRoles(both)).toEqual({ isChief: false, isAdmin: false, isInvestigator: true, isAuditor: true });
+    // One branch role per address, as on the contract: the first list an address appears in wins.
+    expect(await ledger.getRoles(both)).toEqual({ isChief: false, isAdmin: false, isInvestigator: true, isAuditor: false });
+    expect(await ledger.getIdentity(both)).toEqual({ role: "investigator", branchId: 1 });
     expect(await ledger.getRoles(auditor)).toEqual({ isChief: false, isAdmin: false, isInvestigator: false, isAuditor: true });
     expect(await ledger.getRoles(DEMO_CHIEF)).toEqual({ isChief: false, isAdmin: false, isInvestigator: false, isAuditor: false });
     expect(store.chief).toBe(chief);

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { friendlyMessage } from "../web3/ledgerErrors.js";
 import { useLedger } from "../web3/ledgerContext.js";
-import { NO_ROLES, can as roleCan, primaryRole, toRoleFlags } from "../web3/roles.js";
+import { NO_ROLES, branchScope, can as roleCan, primaryRole, toRoleFlags } from "../web3/roles.js";
 import { useWallet } from "./walletContext.js";
 import { RoleContext } from "./roleContext.js";
 
@@ -27,17 +27,19 @@ export function RoleProvider({ children }) {
   const { account, switchChain } = useWallet();
   const { ledger, mode, config } = useLedger();
 
-  const [result, setResult] = useState({ ledger: null, account: null, roles: NO_ROLES, error: null });
+  const [result, setResult] = useState({ ledger: null, account: null, roles: NO_ROLES, branchId: null, error: null });
   const requestRef = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!ledger || !account) return;
     const requestId = ++requestRef.current;
     try {
-      const roles = toRoleFlags(await ledger.getRoles(account));
-      if (requestId === requestRef.current) setResult({ ledger, account, roles, error: null });
+      const [flags, identity] = await Promise.all([ledger.getRoles(account), ledger.getIdentity?.(account)]);
+      const roles = toRoleFlags(flags);
+      const { branchId } = branchScope(roles, identity);
+      if (requestId === requestRef.current) setResult({ ledger, account, roles, branchId, error: null });
     } catch (err) {
-      if (requestId === requestRef.current) setResult({ ledger, account, roles: NO_ROLES, error: friendlyMessage(err) });
+      if (requestId === requestRef.current) setResult({ ledger, account, roles: NO_ROLES, branchId: null, error: friendlyMessage(err) });
     }
   }, [ledger, account]);
 
@@ -57,6 +59,7 @@ export function RoleProvider({ children }) {
   const status = STATUS_FOR_MODE[mode] ?? (!fresh ? "loading" : result.error ? "error" : "ready");
 
   const roles = status === "ready" ? result.roles : NO_ROLES;
+  const branchId = status === "ready" ? result.branchId : null;
   const can = useCallback((capability) => status === "ready" && roleCan(roles, capability), [status, roles]);
 
   const switchNetwork = useCallback(() => switchChain(config.chainId), [switchChain, config.chainId]);
@@ -67,6 +70,7 @@ export function RoleProvider({ children }) {
       mode,
       roles,
       role: primaryRole(roles),
+      branchId,
       can,
       error: status === "error" ? result.error : null,
       refresh,
@@ -74,7 +78,7 @@ export function RoleProvider({ children }) {
       config,
       isDemo: mode === "demo",
     }),
-    [status, mode, roles, can, result.error, refresh, switchNetwork, config]
+    [status, mode, roles, branchId, can, result.error, refresh, switchNetwork, config]
   );
 
   return <RoleContext.Provider value={value}>{children}</RoleContext.Provider>;

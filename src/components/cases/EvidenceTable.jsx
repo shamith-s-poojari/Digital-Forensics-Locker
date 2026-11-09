@@ -1,4 +1,5 @@
 import { ExternalLink } from "lucide-react";
+import { accountName } from "../../web3/accountNames.js";
 import { INTEGRITY_META, integrityState, lastActivity } from "../../web3/caseModel.js";
 import { sameAddress, shorten, timeAgo } from "../../web3/format.js";
 import { Badge, CopyChip, Panel } from "../ui";
@@ -79,7 +80,10 @@ export default function EvidenceTable({ group, selectedId, onSelect, account }) 
                         </a>
                       </span>
                     </td>
-                    <td className="px-2 py-2 font-mono text-xs text-slate-200">
+                    <td className="px-2 py-2 font-mono text-xs text-slate-200" title={record.custodian}>
+                      {accountName(record.custodian) ? (
+                        <span className="block whitespace-nowrap font-sans font-semibold text-slate-100">{accountName(record.custodian)}</span>
+                      ) : null}
                       {shorten(record.custodian, 6, 4)}
                       {sameAddress(record.custodian, account) ? <span className="ml-1 rounded bg-sky-500/20 px-1 text-[0.65rem] font-sans font-semibold text-sky-200">you</span> : null}
                     </td>

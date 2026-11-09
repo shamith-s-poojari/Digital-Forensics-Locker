@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { AlertTriangle, Download, FilePlus2, Inbox } from "lucide-react";
 import Can from "../components/Can";
 import CaseChainCheck from "../components/cases/CaseChainCheck";
@@ -13,12 +13,16 @@ import WriteActivity from "../components/WriteActivity";
 import { Button, Panel, Spinner } from "../components/ui";
 import { useCaseDirectory } from "../cases/caseDirectoryContext.js";
 import { useWallet } from "../context/walletContext.js";
+import { createDemoCustodyNoteStore, httpCustodyNoteStore } from "../custody/custodyNoteStores.js";
 import { downloadJson, safeFileName } from "../utils/download";
 import { buildCaseExport, directoryFromCases, groupByCase, matchesQuery, summarize } from "../web3/caseModel.js";
 import { useLedger } from "../web3/ledgerContext.js";
 import { CAPABILITIES } from "../web3/roles.js";
 import { useEvidence } from "../web3/useEvidence.js";
 import { useWriteFlow } from "../web3/useWriteFlow.js";
+
+// Outside the component: the demo ledger outlives this page, so its notes must too, or leaving the page loses their text.
+const demoNoteStore = createDemoCustodyNoteStore();
 
 /**
  * Case Management Dashboard.
@@ -32,11 +36,13 @@ import { useWriteFlow } from "../web3/useWriteFlow.js";
  */
 export default function CaseDashboard() {
   const { ledger, mode, config } = useLedger();
-  const { account } = useWallet();
+  const { account, isSignedIn } = useWallet();
   const { status, records, paused, error, version, reload } = useEvidence();
 
   const [query, setQuery] = useState("");
-  const [selection, setSelection] = useState({ caseRef: null, id: null });
+  // Dashboards link straight to an item with /cases?case=<caseRef>&evidence=<id>.
+  const [params] = useSearchParams();
+  const [selection, setSelection] = useState(() => ({ caseRef: params.get("case"), id: Number(params.get("evidence")) || null }));
   const [refreshing, setRefreshing] = useState(false);
 
   const write = useWriteFlow({ config, onConfirmed: reload });
@@ -72,6 +78,23 @@ export default function CaseDashboard() {
     };
   }, [detailKey, ledger, record?.id]);
   const detailFresh = detail.key === detailKey;
+
+  // The text of the selected item's custody notes, from the store that matches the ledger. The timeline compares each
+  // with the hash on chain. A sign-in can change what the store returns, so it is part of the key.
+  const noteStore = mode === "demo" ? demoNoteStore : mode === "chain" ? httpCustodyNoteStore : null;
+  const noteKey = noteStore && record ? `${noteStore.kind}:${account}:${isSignedIn}:${record.id}:${version}` : null;
+  const [notes, setNotes] = useState({ key: null, list: null });
+  useEffect(() => {
+    if (!noteKey) return undefined;
+    let cancelled = false;
+    noteStore
+      .list(record.id)
+      .then((list) => !cancelled && setNotes({ key: noteKey, list }))
+      .catch(() => !cancelled && setNotes({ key: noteKey, list: null }));
+    return () => {
+      cancelled = true;
+    };
+  }, [noteKey, noteStore, record?.id]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -152,7 +175,7 @@ export default function CaseDashboard() {
             <CaseDetailsPanel group={group} directory={directory} />
             <CaseChainCheck group={group} />
             <EvidenceTable group={group} selectedId={record?.id ?? null} onSelect={(id) => setSelection({ caseRef: group.caseRef, id })} account={account} />
-            <EvidenceActions record={record} ledger={ledger} account={account} paused={paused} runWrite={runWrite} />
+            <EvidenceActions record={record} ledger={ledger} account={account} paused={paused} runWrite={runWrite} noteStore={noteStore} />
           </div>
 
           <div className="min-w-0 lg:col-span-2 xl:col-span-1">
@@ -163,6 +186,7 @@ export default function CaseDashboard() {
                 config={config}
                 txs={detailFresh ? detail.txs : undefined}
                 chainStatus={detailFresh ? detail.chainStatus : "checking"}
+                notes={notes.key === noteKey ? notes.list : null}
               />
             </div>
           </div>

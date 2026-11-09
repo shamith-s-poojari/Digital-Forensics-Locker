@@ -8,11 +8,13 @@ import { LedgerError, LEDGER_ERROR, normalizeError } from "./ledgerErrors.js";
  * (ledgerScenarios.js) runs against both, so the demo cannot drift from the real contract.
  *
  * Shapes
- *   RoleFlags   { isChief, isAdmin, isInvestigator, isAuditor }
- *   Members     { chief, admins[], investigators[], auditors[] }
+ *   RoleFlags   { isChief, isAdmin, isInvestigator, isAuditor }   (isAdmin: Branch Admin)
+ *   Identity    { role: "admin" | "investigator" | "auditor" | null, branchId }   (branchId 0: no branch)
+ *   Branch      { id, name }
+ *   Members     { chief, admins[], investigators[], auditors[], branchOf: { [address]: branchId } }
  *   Evidence    { id, caseRef, sha256, cid, submitter, custodian, submittedAt, custodyCount, custodyHead, link, caseIndex,
- *                 caseDigest, custody[] }   (link: this record's case-chain value h_i; caseIndex: its position in the
- *                 case; caseDigest: the case-details digest it anchored)
+ *                 caseDigest, branchId, custody[] }   (link: this record's case-chain value h_i; caseIndex: its position
+ *                 in the case; caseDigest: the case-details digest it anchored; branchId: the branch owning the case)
  *   Custody     { index, action, actor, counterparty|null, timestamp, noteHash|null }
  *   TxHandle    { hash, wait(confirmations?) -> { hash, blockNumber, evidenceId|null } }  (hash is known once the
  *               wallet has signed; wait() resolves when the transaction is mined)
@@ -24,12 +26,17 @@ export const CUSTODY_ACTIONS = ["Submitted", "Accessed", "Transferred", "Verifie
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ZERO_HASH = `0x${"0".repeat(64)}`;
 
-/** Role ids are keccak256 of the role name, exactly as in the contract. */
+// registerEvidence measured about 2.15M gas for a new case on Sepolia (2026-11-04). Deliberately set well below that: a
+// wrong refusal blocks real work, while a wallet that only just passes still gets its own warning before it signs.
+const MIN_REGISTER_GAS = 1_000_000n;
+
+/** Role ids are keccak256 of the role name, exactly as in the contract. "admin" is the Branch Admin. */
 export const ROLE_IDS = Object.freeze({
-  admin: keccakId("ADMIN_ROLE"),
+  admin: keccakId("BRANCH_ADMIN_ROLE"),
   investigator: keccakId("INVESTIGATOR_ROLE"),
   auditor: keccakId("AUDITOR_ROLE"),
 });
+const ROLE_NAME_BY_ID = Object.fromEntries(Object.entries(ROLE_IDS).map(([name, roleId]) => [roleId, name]));
 
 function toCustody(index, entry) {
   return {
@@ -57,6 +64,7 @@ function toEvidence(id, ev, custody) {
     link: bytes32ToHex(ev.link),
     caseIndex: Number(ev.caseIndex),
     caseDigest: bytes32ToHex(ev.caseDigest),
+    branchId: Number(ev.branchId),
     custody,
   };
 }
@@ -98,11 +106,24 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
     return logs;
   }
 
+  /**
+   * The network's own fee suggestion, passed to the wallet so it does not fall back on a default tip that can be far
+   * higher than the network needs. Without a usable suggestion the wallet chooses, as it would anyway.
+   */
+  async function suggestedFees() {
+    try {
+      const { maxFeePerGas, maxPriorityFeePerGas } = await provider.getFeeData();
+      return maxFeePerGas != null && maxPriorityFeePerGas != null ? { maxFeePerGas, maxPriorityFeePerGas } : {};
+    } catch {
+      return {};
+    }
+  }
+
   /** Sends a state-changing call. Resolves once the wallet has signed; the handle's wait() resolves when mined. */
   function send(method, args) {
     return guard(async () => {
       const writer = new Contract(address, abi, await getSigner());
-      const tx = await writer[method](...args);
+      const tx = await writer[method](...args, await suggestedFees());
       return {
         hash: tx.hash,
         wait: (confirmations = 1) =>
@@ -132,7 +153,15 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
     if (!isAddress(value)) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT, "Not a valid address");
     return getAddress(value);
   };
+  const requireBranchId = (value) => {
+    if (!Number.isSafeInteger(value) || value < 1) throw new LedgerError(LEDGER_ERROR.INVALID_INPUT, "Choose a branch");
+    return value;
+  };
   const note = (noteHash) => (noteHash ? hexToBytes32(noteHash) : ZERO_HASH);
+  const readIdentity = async (account) => {
+    const { role, branchId } = await reader.identityOf(account);
+    return { role: ROLE_NAME_BY_ID[role] ?? null, branchId: Number(branchId) };
+  };
 
   return {
     kind: "chain",
@@ -142,6 +171,15 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
       guard(async () => {
         const [isChief, isAdmin, isInvestigator, isAuditor] = await reader.rolesOf(account);
         return { isChief, isAdmin, isInvestigator, isAuditor };
+      }),
+
+    getIdentity: (account) => guard(() => readIdentity(account)),
+
+    listBranches: () =>
+      guard(async () => {
+        const count = Number(await reader.branchCount());
+        const names = await Promise.all(range(count).map((i) => reader.branchName(i + 1)));
+        return names.map((name, i) => ({ id: i + 1, name }));
       }),
 
     listEvidence: () =>
@@ -184,10 +222,20 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
           reader.getRoleMembers(ROLE_IDS.investigator),
           reader.getRoleMembers(ROLE_IDS.auditor),
         ]);
-        return { chief, admins: [...admins], investigators: [...investigators], auditors: [...auditors] };
+        const everyone = [...new Set([...admins, ...investigators, ...auditors])];
+        const identities = await Promise.all(everyone.map(readIdentity));
+        const branchOf = Object.fromEntries(everyone.map((a, i) => [a, identities[i].branchId]));
+        return { chief, admins: [...admins], investigators: [...investigators], auditors: [...auditors], branchOf };
       }),
 
     isPaused: () => guard(() => reader.paused()),
+
+    /** Whether `account` holds enough ETH to attempt registering evidence at current network fees. */
+    hasFeeFunds: (account) =>
+      guard(async () => {
+        const [balance, fees] = await Promise.all([provider.getBalance(account), provider.getFeeData()]);
+        return balance > 0n && balance >= MIN_REGISTER_GAS * (fees.maxFeePerGas ?? fees.gasPrice ?? 0n);
+      }),
 
     // ---- writes (each returns a TxHandle once the wallet has signed) --------------------------------------
     registerEvidence: async ({ caseRef, sha256, cid, caseDigest }) => {
@@ -199,7 +247,10 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
     logVerification: (id, sha256, noteHash) => send("logVerification", [id, hexToBytes32(sha256), note(noteHash)]),
     transferCustody: (id, to, noteHash) => send("transferCustody", [id, requireAddress(to), note(noteHash)]),
     reassignCustody: (id, to, noteHash) => send("reassignCustody", [id, requireAddress(to), note(noteHash)]),
-    grantRole: (role, account) => send("grantRole", [requireRoleName(role), requireAddress(account)]),
+    /** Grants a branch role in one branch (the contract's grantBranchRole). */
+    grantRole: async (role, account, branchId) =>
+      send("grantBranchRole", [requireRoleName(role), requireAddress(account), requireBranchId(branchId)]),
+    createBranch: (name) => send("createBranch", [String(name ?? "").trim()]),
     revokeRole: (role, account) => send("revokeRole", [requireRoleName(role), requireAddress(account)]),
     pause: () => send("pause", []),
     unpause: () => send("unpause", []),
@@ -207,7 +258,7 @@ export function createEthersLedger({ provider, getSigner, address, abi, deployBl
     // ---- live updates ---------------------------------------------------------------------------------------
     /** Calls `callback` (debounced) whenever roles, evidence or custody change. Returns an unsubscribe function. */
     subscribe(callback) {
-      const events = ["RoleGranted", "RoleRevoked", "EvidenceRegistered", "CustodyRecorded", "Paused", "Unpaused"];
+      const events = ["RoleGranted", "RoleRevoked", "BranchCreated", "EvidenceRegistered", "CustodyRecorded", "Paused", "Unpaused"];
       let timer;
       const notify = () => {
         clearTimeout(timer);
