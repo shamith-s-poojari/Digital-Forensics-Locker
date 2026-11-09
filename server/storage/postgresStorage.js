@@ -52,7 +52,14 @@ const toKey = (row) => ({
   createdAt: iso(row.created_at),
 });
 
-const toRelease = (row) => ({ keyId: row.key_id, sha256: row.sha256, address: row.address, at: iso(row.at) });
+// Same shape as the file backend: evidenceId only when the release was bound to a record.
+const toRelease = (row) => ({
+  keyId: row.key_id,
+  sha256: row.sha256,
+  address: row.address,
+  at: iso(row.at),
+  ...(row.evidence_id != null ? { evidenceId: Number(row.evidence_id) } : {}),
+});
 
 const toNote = (row) => ({
   noteHash: row.note_hash,
@@ -97,7 +104,14 @@ async function insertRequest(db, r) {
   return rowCount > 0;
 }
 
-const insertRelease = (db, r) => db.query(`INSERT INTO key_access_log (key_id, sha256, address, at) VALUES ($1, $2, $3, $4)`, [r.keyId, r.sha256, r.address, r.at]);
+const insertRelease = (db, r) =>
+  db.query(`INSERT INTO key_access_log (key_id, sha256, address, at, evidence_id) VALUES ($1, $2, $3, $4, $5)`, [
+    r.keyId,
+    r.sha256,
+    r.address,
+    r.at,
+    r.evidenceId ?? null,
+  ]);
 
 async function insertNote(db, n) {
   const { rowCount } = await db.query(
@@ -204,13 +218,12 @@ export function createPostgresStorage(config) {
         await insertRequest(client, request);
       }),
     async resolve(id, decision) {
-      const { rows } = await query("UPDATE access_requests SET status = $2, resolved_by = $3, resolved_at = $4 WHERE id = $1 RETURNING *", [
-        id,
-        decision.status,
-        decision.resolvedBy,
-        decision.resolvedAt,
-      ]);
-      return toRequest(rows[0]);
+      // Only a pending request: a decision is never overwritten, and of two concurrent decisions only one wins.
+      const { rows } = await query(
+        "UPDATE access_requests SET status = $2, resolved_by = $3, resolved_at = $4 WHERE id = $1 AND status = 'pending' RETURNING *",
+        [id, decision.status, decision.resolvedBy, decision.resolvedAt],
+      );
+      return rows[0] ? toRequest(rows[0]) : null;
     },
   };
 

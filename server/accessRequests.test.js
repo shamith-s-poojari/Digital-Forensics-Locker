@@ -104,6 +104,20 @@ describe.each(backends)("createAccessRequestStore ($name)", (backend) => {
     expect((await call({ url: "/api/access-requests/mine" })).json.request.status).toBe("rejected");
   });
 
+  it("never lets a decision be overwritten, by anyone", async () => {
+    const { submit, call } = setup();
+    const { json: request } = await submit({ role: "auditor", branchId: 1 });
+    const resolve = (status, as) => call({ method: "POST", url: `/api/access-requests/${request.id}/resolve`, body: { status }, as });
+
+    expect((await resolve("rejected", CHIEF)).status).toBe(200);
+    for (const [status, as] of [["approved", CHIEF], ["approved", ALICE], ["rejected", CHIEF]]) {
+      const again = await resolve(status, as);
+      expect(again.status).toBe(409);
+      expect(again.json.error).toMatch(/already rejected/);
+    }
+    expect((await call({ url: "/api/access-requests/mine" })).json.request).toMatchObject({ status: "rejected", resolvedBy: CHIEF });
+  });
+
   it("validates decisions and ids", async () => {
     const { submit, call } = setup();
     const { json: request } = await submit({ role: "auditor", branchId: 1 });

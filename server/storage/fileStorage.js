@@ -2,7 +2,7 @@
 // server/storage/postgresStorage.js implements the same operations; server/api.js picks one.
 //
 //   cases:          list() | get(caseRef) | insert(entry) -> false if taken | appendVersion(caseRef, version) -> Case | null
-//   accessRequests: list() | listPending() | latestFor(address) | get(id) | replacePending(request) | resolve(id, decision) -> Request
+//   accessRequests: list() | listPending() | latestFor(address) | get(id) | replacePending(request) | resolve(id, decision) -> Request | null (null unless pending)
 //   keys:           list() | get(keyId) | insert(entry) -> false if taken | logRelease(row) | listReleases()
 //   custodyNotes:   list() | listFor(evidenceId) | insert(entry) -> false if taken
 //   rolePins:       get(address) -> entry | null | put(entry)   (address checksummed; replaces any previous entry)
@@ -105,6 +105,7 @@ function createFileAccessRequests(filePath) {
     async resolve(id, decision) {
       const list = await file.load();
       const request = list.find((r) => r.id === id);
+      if (request?.status !== "pending") return null; // a decision is never overwritten
       const before = { ...request };
       Object.assign(request, decision);
       try {

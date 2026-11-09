@@ -4,7 +4,7 @@
 //   GET  /api/access-requests/mine        -> { request: Request | null }   the caller's latest request
 //   GET  /api/access-requests             -> { requests: Request[] }       pending requests in the caller's scope, oldest first
 //   POST /api/access-requests             { role, branchId, reason } -> 201 Request  replaces the caller's pending request
-//   POST /api/access-requests/:id/resolve { status: "approved" | "rejected" } -> Request
+//   POST /api/access-requests/:id/resolve { status: "approved" | "rejected" } -> Request  (409 once decided)
 //
 //   Request = { id, address, role, branchId, reason, status, createdAt, resolvedBy, resolvedAt }
 //
@@ -25,6 +25,11 @@ import { allowAll, globalScope } from "./chainRoles.js";
 import { isSameSiteRequest } from "./siweAuth.js";
 
 const MAX_BODY_BYTES = 4 * 1024;
+
+const alreadyDecided = (request) =>
+  request && request.status !== "pending"
+    ? `This request was already ${request.status} by ${request.resolvedBy}. A decision cannot be changed; the wallet can submit a new request.`
+    : "This request is no longer pending.";
 const ID = /^[0-9a-f-]{36}$/;
 
 function sendJson(res, status, body) {
@@ -99,8 +104,12 @@ export function createAccessRequestStore({ storage, getSession, checkRole = allo
     if (denied) return sendJson(res, denied.status, { error: denied.error });
     // Answered like a missing request, so a Branch Admin cannot probe other branches' request ids.
     if (!isRequestInScope(request, await readScope(session))) return sendJson(res, 404, { error: "No such request." });
+    // A decision is final: overwriting it would erase who decided and what they decided.
+    if (request.status !== "pending") return sendJson(res, 409, { error: alreadyDecided(request) });
 
     const resolved = await storage.resolve(id, { status: input.status, resolvedBy: session.address, resolvedAt: new Date(now()).toISOString() });
+    // Decided (or replaced by a newer request) between the read above and this write.
+    if (!resolved) return sendJson(res, 409, { error: alreadyDecided(await storage.get(id)) });
     return sendJson(res, 200, resolved);
   }
 

@@ -88,6 +88,25 @@ describe("static files", () => {
     expect(res.body.toString()).not.toContain("Locker");
   });
 
+  it("does not remember misses, so random URLs cannot grow the cache", async () => {
+    await start();
+    for (let i = 0; i < 50; i += 1) expect((await get(`/nope-${i}.js`)).status).toBe(404);
+    expect((await get("/late.txt")).status).toBe(404);
+    // A miss that was cached would keep answering 404 after the file appears.
+    await writeFile(join(dir, "late.txt"), "late");
+    const res = await get("/late.txt");
+    expect(res.status).toBe(200);
+    expect(res.body.toString()).toBe("late");
+  });
+
+  it("serves the app once it is built, even if the first request came before the build", async () => {
+    await rm(join(dir, "index.html"));
+    await start();
+    expect((await get("/")).status).toBe(503);
+    await writeFile(join(dir, "index.html"), INDEX_HTML);
+    expect((await get("/")).status).toBe(200);
+  });
+
   it("never serves files outside dist/", async () => {
     await writeFile(join(dir, "..", "dfl-secret.txt"), "secret").catch(() => {});
     await start();

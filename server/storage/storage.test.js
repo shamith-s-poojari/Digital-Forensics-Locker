@@ -65,6 +65,15 @@ describe.each(backends)("storage operations ($name)", (backend) => {
     expect(await accessRequests.get("1")).toMatchObject({ status: "rejected", resolvedBy: ALICE, resolvedAt: AT });
   });
 
+  it("resolves a request only while it is pending: a decision is never overwritten", async () => {
+    const { accessRequests } = harness.newStorage();
+    await accessRequests.replacePending(makeRequest("1"));
+    expect(await accessRequests.resolve("1", { status: "rejected", resolvedBy: ALICE, resolvedAt: AT })).toMatchObject({ status: "rejected" });
+    expect(await accessRequests.resolve("1", { status: "approved", resolvedBy: "0xMallory", resolvedAt: AT })).toBeNull();
+    expect(await accessRequests.resolve("missing", { status: "approved", resolvedBy: ALICE, resolvedAt: AT })).toBeNull();
+    expect(await accessRequests.get("1")).toMatchObject({ status: "rejected", resolvedBy: ALICE });
+  });
+
   it("never replaces a key, and keeps every release in order", async () => {
     const { keys } = harness.newStorage();
     expect(await keys.insert(makeKey())).toBe(true);
@@ -73,8 +82,9 @@ describe.each(backends)("storage operations ($name)", (backend) => {
     expect(await keys.get("missing")).toBeNull();
 
     await keys.logRelease(makeRelease());
-    await keys.logRelease({ ...makeRelease(), address: "0x2" });
-    expect((await keys.listReleases()).map((r) => r.address)).toEqual([ALICE, "0x2"]);
+    await keys.logRelease({ ...makeRelease(), address: "0x2", evidenceId: 42 });
+    // Every field comes back, including which evidence record the key was released for (none for the first row).
+    expect(await keys.listReleases()).toEqual([makeRelease(), { ...makeRelease(), address: "0x2", evidenceId: 42 }]);
   });
 
   it("never replaces a custody note, and lists an evidence item's notes in order", async () => {
@@ -219,7 +229,7 @@ describe.runIf(process.env.TEST_DATABASE_URL)("postgres storage", () => {
       await source.accessRequests.resolve("1", { status: "approved", resolvedBy: ALICE, resolvedAt: AT });
       await source.accessRequests.replacePending(makeRequest("2", "0xBob"));
       await source.keys.insert(makeKey());
-      await source.keys.logRelease(makeRelease());
+      await source.keys.logRelease({ ...makeRelease(), evidenceId: 7 });
       await source.custodyNotes.insert(makeNote());
       return { opened, source };
     }

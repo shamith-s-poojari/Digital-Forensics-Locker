@@ -91,25 +91,30 @@ export function isAllowedHost(header, allowedHosts) {
  * Serves files from `distDir`, with index.html for client-side routes (paths without a file extension).
  * Files are read once and kept in memory with a gzip copy: the build is a few megabytes and never changes while the
  * server runs.
+ *
+ * Only files that exist are cached, so the cache can never hold more than the build itself. Misses are not
+ * remembered: caching them let anyone grow memory without limit by requesting random URLs.
  */
 export function createStaticHandler(distDir) {
   const root = resolve(distDir);
   const cache = new Map();
 
   async function load(filePath) {
-    if (cache.has(filePath)) return cache.get(filePath);
-    let entry = null;
+    const cached = cache.get(filePath);
+    if (cached) return cached;
+    let body;
     try {
-      const body = await readFile(filePath);
-      const ext = extname(filePath).toLowerCase();
-      entry = {
-        body,
-        gzip: COMPRESSIBLE.has(ext) && body.length > 1024 ? gzipSync(body) : null,
-        type: CONTENT_TYPES[ext] ?? "application/octet-stream",
-      };
+      body = await readFile(filePath);
     } catch (err) {
-      if (err?.code !== "ENOENT" && err?.code !== "EISDIR") throw err;
+      if (err?.code === "ENOENT" || err?.code === "EISDIR" || err?.code === "ENOTDIR") return null;
+      throw err;
     }
+    const ext = extname(filePath).toLowerCase();
+    const entry = {
+      body,
+      gzip: COMPRESSIBLE.has(ext) && body.length > 1024 ? gzipSync(body) : null,
+      type: CONTENT_TYPES[ext] ?? "application/octet-stream",
+    };
     cache.set(filePath, entry);
     return entry;
   }

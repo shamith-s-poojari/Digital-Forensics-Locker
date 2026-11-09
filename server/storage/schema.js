@@ -126,4 +126,13 @@ export const MIGRATIONS = [
       );
     `,
   },
+  {
+    name: "004_key_access_log_evidence",
+    sql: `
+      -- Which evidence record each key was released for (the JSON backend always kept it; this table dropped it).
+      -- NULL for releases logged before this column existed, or by a server running without a contract.
+      ALTER TABLE key_access_log ADD COLUMN evidence_id bigint;
+      CREATE INDEX key_access_log_by_evidence ON key_access_log (evidence_id) WHERE evidence_id IS NOT NULL;
+    `,
+  },
 ];
