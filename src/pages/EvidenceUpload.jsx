@@ -11,7 +11,7 @@ import { keyClient as defaultKeyClient } from "../crypto/keyClient.js";
 import { computeSHA256, formatFileSize, MAX_HASH_BYTES } from "../utils/hash";
 import { uploadToIPFSWithProgress } from "../utils/ipfs";
 import { txUrl } from "../web3/config.js";
-import { deriveCaseRef, shorten } from "../web3/format.js";
+import { deriveCaseRef, sameAddress, shorten } from "../web3/format.js";
 import { useLedger } from "../web3/ledgerContext.js";
 import { friendlyMessage, LedgerError, LEDGER_ERROR } from "../web3/ledgerErrors.js";
 import { useWriteFlow } from "../web3/useWriteFlow.js";
@@ -71,8 +71,8 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
   const [caseNumber, setCaseNumber] = useState("");
   const [file, setFile] = useState(null);
   const [hashState, setHashState] = useState({ status: "idle", hash: "", error: "" });
-  const [encrypted, setEncrypted] = useState(null); // { hash, keyId, envelope } once the key is stored
-  const [pinned, setPinned] = useState(null); // { hash, cid, keyId } for the file that has been pinned
+  const [encrypted, setEncrypted] = useState(null); // { hash, keyId, envelope, owner } once the key is stored
+  const [pinned, setPinned] = useState(null); // { hash, cid, keyId, owner } for the file that has been pinned
   const [duplicateId, setDuplicateId] = useState(null);
   const [noFeeFunds, setNoFeeFunds] = useState(false);
   const [caseError, setCaseError] = useState("");
@@ -210,8 +210,11 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
       flow.done("case", `Case details v${current.version} · digest ${shorten(caseDigest, 8, 6)}`);
 
       stage = "encrypt";
-      let cid = pinned?.hash === hash ? pinned.cid : null;
-      let keyId = pinned?.hash === hash ? pinned.keyId : null;
+      // An earlier attempt's key and pin are reused only by the wallet that escrowed the key: the key server releases a
+      // key only for a record registered by that same wallet, so a key left over from another account would be unusable.
+      const reusable = (earlier) => earlier?.hash === hash && sameAddress(earlier.owner, account);
+      let cid = reusable(pinned) ? pinned.cid : null;
+      let keyId = reusable(pinned) ? pinned.keyId : null;
       if (cid) {
         flow.done("encrypt", `Already encrypted earlier (key ${shorten(keyId, 8, 6)})`);
         flow.done("pin", `Already pinned earlier: ${shorten(cid, 12, 8)}`);
@@ -224,7 +227,7 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
           return;
         }
 
-        let sealed = encrypted?.hash === hash ? encrypted : null;
+        let sealed = reusable(encrypted) ? encrypted : null;
         if (sealed) {
           flow.done("encrypt", `Already encrypted earlier (key ${shorten(sealed.keyId, 8, 6)})`);
         } else {
@@ -232,7 +235,7 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
           const { envelope, keyId: newKeyId, key } = await encryptEvidence(file, hash);
           flow.detail("encrypt", "Storing the decryption key on the key server…");
           await keyClient.storeKey({ keyId: newKeyId, sha256: hash, key });
-          sealed = { hash, keyId: newKeyId, envelope };
+          sealed = { hash, keyId: newKeyId, envelope, owner: account };
           setEncrypted(sealed);
           flow.done("encrypt", `Encrypted; key ${shorten(newKeyId, 8, 6)} stored`);
         }
@@ -246,7 +249,7 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
         cid = await uploadToIPFSWithProgress(upload, {
           onProgress: (percent) => flow.progress("pin", percent, percent >= 100 ? "Sent. Waiting for Pinata to confirm the pin…" : `Uploading… ${percent}%`),
         });
-        setPinned({ hash, cid, keyId });
+        setPinned({ hash, cid, keyId, owner: account });
         flow.done("pin", `Pinned as ${shorten(cid, 12, 8)}`);
       }
 
@@ -315,7 +318,7 @@ export default function EvidenceUpload({ keyClient = defaultKeyClient }) {
         <span>
           The file is <strong>encrypted in your browser</strong> before it is pinned; only the encrypted copy goes to the <strong>public</strong> IPFS network, where it
           stays permanently. Its decryption key is kept by the key server, not on IPFS or the ledger. Development build: the server's master key is an environment variable,
-          and any signed-in wallet can request a key. Do not register real evidence yet.
+          and any role holder in the evidence's branch can obtain its key. Do not register real evidence yet.
         </span>
       </div>
 

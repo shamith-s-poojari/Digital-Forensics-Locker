@@ -9,9 +9,12 @@
 //   GET  /api/keys/releases?evidence=<id>[&sha256=] -> { releases: [{ address, at }] }  who decrypted this evidence
 //
 // Binding a release to the ledger: with a contract configured, a key is released only for a named evidence record
-// that exists on chain, whose registered SHA-256 is the one stored with the key, and whose branch the caller may see
-// (the Chief sees every branch). So holding a role is not enough to open evidence from another branch, and a key id
-// cannot be asked for without saying which evidence record it is for. The release log names the evidence record.
+// that exists on chain, whose registered SHA-256 is the one stored with the key, whose submitter is the wallet that
+// escrowed the key, and whose branch the caller may see (the Chief sees every branch). The submitter check matters
+// because hashes (and key ids, in the public envelope header) are public: without it, an Investigator could register
+// a decoy record in their own branch with another branch's hash and open that branch's file through it. So holding a
+// role is not enough to open evidence from another branch, and a key id cannot be asked for without saying which
+// evidence record it is for. The release log names the evidence record.
 //
 // Wrapping: AES-256-GCM under the master key, with the key id, plaintext SHA-256 and master-key version as additional
 // data, so a stored entry cannot be moved onto another key id or file. `masterKeyVersion` is stored with each entry so
@@ -79,7 +82,10 @@ function readJson(req, limit) {
   });
 }
 
-const additionalData = (version, keyId, sha256) => Buffer.from(`dfl-evidence-key|v${version}|${keyId}|${sha256}`, "utf8");
+/** Two account addresses are the same, ignoring checksum case. False when either is missing (fails closed). */
+const sameAccount = (a, b) => typeof a === "string" && typeof b === "string" && a.length > 0 && a.toLowerCase() === b.toLowerCase();
+
+const additionalData =(version, keyId, sha256) => Buffer.from(`dfl-evidence-key|v${version}|${keyId}|${sha256}`, "utf8");
 
 function wrapKey(masterKey, version, keyId, sha256, rawKey) {
   const iv = randomBytes(12);
@@ -106,7 +112,7 @@ function unwrapKey(masterKey, entry) {
  *        From server/chainRoles.js. Defaults to no role checks.
  * @param {(session) => Promise<{ global: boolean, branchId: number | null }>} [options.readScope]
  *        From server/chainRoles.js. Defaults to every branch.
- * @param {((id: number) => Promise<{ sha256: string, branchId: number } | null>) | null} [options.readEvidence]
+ * @param {((id: number) => Promise<{ sha256: string, branchId: number, submitter: string } | null>) | null} [options.readEvidence]
  *        Reads an evidence record from the contract (chainRoles.js createChainEvidenceReader). null when no contract
  *        is configured (the dev server's demo ledger lives in the browser): releases are then not bound to a record.
  * @param {() => number} [options.now]
@@ -138,7 +144,7 @@ export function createKeyStore({ masterKey, masterKeyVersion = 1, storage, getSe
     if (!scope.global && scope.branchId !== record.branchId) {
       return { error: [403, `Evidence #${evidenceId} belongs to another branch. Your role does not cover it.`] };
     }
-    return { evidenceId, sha256: record.sha256 };
+    return { evidenceId, sha256: record.sha256, submitter: record.submitter ?? null };
   }
 
   async function store(req, res, session) {
@@ -178,6 +184,13 @@ export function createKeyStore({ masterKey, masterKeyVersion = 1, storage, getSe
     // by naming another branch's record.
     if (evidence.sha256 && evidence.sha256 !== entry.sha256) {
       return sendJson(res, 409, { error: `This file's key does not belong to evidence #${evidence.evidenceId}: the hashes differ.` });
+    }
+    // Hashes are public on the ledger, so a matching hash alone proves nothing: an Investigator could register a decoy
+    // record in their own branch carrying another branch's hash and ask for that file's key through it. The key goes
+    // only with the record its own escrower registered (the upload flow stores the key and registers the record from
+    // the same wallet), and the contract sets `submitter` from msg.sender, so a decoy can never claim it.
+    if (readEvidence && !sameAccount(evidence.submitter, entry.createdBy)) {
+      return sendJson(res, 409, { error: `This file's key was not escrowed by the officer who registered evidence #${evidence.evidenceId}.` });
     }
     if (entry.masterKeyVersion !== masterKeyVersion) {
       return sendJson(res, 503, { error: `This key is wrapped with master key version ${entry.masterKeyVersion}, which is not loaded.` });

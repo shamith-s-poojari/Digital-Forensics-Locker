@@ -12,12 +12,13 @@ const KEY_ID = "0123456789abcdef0123456789abcdef";
 const SHA = "ab".repeat(32);
 const RAW_KEY = randomBytes(32).toString("base64");
 
-function makeReq({ method = "GET", url, headers = {}, body, signedIn = true } = {}) {
+function makeReq({ method = "GET", url, headers = {}, body, signedIn = true, as = ALICE } = {}) {
   const req = Readable.from(body === undefined ? [] : [Buffer.from(typeof body === "string" ? body : JSON.stringify(body))]);
   req.method = method;
   req.url = url;
   req.headers = { host: HOST, origin: `http://${HOST}`, "x-requested-with": "forensics-locker", ...headers };
   req.signedIn = signedIn;
+  req.as = as;
   return req;
 }
 
@@ -39,8 +40,8 @@ let harness;
 
 /** roleOf: returns the signed-in wallet's on-chain role flags at the time of each call; omitted = no role checks. */
 /**
- * evidence: id -> { sha256, branchId } on the "ledger" (omitted = no contract, releases not bound to a record).
- * scope: the caller's branch scope.
+ * evidence: id -> { sha256, branchId, submitter } on the "ledger" (omitted = no contract, releases not bound to a record).
+ * scope: the caller's branch scope (or a function of the caller's address).
  */
 function setup({ masterKey = randomBytes(32), masterKeyVersion = 1, roleOf, evidence, scope } = {}) {
   const storage = harness.newStorage().keys;
@@ -48,11 +49,11 @@ function setup({ masterKey = randomBytes(32), masterKeyVersion = 1, roleOf, evid
     masterKey,
     masterKeyVersion,
     storage,
-    getSession: (req) => (req.signedIn ? { address: ALICE } : null),
+    getSession: (req) => (req.signedIn ? { address: req.as } : null),
     // A fresh gate per call, so a role change in the test is seen at once (no cache).
     checkRole: roleOf ? (session, capability) => createRoleGate({ readRoles: async () => roleOf() }).check(session, capability) : undefined,
     readEvidence: evidence ? async (id) => evidence[id] ?? null : undefined,
-    readScope: scope ? async () => scope : undefined,
+    readScope: scope ? async (session) => (typeof scope === "function" ? scope(session.address) : scope) : undefined,
     now: () => Date.parse("2026-10-26T12:00:00.000Z"),
   });
   async function call(options) {
@@ -101,7 +102,38 @@ describe.each(backends)("createKeyStore with on-chain roles ($name)", (backend) 
 describe.each(backends)("createKeyStore bound to the ledger ($name)", (backend) => {
   useBackend(backend, (h) => (harness = h));
   const OTHER_SHA = "cd".repeat(32);
-  const ledger = { 7: { sha256: SHA, branchId: 1 }, 8: { sha256: OTHER_SHA, branchId: 1 }, 9: { sha256: SHA, branchId: 2 } };
+  const ledger = {
+    7: { sha256: SHA, branchId: 1, submitter: ALICE },
+    8: { sha256: OTHER_SHA, branchId: 1, submitter: ALICE },
+    9: { sha256: SHA, branchId: 2, submitter: ALICE },
+  };
+
+  it("refuses a decoy record that reuses another branch's public hash (cross-branch key theft)", async () => {
+    // Alice (branch 1) escrows the key for her file and registers it as record 7. Mallory (branch 2) copies record 7's
+    // hash from the public ledger, registers it as record 20 under a case of her own branch, and asks for Alice's key
+    // (whose id is in the public envelope header) through record 20.
+    const MALLORY = "0x00000000000000000000000000000000000000AA";
+    const branchOf = { [ALICE]: 1, [MALLORY]: 2 };
+    const { put, get, storage } = setup({
+      evidence: { ...ledger, 20: { sha256: SHA, branchId: 2, submitter: MALLORY } },
+      scope: (address) => ({ global: false, branchId: branchOf[address] }),
+    });
+    expect((await put()).status).toBe(201);
+
+    const stolen = await get(`${KEY_ID}?evidence=20`, { as: MALLORY });
+    expect(stolen.status).toBe(409);
+    expect(stolen.json.key).toBeUndefined();
+    expect((await get(`${KEY_ID}?evidence=7`, { as: MALLORY })).status).toBe(403); // the real record is another branch's
+    expect(await storage.listReleases()).toEqual([]);
+
+    expect((await get(`${KEY_ID}?evidence=7`)).json.key).toBe(RAW_KEY); // Alice's own record still works
+  });
+
+  it("refuses a record whose submitter is unknown (fails closed)", async () => {
+    const { put, get } = setup({ evidence: { 7: { sha256: SHA, branchId: 1 } }, scope: { global: true } });
+    await put();
+    expect((await get(`${KEY_ID}?evidence=7`)).status).toBe(409);
+  });
 
   it("releases a key only for a named record that holds this file's hash, in the caller's branch", async () => {
     const { put, get, storage } = setup({ evidence: ledger, scope: { global: false, branchId: 1 } });

@@ -45,7 +45,7 @@ export function createChainRoleReader({ rpcUrl, address, chainId }) {
  * branch the caller may see.
  *
  * @param {{ rpcUrl: string, address: string, chainId?: number }} options
- * @returns {(id: number) => Promise<{ sha256: string, branchId: number } | null>} null when no such record exists
+ * @returns {(id: number) => Promise<{ sha256: string, branchId: number, submitter: string } | null>} null when no such record exists
  */
 export function createChainEvidenceReader({ rpcUrl, address, chainId }) {
   const provider = chainId ? new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true }) : new JsonRpcProvider(rpcUrl);
@@ -59,7 +59,7 @@ export function createChainEvidenceReader({ rpcUrl, address, chainId }) {
       if (err?.code === "CALL_EXCEPTION") return null;
       throw err;
     }
-    return { sha256: String(ev.sha256Hash).replace(/^0x/, "").toLowerCase(), branchId: Number(ev.branchId) };
+    return { sha256: String(ev.sha256Hash).replace(/^0x/, "").toLowerCase(), branchId: Number(ev.branchId), submitter: String(ev.submitter) };
   };
 }
 
